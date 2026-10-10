@@ -731,10 +731,20 @@ impl App {
             return;
         }
 
+        // **Le bord droit est celui de la boite, pas celui de l'ecran.** Un
+        // titre de livre se lit juste apres la derniere case de sa rangee de
+        // chapitres : c'est sa place, et elle ne doit pas dependre du cadrage.
+        // Le rabattre sur l'ecran faisait glisser le titre a l'interieur de sa
+        // boite pendant un deplacement — on tirait un livre vers la droite et
+        // son nom partait vers la gauche.
+        //
+        // Les titres de portion, eux, sont epingles a l'ecran par leur
+        // appelant : une portion mesure plusieurs ecrans de large, et son nom
+        // doit rester lisible tant qu'on est dedans.
         let line = size * 1.35;
-        let left = box_.x.max(0.0);
-        let right = (box_.x + box_.w).min(self.width);
-        if right - left < 2.0 {
+        let left = box_.x;
+        let right = box_.x + box_.w;
+        if right - left < 2.0 || right < 0.0 || left > self.width {
             return;
         }
 
@@ -1020,8 +1030,18 @@ impl App {
             // Le titre de section d'abord : il fixe le plancher sous lequel les
             // titres de livres viendront s'epingler, pour qu'ils ne se
             // recouvrent jamais.
+            // **Le nom d'une portion est epingle a l'ecran**, et c'est le seul :
+            // une portion mesure plusieurs ecrans de large une fois les
+            // chapitres visibles, et son nom doit rester lisible tant qu'on est
+            // dedans. On rabat donc sa boite sur la fenetre avant de poser le
+            // titre, la ou un titre de livre garde le bord droit de sa boite.
             let strip = camera.project(self.layout.section_bands[section]);
-            self.title(corpus::section_name(section), band, strip, scale.section, false, alpha);
+            let pinned = Rect {
+                x: band.x.max(0.0),
+                w: (band.x + band.w).min(self.width) - band.x.max(0.0),
+                ..band
+            };
+            self.title(corpus::section_name(section), pinned, strip, scale.section, false, alpha);
 
             let (first, last) = (treemap::SECTIONS[section].1, treemap::SECTIONS[section].2);
             for book in first..last {

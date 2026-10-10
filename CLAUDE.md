@@ -374,6 +374,19 @@ jamais la plus petite : un seul livre minuscule ecraserait tous les titres de la
 vue d'ensemble. Tous les titres partagent ainsi une taille unique a un zoom
 donne.
 
+**Un titre de livre garde le bord droit de sa boite, jamais celui de l'ecran.**
+Il se lit juste apres la derniere case de sa premiere rangee de chapitres : c'est
+sa place, et elle ne doit pas dependre du cadrage. Le rabattre sur la fenetre le
+faisait glisser a l'interieur de sa boite pendant un deplacement — on tirait un
+livre vers la droite et son nom partait vers la gauche. Mesure, trois
+deplacements de 150 px : le titre reste a 3,1 px de la derniere case, soit sur le
+bord de sa boite, et sort de l'ecran avec elle.
+
+**Les titres de portion, eux, sont epingles a l'ecran**, et ce sont les seuls :
+une portion mesure plusieurs ecrans de large une fois les chapitres visibles, et
+son nom doit rester lisible tant qu'on est dedans. C'est l'appelant qui rabat sa
+boite sur la fenetre.
+
 Le titre est cale **en bas de sa bande**, donc juste au-dessus du premier
 chapitre : c'est ce qui rend l'espace stable. Mesure : rapport ecart/taille
 constant a 0,14 sur quatre niveaux de zoom, jusqu'au plafond `TITLE_CEILING` —

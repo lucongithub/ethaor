@@ -42,8 +42,9 @@
 	     donc jamais rien ; quand elles sortent de l'écran, c'est lui qui dit où
 	     l'on se trouve. Il occupe sa propre rangée : aucun pixel de carte perdu. -->
 	<header
-		class="flex h-9 shrink-0 items-center gap-2 border-b border-white/10 px-3
-		       pt-[env(safe-area-inset-top)] text-sm"
+		class="flex h-[calc(var(--nav)+env(safe-area-inset-top))] shrink-0 items-center gap-2
+		       border-b border-white/10 px-3 pt-[env(safe-area-inset-top)]
+		       text-sm sm:px-4 sm:text-base 2xl:text-lg"
 	>
 		{#if focus}
 			<span class="font-hebrew text-white/50">{focus.section}</span>
@@ -89,8 +90,8 @@
 	<aside
 		class="fixed inset-x-3 bottom-[calc(1rem+env(safe-area-inset-bottom))] max-h-[45vh] overflow-auto
 		       rounded-xl border border-white/15 bg-black/90 p-4 backdrop-blur
-		       sm:inset-x-auto sm:top-[calc(3rem+env(safe-area-inset-top))] sm:bottom-auto
-		       sm:right-[calc(0.75rem+env(safe-area-inset-right))] sm:max-h-[60vh] sm:w-[26rem]"
+		       sm:inset-x-auto sm:top-[calc(var(--nav)+0.75rem+env(safe-area-inset-top))] sm:right-[calc(0.75rem+env(safe-area-inset-right))]
+		       sm:bottom-auto sm:max-h-[60vh] sm:w-[26rem]"
 	>
 		<button
 			type="button"

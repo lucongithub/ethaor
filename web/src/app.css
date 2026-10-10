@@ -5,6 +5,24 @@
    0 consonne sur 27 — elle ne sert donc qu'a l'interface. */
 @import '@fontsource-variable/noto-serif-hebrew';
 
+/* Hauteur du fil d'Ariane, en une seule place : le panneau de verset s'y cale
+   aussi, donc les deux ne peuvent pas se desynchroniser. Elle suit la taille de
+   son texte — 14 px sur un telephone, 16 au format courant, 18 sur un tres
+   grand ecran — avec la meme air au-dessus et en dessous. */
+:root {
+	--nav: 2.25rem;
+}
+@media (width >= 40rem) {
+	:root {
+		--nav: 2.75rem;
+	}
+}
+@media (width >= 96rem) {
+	:root {
+		--nav: 3rem;
+	}
+}
+
 @theme {
 	--font-sans: 'Baloo2', ui-sans-serif, system-ui, sans-serif;
 	--font-hebrew: 'Noto Serif Hebrew Variable', 'Taamey Frank CLM', 'SBL Hebrew', serif;
