@@ -25,10 +25,14 @@ use treemap::{Layout, Rect, WORLD};
 /// **Grande, et c'est ce qui supprime le carre blanc.** A 0,004, le Tanakh
 /// suivant ne mesurait que six pixels a l'instant du repli : rien n'y etait
 /// lisible, et il fallait un aplat blanc pour que l'ecran ne soit pas noir
-/// pendant la quinzaine de crans qu'il mettait a grandir. A 0,7, il nait large
-/// de 1 075 px sur une fenetre de 1 536 — ses trois titres de portion font
-/// 5,5 px — et le rendu passe d'un texte a l'autre sans jamais rien peindre.
-const NEST: f32 = 0.7;
+/// pendant la quinzaine de crans qu'il mettait a grandir.
+///
+/// A 0,9, il nait large de neuf dixiemes de l'ecran, donc ses titres de livres
+/// passent `MIN_TEXT` immediatement : le rendu passe d'un texte a l'autre sans
+/// jamais rien peindre entre les deux. Mesure : 1 382 px sur une fenetre de
+/// 1 536, 351 px sur un telephone de 390 — et dans les deux cas zero image
+/// sans texte. A 0,7, le telephone avait une image noire au repli.
+const NEST: f32 = 0.9;
 
 /// Le repli n'a lieu qu'une fois la lettre plus large que l'ecran : on peut
 /// donc zoomer pleinement une lettre sans rien voir arriver. Rien n'est dessine
@@ -100,6 +104,12 @@ const READABLE_LINE: f32 = 5.5;
 /// versets qui n'apparaissaient que six crans de zoom plus tard. La marge d'une
 /// case doit suivre la case, comme tout le reste du rendu.
 const CELL_PAD: f32 = 0.06;
+
+/// Facteur nominal d'un cran de molette, et longueur de la plongee en crans :
+/// du cadrage a un chapitre plein ecran. `zoom_step` en deduit le vrai facteur,
+/// pour que cette longueur soit la meme sur toutes les fenetres.
+const ZOOM_STEP: f32 = 1.4;
+const DIVE_NOTCHES: f32 = 14.0;
 
 /// Au-dela de ce multiple du cadrage initial, les numeros de chapitre
 /// apparaissent.
@@ -229,6 +239,8 @@ struct App {
     spare: Layout,
     /// Vrai quand la disposition courante est celle des chapitres.
     detail: bool,
+    /// Cadrage minimal, mis en cache : voir `base_scale`.
+    base: f32,
     selection: [u32; 4],
     focus: [u32; 6],
 }
@@ -241,8 +253,53 @@ fn app() -> &'static mut App {
 }
 
 impl App {
+    /// Echelle du cadrage initial.
+    ///
+    /// C'est le monde entier dans la fenetre — sauf si cela rendait les
+    /// chapitres illisibles au premier cran. En dessous de `base`, on prefere
+    /// **rogner la carte** que de reculer les niveaux : sur un telephone, tenir
+    /// a montrer les 1 600 unites de large d'un coup donnait un cadrage trois
+    /// fois plus petit que sur un portable, donc des numeros au quatrieme cran
+    /// au lieu du premier, et des titres de livres de 5 px.
+    ///
+    /// Le prix est connu : sur une fenetre etroite, la vue de depart ne montre
+    /// plus toute la largeur de la carte. On la retrouve en de-zoomant d'un
+    /// cran — les trois portions — et en glissant.
     fn fit_scale(&self) -> f32 {
-        (self.width / WORLD.w).min(self.height / WORLD.h)
+        let contain = (self.width / WORLD.w).min(self.height / WORLD.h);
+        contain.max(self.base)
+    }
+
+    /// Cadrage minimal : celui qui met un numero de chapitre juste au-dessus de
+    /// son plancher au premier cran de zoom.
+    ///
+    /// Mis en cache, car `fit_scale` est appele partout et ne peut pas emprunter
+    /// `self` en mutable ; recalcule quand la disposition change.
+    fn base_scale(&mut self) -> f32 {
+        let widest = self.widest_numeral();
+        let detail = if self.detail { &self.layout } else { &self.spare };
+        // Un pour cent de marge : sur une fenetre tres plate, le pas calcule
+        // descend sous le pas nominal, et le numero manquait son plancher de
+        // trois centiemes de pixel au premier cran.
+        MIN_NUMBER * 1.05 / (number_in(detail, widest) * ZOOM_STEP)
+    }
+
+    /// Facteur d'un cran de molette.
+    ///
+    /// **Calcule, et non fixe a 1,4** : il vaut ce qu'il faut pour que la
+    /// plongee du cadrage jusqu'a un chapitre plein ecran demande toujours
+    /// `DIVE_NOTCHES` crans, quelle que soit la fenetre. Sur un ecran paysage
+    /// le cadrage est deja proportionnel a la hauteur, donc le calcul rend 1,40
+    /// exactement ; c'est sur les fenetres etroites, ou le cadrage a ete
+    /// plancheise, qu'il s'ecarte un peu.
+    fn zoom_step(&mut self) -> f32 {
+        let cell = {
+            let detail = if self.detail { &self.layout } else { &self.spare };
+            detail.chapters[0].h.max(0.01)
+        };
+        let fit = self.fit_scale();
+        let target = (self.height / cell).max(fit * 1.01);
+        (target / fit).powf(1.0 / DIVE_NOTCHES)
     }
 
     /// Zoom minimal, **technique et non visible**.
@@ -278,7 +335,8 @@ impl App {
     }
 
     fn sync_detail(&mut self) {
-        let detail = self.camera.z > self.fit_scale() * CHAPTER_FROM;
+        let camera = self.camera;
+        let detail = self.chapters_ready(camera);
         self.set_detail(detail);
     }
 
@@ -746,12 +804,24 @@ impl App {
         // pas seulement sous l'estimation.
         let numeral = self.widest_numeral();
         if (numeral - self.numeral).abs() > self.numeral * 0.005 {
+            // Le cadrage lui-meme depend de la disposition : s'il bouge, une
+            // camera encore posee dessus doit suivre. Sans cela, sur une
+            // fenetre etroite, la premiere image mesuree laissait la camera
+            // sous le nouveau cadrage — donc dans l'etat des trois portions,
+            // des le demarrage.
+            let framed = (self.camera.z - self.fit_scale()).abs() < self.fit_scale() * 1e-3;
+
             self.numeral = numeral;
             let (wide, tight) = levels(numeral);
             (self.layout, self.spare) =
                 if self.detail { (tight, wide) } else { (wide, tight) };
             self.lines.clear();
             self.number = None;
+            self.base = self.base_scale();
+
+            if framed {
+                self.fit();
+            }
         }
 
         // Le niveau de detail suit la camera : l'air des portions se resserre
@@ -825,19 +895,32 @@ impl App {
         if let Some(size) = self.number {
             return size;
         }
-        let cell = self.layout.chapters[0];
         let widest = self.widest_numeral();
-        // **La moitie d'un titre de livre.** Le titre remplit sa bande, dont
-        // `chapters_fit` a deduit la hauteur a partir de ce rapport et de la
-        // largeur des chiffres : la case est donc taillee pour accueillir ce
-        // corps-la. Les deux bornes qui suivent ne font que tenir l'invariant —
-        // un numero se lit en entier ou pas du tout.
-        let half = self.layout.book_bands[0].h * treemap::CHAPTER_OVER_BOOK;
-        let size = half
-            .min(cell.h * treemap::NUMBER_HEIGHT)
-            .min(cell.w * treemap::NUMBER_WIDTH / widest);
+        let size = number_in(&self.layout, widest);
         self.number = Some(size);
         size
+    }
+
+    /// Les chapitres sont-ils **montrables** a ce zoom ?
+    ///
+    /// Deux conditions, et la seconde a ete apprise sur petit ecran : passe le
+    /// seuil de cadrage, encore faut-il que les numeros soient lisibles. Sur un
+    /// telephone, le premier cran franchissait le seuil, le titre d'un livre
+    /// rentrait dans sa bande — trois pixels — et les numeros valaient un pixel
+    /// et demi : l'image etait **entierement noire**. On attend donc que le
+    /// numero passe son plancher, ce qui arrive au premier cran sur un
+    /// portable et au quatrieme sur un telephone.
+    ///
+    /// La decision se prend toujours sur la disposition **des chapitres**,
+    /// celle qui sera en place si l'on bascule : la juger sur la disposition
+    /// courante ferait osciller le niveau d'une image a l'autre.
+    fn chapters_ready(&mut self, camera: Camera) -> bool {
+        if camera.z <= self.fit_scale() * CHAPTER_FROM {
+            return false;
+        }
+        let widest = self.widest_numeral();
+        let detail = if self.detail { &self.layout } else { &self.spare };
+        number_in(detail, widest) * camera.z >= MIN_NUMBER
     }
 
     /// Tailles d'un niveau, deduites de **sa** camera.
@@ -847,7 +930,7 @@ impl App {
     /// du niveau au-dessus donnait des titres absurdes des l'apparition du
     /// Tanakh suivant, puis de pire en pire en continuant a zoomer.
     fn scale_of(&mut self, camera: Camera) -> Scale {
-        let show_chapters = camera.z > self.fit_scale() * CHAPTER_FROM;
+        let show_chapters = self.chapters_ready(camera);
         let book = self.book_title_size(camera, show_chapters);
 
         let number = self.number_size();
@@ -1024,6 +1107,20 @@ fn levels(numeral: f32) -> (Layout, Layout) {
     )
 }
 
+/// Taille d'un numero de chapitre dans une disposition donnee, en unites monde.
+///
+/// **La moitie d'un titre de livre.** Le titre remplit sa bande, dont
+/// `chapters_fit` a deduit la hauteur a partir de ce rapport et de la largeur
+/// des chiffres : la case est donc taillee pour accueillir ce corps-la. Les deux
+/// bornes qui suivent ne font que tenir l'invariant — un numero se lit en entier
+/// ou pas du tout.
+fn number_in(layout: &Layout, widest: f32) -> f32 {
+    let cell = layout.chapters[0];
+    (layout.book_bands[0].h * treemap::CHAPTER_OVER_BOOK)
+        .min(cell.h * treemap::NUMBER_HEIGHT)
+        .min(cell.w * treemap::NUMBER_WIDTH / widest)
+}
+
 /// Colonne de texte d'une case : la case moins sa marge.
 fn column(cell: Rect) -> Rect {
     cell.inset(cell.w * CELL_PAD)
@@ -1060,6 +1157,7 @@ pub extern "C" fn init(width: f32, height: f32) -> u32 {
         layout: wide,
         spare: tight,
         detail: false,
+        base: 0.0,
         camera: Camera { z: 1.0, x: 0.0, y: 0.0 },
         width: width.max(1.0),
         height: height.max(1.0),
@@ -1075,6 +1173,7 @@ pub extern "C" fn init(width: f32, height: f32) -> u32 {
         selection: [0; 4],
         focus: [0; 6],
     };
+    app.base = app.base_scale();
     app.fit();
 
     unsafe { APP = Some(app) };
@@ -1104,6 +1203,13 @@ pub extern "C" fn pan(dx: f32, dy: f32) {
     let app = app();
     app.camera.x += dx;
     app.camera.y += dy;
+}
+
+/// Facteur d'un cran de molette, calcule pour cette fenetre : la page l'eleve
+/// au nombre de crans du geste. Voir `App::zoom_step`.
+#[unsafe(no_mangle)]
+pub extern "C" fn zoom_step() -> f32 {
+    app().zoom_step()
 }
 
 #[unsafe(no_mangle)]

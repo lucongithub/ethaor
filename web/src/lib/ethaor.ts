@@ -33,6 +33,8 @@ interface Wasm {
 	reset(): void;
 	pan(dx: number, dy: number): void;
 	zoom(x: number, y: number, factor: number): void;
+	/** Facteur d'un cran de molette, calcule par le module pour cette fenetre. */
+	zoom_step(): number;
 	hover(x: number, y: number): number;
 	select(x: number, y: number): number;
 	selection_ptr(): number;
@@ -348,12 +350,17 @@ export async function createTanakhMap(
 	function onWheel(event: WheelEvent) {
 		event.preventDefault();
 		const rect = canvas.getBoundingClientRect();
-		// Un cran vaut 1,4 : il faut une dizaine de crans pour passer de la vue
-		// d'ensemble au texte d'un chapitre, et c'est deja long. A 1,22,
-		// l'ancien pas, il en fallait vingt et un. Le pave tactile envoie des
-		// fractions de cran, donc le reglage fin reste possible.
+		// Le facteur d'un cran vient du module : il vaut ce qu'il faut pour que
+		// la plongee du cadrage jusqu'au texte d'un chapitre demande toujours le
+		// meme nombre de crans, quelle que soit la fenetre. Autour de 1,4 sur un
+		// ecran paysage. Le pave tactile envoie des fractions de cran, donc le
+		// reglage fin reste possible.
 		const steps = event.deltaMode === 1 ? -event.deltaY : -event.deltaY / 100;
-		wasm.zoom(event.clientX - rect.left, event.clientY - rect.top, Math.pow(1.4, steps));
+		wasm.zoom(
+			event.clientX - rect.left,
+			event.clientY - rect.top,
+			Math.pow(wasm.zoom_step(), steps)
+		);
 		draw();
 	}
 

@@ -437,7 +437,39 @@ l'occupe entierement, en largeur comme en hauteur, et s'y centre.
 
 Les numeros arrivent **des le premier cran de zoom** (`CHAPTER_FROM`, exprime en
 multiple du cadrage initial et non en pixels : le seuil tombe ainsi au meme
-endroit quelle que soit la fenetre, et apres un repli comme avant). Le titre
+endroit quelle que soit la fenetre, et apres un repli comme avant).
+
+**Le seuil ne suffit pas sur petit ecran** : `chapters_ready` exige en plus que
+le numero passe son plancher. Sur un telephone, le premier cran franchissait le
+seuil, le titre d'un livre rentrait dans sa bande — trois pixels — et les
+numeros valaient un pixel et demi : l'image etait **entierement noire**. Le
+basculement attend donc la lisibilite, et il se decide toujours sur la
+disposition des chapitres, celle qui sera en place apres : la juger sur la
+disposition courante ferait osciller le niveau d'une image a l'autre.
+
+**Le cadrage a un plancher, pour que les niveaux tombent au meme cran partout**
+(`base_scale`). Le cadrage naturel est le monde entier dans la fenetre ; sur une
+fenetre etroite il devenait trois fois plus petit que sur un portable, donc des
+numeros au quatrieme cran au lieu du premier et des titres de livres de 5 px. On
+prefere desormais **rogner la carte** : le cadrage ne descend jamais sous
+l'echelle qui met un numero juste au-dessus de son plancher au premier cran.
+
+Le prix est connu : sur une fenetre etroite, la vue de depart ne montre plus
+toute la largeur de la carte. On la retrouve en de-zoomant d'un cran — les trois
+portions — et en glissant.
+
+**Le pas de la molette est calcule, non fixe** (`zoom_step`, exporte vers la
+page) : il vaut ce qu'il faut pour que la plongee du cadrage jusqu'a un chapitre
+plein ecran demande toujours `DIVE_NOTCHES` crans. Sur un ecran paysage le
+cadrage est deja proportionnel a la hauteur, donc le calcul rend 1,40
+exactement ; sur les fenetres etroites, ou le cadrage a ete plancheise, il monte
+a 1,47.
+
+Mesure, neuf fenetres de 320 x 568 a 3 840 x 2 160 : **numeros au premier cran
+sur les neuf**, titres de livres de 12,1 px au minimum (contre 4,5 avant), zero
+image sans texte, zero chevauchement. Les versets, eux, arrivent entre le
+septieme et le douzieme cran : ils dependent d'un plancher en pixels, donc un
+grand ecran les montre plus tot. Jamais plus tard. Le titre
 rentre alors dans sa bande pour leur laisser la place.
 
 C'est la seule marche de taille de toute la plage de zoom, et elle est voulue :
