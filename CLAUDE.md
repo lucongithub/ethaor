@@ -194,6 +194,23 @@ Mesure : 4,0 unites monde entre deux rangees d'un meme bloc, 122,0 entre deux
 sections — 4 de gouttiere, 90 d'air, 28 pour la ligne du titre. Trente fois la
 gouttiere : une portion ne se confond avec rien.
 
+**L'air a deux valeurs, une par niveau de detail** (`SECTION_LEAD_WIDE` et
+`SECTION_LEAD_TIGHT`, sa moitie). En vue d'ensemble, ou l'on ne lit que des
+titres, c'est lui qui dit que le Tanakh se divise en trois. Des que les
+chapitres paraissent, la lecture se fait dans un livre, la division est acquise,
+et le meme vide ne fait plus que repousser le texte : on le reduit de moitie.
+
+Les deux dispositions sont construites au demarrage et **echangees** au passage
+du seuil (`set_detail`) ; rien n'est recalcule en cours de zoom, seule la mise
+en page des versets, qui depend des cases, est jetee. Le monde garde ses
+proportions, donc la camera reste valable : c'est la carte qui se reorganise,
+pas la vue qui saute.
+
+Mesure : boites de 163,1 x 56,7 et cases de 6,3 en vue d'ensemble, 223,2 x 76,7
+et cases de **8,8** au niveau des chapitres — un tiers de plus. Les numeros
+passent de 3,4 a 4,7 px au premier cran, et les versets arrivent au dixieme cran
+au lieu du onzieme.
+
 **Le bas de la carte reprend cette meme air.** La marge basse du monde vaut
 `SECTION_LEAD`, et non la marge generale : sinon la derniere rangee des Ecrits
 s'arretait a 13 unites du bord quand une portion en recoit 32, et le bas de page
@@ -333,8 +350,8 @@ versets de deux crans.
 
 **But : plonger vite dans le texte.** Mesure, fenetre de 1536 x 730 : la vue
 d'ensemble montre les livres, le premier cran les numeros de chapitre, et les
-versets apparaissent au **onzieme** cran, a 40 fois le cadrage — dixieme sur une
-fenetre de 1080 px de haut, douzieme sur une de 620. Avant — marge de case
+versets apparaissent au **dixieme** cran, a 29 fois le cadrage — neuvieme sur une
+fenetre de 1080 px de haut, onzieme sur une de 620. Avant — marge de case
 fixe, plancher a 7 px et cran de 1,22 — il en fallait **vingt et un**, a 65 fois
 le cadrage. Quatre de ces treize crans sont le prix des sept rangees de Tehilim,
 deux celui de l'air des portions.
@@ -405,12 +422,11 @@ crans de zoom, zero chevauchement de texte, zero image vide.
 Les numeros apparaissent **des le premier cran** (`MIN_NUMBER` = 3,5 px, plus bas
 que le plancher du texte courant : un numero compte une a trois lettres connues
 d'avance, lues comme une forme, la ou une ligne de verset doit se dechiffrer).
-Mesure, fenetre de 1536 x 730, chiffres mesures : 2,4 px au cadrage — masques,
-la vue d'ensemble ne montre que les livres — puis 3,4 au cran suivant ; 5,0 sur
-une fenetre de 1080 px de haut. Le plancher est descendu a 3,3 px pour que la
-promesse tienne apres le passage de Tehilim a sept rangees. Sur une fenetre de
-620 px de haut, elle ne tient plus : 2,9 px au premier cran, les numeros
-arrivent au second.
+Mesure, fenetre de 1536 x 730, chiffres mesures : masques au cadrage — la vue
+d'ensemble ne montre que les livres — puis 4,7 px au cran suivant, ou l'air des
+portions s'est resserre ; 4,0 px sur une fenetre de 620 px de haut, 7,0 sur une
+de 1080. La promesse tient sur toute la plage de fenetres usuelles, et le
+plancher (3,5 px) ne decide plus de rien.
 
 Le numero est **centre dans sa case** : `emit_text` cale sur le bord droit, on
 lui passe donc une boite qui s'arrete au milieu du nombre.
@@ -452,44 +468,106 @@ numero. Mesure : zero case vide, du cadrage initial jusqu'au zoom de lecture.
 
 ## Zoom sans fin
 
-Au coeur de chaque lettre, `NEST` reserve un point qui contient le Tanakh entier.
+Au coeur de chaque lettre, `NEST` reserve la place du Tanakh entier — **les
+sept dixiemes de sa cellule**, et non un point.
 
-- Il n'apparait qu'une fois la lettre **plus large que l'ecran** : on peut donc
-  zoomer pleinement une lettre sans rien voir arriver.
-- **Des que la lettre est depassee, `wrap_in` re-enracine la camera sur le
-  point** et le niveau augmente. Il n'y a jamais deux mondes a l'ecran :
-  `build_frame` dessine le monde courant, un point tant qu'il est minuscule,
-  et c'est tout. Ni fondu, ni liste de points, ni camera imbriquee.
+**Aucun aplat n'est jamais peint.** Le rendu ne sort que du texte et des
+decoupages : il n'y a plus de carre blanc, ni au zoom ni au de-zoom. C'etait le
+pansement d'un trou, et le trou a ete bouche des deux cotes — un monde naissant
+large de mille pixels d'un cote, un plancher de de-zoom de l'autre.
+
+- Rien du monde contenu n'est dessine avant le repli : on peut zoomer
+  pleinement une lettre sans rien voir arriver.
+- **Des que la lettre est depassee, `wrap_in` re-enracine la camera** et le
+  niveau augmente. Il n'y a jamais deux mondes a l'ecran : `build_frame`
+  dessine le monde courant, et c'est tout. Ni fondu, ni liste de points, ni
+  camera imbriquee.
+- A cet instant le nouveau Tanakh fait **sept dixiemes de l'ecran**, donc ses
+  titres de portion sont deja lisibles : le passage d'un texte a l'autre n'a
+  pas d'etat intermediaire. A `NEST` = 0,004, il naissait large de six pixels
+  et mettait une quinzaine de crans a devenir lisible — d'ou l'aplat blanc.
+  Mesure : repli au trentieme cran, monde large de 1 250 px, 42 titres a
+  l'ecran a 17,6 et 22,0 px, zero aplat.
 - **Re-enraciner tot est une question de precision, pas d'esthetique.**
   Attendre que le point recouvre l'ecran laissait une trentaine de crans ou la
   camera manipulait des coordonnees voisines de 1e8 en f32 : l'ulp y depasse le
   pixel, et le point — large de quelques pixels — derivait du centre jusqu'a
   800 px mesures. Replie dans le monde du point, tout redevient petit et exact.
   Mesure : ecart au centre 0 px sur toute la croissance du point.
-- En dessous de `STRUCTURE_FROM`, `draw_world` se dessine lui-meme comme un
-  simple point ; ses bandes seraient de toute facon sous le demi-pixel. Et si
-  un monde ne produit rien malgre tout, `build_frame` pose le point — une image
-  noire a la transition serait visible. Mesure : zero image vide sur 200 crans.
 - Le zoom suit d'abord **le chapitre** tant qu'il ne remplit pas l'ecran, puis
   la lettre. Les fonds etant noirs, le vide entre deux cases ne se distingue en
   rien du reste : sans cette attraction, zoomer a cote menait a un ecran noir
   dont on ne savait pas sortir. Mesure : 20 images vides sur 160 crans avant,
   zero apres.
-- Ensuite le point est au centre de la lettre alors que le zoom garde le
-  curseur immobile : sans aide il deriverait hors de l'ecran. Une **attraction
-  faible** (14 % par cran, renforcee a l'approche) ramene la vue vers lui.
+- Ensuite la place du monde contenu est au centre de la lettre alors que le
+  zoom garde le curseur immobile : sans aide elle deriverait hors de l'ecran.
+  Une **attraction faible** (14 % par cran, renforcee a l'approche) ramene la
+  vue vers elle.
 - Apres le repli, le monde est plus petit que le cadrage : la regle du de-zoom
-  le **centre**, ce qui place le point exactement au milieu et l'y maintient
-  pendant qu'il grandit. Le cadrage libre revient quand le monde remplit
-  l'ecran.
+  le **centre**, ce qui le place exactement au milieu et l'y maintient pendant
+  qu'il grandit. Le cadrage libre revient quand le monde remplit l'ecran.
 
 **La descente est a sens unique.** Des que le nouveau Tanakh occupe l'ecran,
 l'ancien cesse d'exister : aucun chemin de retour n'est garde, et de-zoomer ne
 ramene pas au monde precedent.
 
-**Le de-zoom est borne.** Le zoom ne descend jamais sous `MIN_WORLD_PX` : le
-Tanakh entier se reduit a un point blanc, et ce point reste **centre** — en
-dessous du cadrage, la camera se recentre a chaque cran.
+**Un cran de de-zoom, et la carte n'est plus que les trois portions, en grand,
+a egale distance** (`PORTIONS_UNDER`). Les trois niveaux sont ainsi a **un cran
+l'un de l'autre**, de part et d'autre du cadrage :
+
+| zoom | ce qu'on voit |
+|---|---|
+| un cran sous le cadrage | les trois portions seules, en grand |
+| cadrage | les portions et les 39 livres |
+| un cran au-dessus | les chapitres |
+
+Le seuil est juste sous 1 et non a 1 : le cadrage lui-meme doit rester du cote
+des livres, y compris aux arrondis pres. Attendre que les titres de livres
+passent sous le plancher du texte demandait cinq crans, pendant lesquels la
+carte n'etait qu'une grille de mots de plus en plus pales.
+
+Deux regles changent a ce niveau.
+
+Leur **place** : dans le monde, elle vient du volume des sections — une rangee de
+livres pour la Torah, cinq pour les Prophetes — ce qui les met a des distances
+tres inegales. Une fois les livres partis, cette inegalite ne dit plus rien ;
+`draw_world` les repartit a parts egales sur la hauteur de l'ecran.
+
+Leur **taille** : elle est prise sur le tiers du monde projete
+(`SECTION_CARD`), et non plus sur la bande de la section. Suivre la bande les
+rendait minuscules au moment meme ou ils devenaient le seul contenu de l'image —
+trois mots de 4 px sur une fenetre vide. Ils naissent donc grands, puis
+**rapetissent et se rapprochent a chaque cran de de-zoom, sans fin** : la carte
+s'eloigne au lieu de disparaitre.
+
+Une taille figee en pixels d'ecran a ete essayee : on lisait bien les trois
+mots, mais de-zoomer ne faisait plus rien du tout.
+
+Leur **ecart** vaut un quart de la hauteur du monde (`CARD_GAP`), soit 2,1 fois
+la taille des mots. A un tiers, les trois mots tenaient les coins de l'ecran et
+ne se lisaient plus comme un groupe ; a un sixieme, ils etaient trop serres.
+
+Et **les trois partagent un seul bord droit**, celui du mot le plus large : c'est
+la lecture qui le veut, et trois mots centres chacun pour soi partaient dans
+trois directions. Le pave ainsi forme est, lui, centre sur le monde.
+
+Le niveau se reconnait **au zoom seul, et du bon cote du cadrage**. Tres zoome
+dans un livre, les bandes de titre ont aussi quitte l'ecran : juger sur elles
+faisait peindre les trois portions en geant par-dessus les versets. Verifie : sur
+cinquante crans de zoom, les seules images a trois textes sont les trois numeros
+de chapitre d'un petit livre — א, ב, ג a 70 puis 98 px — jamais la carte.
+
+**Le de-zoom n'est donc plus borne par la lisibilite** (`floor_scale`), puisque
+les trois titres ne rapetissent plus : il ne reste qu'un garde-fou technique pour
+que l'echelle ne tombe pas a zero. La carte reste **centree** — en dessous du
+cadrage, la camera se recentre a chaque cran.
+
+Mesure, de-zoom depuis le cadrage sur une fenetre de 1 536 x 730 : les 42 titres
+du cadrage (16,4 et 20,5 px) cedent **des le premier cran** la place a trois mots
+de **60,8 px** ecartes de 130,4 px, puis 43,5 et 93,1, puis 31,0 et 66,5, puis
+22,2 et 47,5 — et ainsi de suite jusqu'au garde-fou technique. A chaque cran les
+deux ecarts restent egaux au dixieme de pixel, les trois bords droits sont
+confondus au pixel, et aucun aplat n'est emis.
 
 L'attraction se renforce a l'approche (`0,14 + 0,62 x proximite`). Sans cela le
 point devrait grandir bien au-dela de l'ecran pour en couvrir les quatre coins,
@@ -510,10 +588,6 @@ d'une boite de livre designent un chapitre — y compris chez un livre de trois
 chapitres, dont les cases sont a cent unites l'une de l'autre — et zero dans
 l'air entre portions comme dans le blanc du bas.
 
-`draw_world` pose ce point explicitement quand le monde est plus etroit que
-`STRUCTURE_FROM` (40 px) : sans cela toutes les bandes seraient elaguees et
-l'ecran deviendrait noir.
-
 Sans ce repli, atteindre une lettre demanderait un zoom de l'ordre de 1e6 et les
 `f32` perdraient toute precision — c'est pourquoi il intervient des le
 depassement de la lettre, et non plus tard.
@@ -533,8 +607,8 @@ Les trois parties du Tanakh se distinguent par l'**air au-dessus de leur titre**
 (`SECTION_LEAD`) et par ce titre lui-meme, en blanc pur. Mesure : 122,0 unites
 monde entre deux sections, contre 4,0 entre deux rangees de livres.
 
-Le **point** du zoom sans fond est le seul aplat du rendu. Mesure : zero aplat
-emis a tous les niveaux de zoom, hormis ce point.
+**Il n'y a aucun aplat.** Mesure : zero commande de rectangle sur soixante
+crans de zoom, repli compris, et zero image sans texte.
 
 **Le survol ne change rien au dessin** ; il ne sert qu'a la forme du pointeur.
 Verifie : la liste de commandes est identique au bit pres, avec et sans survol.
@@ -543,6 +617,13 @@ Les etiquettes de structure (titres, numeros) sont dessinees en coordonnees
 monde, donc elles grandissent avec le zoom — mais `label` les supprime des que
 leur boite depasse l'ecran : au-dela, ce ne serait qu'un glyphe geant flottant
 par-dessus le niveau courant.
+
+**Une seule exception, au dernier etat du de-zoom** : quand la carte n'est plus
+que les trois noms de portion, leur taille et leur ecart ne viennent plus de
+leur bande mais du monde projete (`SECTION_CARD`, `CARD_GAP`). La bande d'une
+section vaut ce que vaut son volume de livres ; une fois les livres partis, elle
+ne dit plus rien, et c'est le monde entier qui sert de mesure. Les trois mots
+grandissent et rapetissent donc toujours avec le zoom, comme tout le reste.
 
 Gestes : molette ou pincement pour zoomer, glisser pour deplacer, clic pour
 selectionner, Echap pour la vue d'ensemble. **Un cran de molette vaut 1,4** : de

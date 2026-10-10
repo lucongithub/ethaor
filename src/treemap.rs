@@ -75,9 +75,20 @@ pub struct Layout {
 /// Celle d'une section se lit en deux parts : l'air qui la precede — c'est
 /// **elle** qui separe une portion de la precedente, le titre etant cale en bas
 /// de sa bande — puis la ligne du titre lui-meme.
-const SECTION_LEAD: f32 = 90.0;
+/// L'air d'une portion a **deux valeurs**, une par niveau de detail.
+///
+/// En vue d'ensemble, ou l'on ne lit que des titres, c'est lui qui dit que le
+/// Tanakh se divise en trois : il vaut trente fois la gouttiere entre deux
+/// rangees de livres. Des que les chapitres paraissent, la lecture se fait a
+/// l'interieur d'un livre, la division est deja acquise, et le meme vide ne
+/// fait plus que repousser le texte : on le reduit de moitie, ce qui rend aux
+/// rangees de la hauteur et grossit les cases d'un tiers.
+///
+/// Mesure : boites de 56,7 et cases de 6,3 a l'air large, 76,7 et 8,8 a l'air
+/// reduit.
+pub const SECTION_LEAD_WIDE: f32 = 90.0;
+pub const SECTION_LEAD_TIGHT: f32 = SECTION_LEAD_WIDE / 2.0;
 const SECTION_TITLE: f32 = 28.0;
-pub const SECTION_BAND: f32 = SECTION_LEAD + SECTION_TITLE;
 
 /// Rapport voulu entre un numero de chapitre et le titre du livre qui le porte.
 pub const CHAPTER_OVER_BOOK: f32 = 0.5;
@@ -204,7 +215,8 @@ fn header(h: f32, band: f32) -> f32 {
     band.min(h * 0.33)
 }
 
-pub fn build(numeral: f32) -> Layout {
+pub fn build(numeral: f32, lead: f32) -> Layout {
+    let band = lead + SECTION_TITLE;
     // --- les trois bandes
     //
     // Leur hauteur n'est pas proportionnelle au volume de texte mais calculee
@@ -226,9 +238,9 @@ pub fn build(numeral: f32) -> Layout {
         x: WORLD_MARGIN,
         y: WORLD_MARGIN,
         w: WORLD.w - 2.0 * WORLD_MARGIN,
-        h: WORLD.h - WORLD_MARGIN - SECTION_LEAD,
+        h: WORLD.h - WORLD_MARGIN - lead,
     };
-    let fixed = 3.0 * SECTION_BAND;
+    let fixed = 3.0 * band;
     let row = ((full.h - fixed) / total_rows as f32).max(1.0);
 
     // --- la largeur d'une colonne de livres
@@ -246,7 +258,7 @@ pub fn build(numeral: f32) -> Layout {
     let densest =
         (0..corpus::book_count()).map(|book| corpus::chapters_of(book).len()).max().unwrap_or(1);
     let inner = Rect { h: row - 4.0 * BOOK_GAP, ..full };
-    let (pitch, band, columns) = chapters_fit(inner, densest, number_fill(numeral));
+    let (pitch, book_band, columns) = chapters_fit(inner, densest, number_fill(numeral));
 
     let cell = columns as f32 * pitch * (1.0 + BOOK_SLACK) + 4.0 * BOOK_GAP;
     let wide = (cell * BOOK_COLUMNS as f32).min(full.w);
@@ -256,7 +268,7 @@ pub fn build(numeral: f32) -> Layout {
     let mut section_bands = [Rect::ZERO; 3];
     let mut y = area.y;
     for (i, &count) in rows.iter().enumerate() {
-        let h = SECTION_BAND + count as f32 * row;
+        let h = band + count as f32 * row;
         sections[i] = Rect { x: area.x, y, w: area.w, h };
         y += h;
     }
@@ -264,15 +276,15 @@ pub fn build(numeral: f32) -> Layout {
     // --- les livres, dans l'ordre, a l'interieur de leur bande
     let mut books = vec![Rect::ZERO; corpus::book_count()];
     for (i, &(_, start, end)) in SECTIONS.iter().enumerate() {
-        let band = sections[i];
+        let strip = sections[i];
         // Pas de part proportionnelle ici : la hauteur de section est calculee
         // pour contenir le bandeau **entier** plus ses rangees, et le rogner
         // rendrait les boites de livres inegales d'une section a l'autre — la
         // Torah, qui n'a qu'une rangee, heritait de 84 unites quand les autres
         // en recevaient 64.
-        let head = SECTION_BAND.min(band.h - 1.0);
-        section_bands[i] = Rect { h: head, ..band };
-        let body = Rect { y: band.y + head, h: (band.h - head).max(1.0), ..band };
+        let head = band.min(strip.h - 1.0);
+        section_bands[i] = Rect { h: head, ..strip };
+        let body = Rect { y: strip.y + head, h: (strip.h - head).max(1.0), ..strip };
 
         for (book, rect) in (start..end).zip(grid(end - start, body, Some(BOOK_COLUMNS), false)) {
             books[book] = rect.inset(BOOK_GAP);
@@ -295,7 +307,7 @@ pub fn build(numeral: f32) -> Layout {
     let bodies: Vec<Rect> = (0..corpus::book_count())
         .map(|book| {
             let inner = books[book].inset(BOOK_GAP);
-            let head = header(inner.h, band);
+            let head = header(inner.h, book_band);
             book_bands[book] = Rect { h: head, ..inner };
             Rect { y: inner.y + head, h: (inner.h - head).max(1.0), ..inner }
         })

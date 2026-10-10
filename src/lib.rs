@@ -21,25 +21,50 @@ use treemap::{Layout, Rect, WORLD};
 // ---------------------------------------------------------------- reglages
 
 /// Part de la cellule d'une lettre qu'occupe le monde qu'elle contient.
-const NEST: f32 = 0.004;
+///
+/// **Grande, et c'est ce qui supprime le carre blanc.** A 0,004, le Tanakh
+/// suivant ne mesurait que six pixels a l'instant du repli : rien n'y etait
+/// lisible, et il fallait un aplat blanc pour que l'ecran ne soit pas noir
+/// pendant la quinzaine de crans qu'il mettait a grandir. A 0,7, il nait large
+/// de 1 075 px sur une fenetre de 1 536 — ses trois titres de portion font
+/// 5,5 px — et le rendu passe d'un texte a l'autre sans jamais rien peindre.
+const NEST: f32 = 0.7;
 
-/// Le point n'apparait qu'une fois la lettre plus large que l'ecran : on peut
-/// donc zoomer pleinement une lettre sans rien voir arriver.
+/// Le repli n'a lieu qu'une fois la lettre plus large que l'ecran : on peut
+/// donc zoomer pleinement une lettre sans rien voir arriver. Rien n'est dessine
+/// du monde qu'elle contient avant ce moment-la, et a ce moment-la il est deja
+/// large de mille pixels : on passe d'un texte a l'autre sans intermediaire.
 const NEST_AFTER: f32 = 1.0;
 
 /// En deca, le texte ne serait qu'une bavure grise.
 const MIN_TEXT: f32 = 4.0;
+
+/// Part de son tiers de monde qu'occupe un titre de portion, quand la carte
+/// n'est plus que trois mots, et ecart entre deux de ces mots en part de la
+/// hauteur du monde.
+///
+/// Les deux sont pris sur le monde **projete** : les trois noms naissent grands
+/// au premier cran de de-zoom, puis rapetissent et se rapprochent a chaque cran
+/// suivant, sans fin. Mesure, fenetre de 1 536 x 730 : 61 px et 130 px d'ecart
+/// au premier cran, puis 43 et 93, 31 et 66, 22 et 48.
+///
+/// L'ecart a ete essaye a un tiers de la hauteur du monde — les trois mots
+/// tenaient alors les coins de l'ecran et ne se lisaient plus comme un groupe —
+/// puis a un sixieme, trop serre. A un quart, il vaut 2,1 fois la taille des
+/// mots.
+const SECTION_CARD: f32 = 0.35;
+const CARD_GAP: f32 = 1.0 / 4.0;
 
 /// Plancher propre aux numeros de chapitre, plus bas que celui du texte
 /// courant : un numero compte une a trois lettres, connues d'avance et lues
 /// comme une forme, la ou une ligne de verset doit se dechiffrer.
 ///
 /// C'est ce qui garantit la promesse « les chapitres des le premier cran » : au
-/// cran suivant le cadrage, un numero mesure 3,4 px sur une fenetre de 730 px
-/// de haut. Au plancher du texte courant il aurait fallu deux crans — et c'est
-/// une forme connue d'avance que l'on reconnait a cette taille, pas un mot a
-/// dechiffrer.
-const MIN_NUMBER: f32 = 3.3;
+/// cran suivant le cadrage, un numero mesure 4,7 px sur une fenetre de 730 px
+/// de haut et 4,0 px sur une de 620. Depuis que l'air des portions se resserre
+/// au niveau des chapitres, le plancher ne decide plus de rien : il n'est la
+/// que comme garde-fou.
+const MIN_NUMBER: f32 = 3.5;
 
 /// Hierarchie des blancs : une section est en blanc pur, un livre un ton
 /// en dessous, un numero de chapitre un rien plus bas encore. Le rang se lit
@@ -85,6 +110,19 @@ const CELL_PAD: f32 = 0.06;
 /// endroit quelle que soit la fenetre, et apres un repli comme avant.
 const CHAPTER_FROM: f32 = 1.1;
 
+/// En deca de ce multiple du cadrage initial, la carte n'est plus que les trois
+/// noms de portion.
+///
+/// Les trois niveaux sont donc a **un cran l'un de l'autre**, de part et
+/// d'autre du cadrage : un cran de de-zoom donne les trois portions, le cadrage
+/// donne les portions et les livres, un cran de zoom donne les chapitres. Comme
+/// `CHAPTER_FROM`, le seuil est relatif au cadrage, pas a une taille : il tombe
+/// au meme endroit quelle que soit la fenetre.
+///
+/// Il est juste en dessous de 1 et non a 1 : le cadrage lui-meme doit rester du
+/// cote des livres, y compris aux arrondis pres.
+const PORTIONS_UNDER: f32 = 0.95;
+
 /// Les titres de section sont deux tiers plus grands que ceux des livres.
 const SECTION_OVER_BOOK: f32 = 1.25;
 
@@ -104,21 +142,14 @@ const GUESS: f32 = 0.42;
 /// disposition. `build_frame` la refait des que la page a mesure la vraie.
 const ESTIMATED_NUMERAL: f32 = 3.0 * GUESS;
 
-/// En deca de cette largeur, le monde est dessine comme un simple point : ses
-/// bandes seraient de toute facon sous le demi-pixel.
-const STRUCTURE_FROM: f32 = 40.0;
-
-/// Le monde ne descend jamais sous cette largeur a l'ecran : en de-zoomant, il
-/// reste toujours au moins un point blanc, centre, qui represente le Tanakh.
-/// Le de-zoom est donc borne, contrairement au zoom.
-const MIN_WORLD_PX: f32 = 1.5;
-
 // ------------------------------------------------------------------ sortie
 
 /// Un enregistrement de la liste de commandes, en mots de 4 octets.
 const STRIDE: usize = 10;
 
-const KIND_RECT: f32 = 0.0;
+/// Il n'y a **plus d'aplat** dans le rendu : seules des commandes de texte et
+/// de decoupage sortent d'ici. Le monde reduit a un carre blanc a disparu avec
+/// le plancher de de-zoom et le repli precoce.
 const KIND_TEXT: f32 = 1.0;
 /// Ouvre puis referme un decoupage. Le texte d'un chapitre ne doit jamais
 /// mordre sur ses voisins, meme si une largeur mal mesuree le fait deborder.
@@ -192,8 +223,12 @@ struct App {
     /// jetee des qu'une mesure arrive de la page.
     number: Option<f32>,
     /// Largeur du numero le plus large, telle que la disposition courante l'a
-    /// supposee. Une mesure qui la dementit refait la disposition.
+    /// supposee. Une mesure qui la dementit refait les dispositions.
     numeral: f32,
+    /// L'autre niveau de detail, pret a prendre la place du courant.
+    spare: Layout,
+    /// Vrai quand la disposition courante est celle des chapitres.
+    detail: bool,
     selection: [u32; 4],
     focus: [u32; 6],
 }
@@ -208,6 +243,43 @@ fn app() -> &'static mut App {
 impl App {
     fn fit_scale(&self) -> f32 {
         (self.width / WORLD.w).min(self.height / WORLD.h)
+    }
+
+    /// Zoom minimal, **technique et non visible**.
+    ///
+    /// Le de-zoom n'a plus de borne de lisibilite : passe l'etat des trois
+    /// portions, leur taille ne depend plus du zoom mais de l'ecran, donc
+    /// continuer a de-zoomer ne les reduit pas. Il reste seulement a empecher
+    /// l'echelle de tomber a zero, ou les coordonnees monde perdraient tout
+    /// sens.
+    ///
+    /// Une borne a la lisibilite a ete essayee — arreter le de-zoom des que les
+    /// trois titres atteignaient `MIN_TEXT` : elle figeait la vue sur trois mots
+    /// de 4 px, illisibles, au lieu de les laisser grandir.
+    fn floor_scale(&self) -> f32 {
+        1.0 / WORLD.w
+    }
+
+    /// Niveau de detail courant : les chapitres sont-ils a l'ecran ?
+    ///
+    /// Les deux niveaux n'ont pas la meme disposition — l'air des portions y
+    /// est de moitie — donc pas les memes boites ni le meme pas. On garde les
+    /// deux cotes a cote et on les echange au passage du seuil ; rien n'est
+    /// recalcule, et la mise en page des versets, qui depend des cases, est
+    /// jetee.
+    fn set_detail(&mut self, detail: bool) {
+        if detail == self.detail {
+            return;
+        }
+        std::mem::swap(&mut self.layout, &mut self.spare);
+        self.detail = detail;
+        self.lines.clear();
+        self.number = None;
+    }
+
+    fn sync_detail(&mut self) {
+        let detail = self.camera.z > self.fit_scale() * CHAPTER_FROM;
+        self.set_detail(detail);
     }
 
     fn fit(&mut self) {
@@ -550,8 +622,9 @@ impl App {
             }
         }
 
-        // Plancher : le monde ne descend jamais sous un pixel de large.
-        self.camera.z = self.camera.z.max(MIN_WORLD_PX / WORLD.w);
+        // Plancher : on s'arrete au dernier zoom ou les trois titres de
+        // portion se lisent encore.
+        self.camera.z = self.camera.z.max(self.floor_scale());
 
         // En dessous du cadrage, on recentre : la vue converge vers un point
         // unique plutot que de deriver hors champ.
@@ -565,16 +638,6 @@ impl App {
 
     fn visible(&self, r: Rect) -> bool {
         r.x < self.width && r.y < self.height && r.x + r.w > 0.0 && r.y + r.h > 0.0
-    }
-
-    /// Un monde reduit a un point blanc. C'est le seul aplat du rendu : tous
-    /// les fonds sont noirs, et seules les lettres portent l'information.
-    fn dot(&mut self, r: Rect) {
-        let side = r.w.min(r.h).max(MIN_WORLD_PX);
-        let x = r.x + (r.w - side) / 2.0;
-        let y = r.y + (r.h - side) / 2.0;
-        self.commands
-            .extend_from_slice(&[KIND_RECT, x, y, side, side, 1.0, 0.0, 0.0, 0.0, 0.0]);
     }
 
     /// Restreint le dessin a un rectangle, jusqu'a `unclip`.
@@ -684,45 +747,45 @@ impl App {
         let numeral = self.widest_numeral();
         if (numeral - self.numeral).abs() > self.numeral * 0.005 {
             self.numeral = numeral;
-            self.layout = treemap::build(numeral);
+            let (wide, tight) = levels(numeral);
+            (self.layout, self.spare) =
+                if self.detail { (tight, wide) } else { (wide, tight) };
             self.lines.clear();
             self.number = None;
         }
+
+        // Le niveau de detail suit la camera : l'air des portions se resserre
+        // de moitie des que les chapitres paraissent.
+        self.sync_detail();
 
         let camera = self.camera;
 
         // Un seul monde est dessine, toujours. Le relais vers le suivant ne se
         // joue plus ici : `zoom_at` re-enracine la camera des que la lettre
         // depasse l'ecran, de sorte que le monde courant *est* deja le nouveau.
-        // Tant que ce monde tient dans quelques pixels, rien n'y est lisible et
-        // le dessin ressort vide : on pose alors le point blanc qui le
-        // represente, et qui grandira jusqu'a devenir le Tanakh.
-        let before = self.commands.len();
+        // Et il n'y a plus de point de secours : le repli se fait sur un monde
+        // deja large de mille pixels, et le de-zoom s'arrete tant que ses
+        // titres se lisent. Un aplat blanc n'a jamais rien dit.
         self.draw_world(camera, 1.0);
-        if self.commands.len() == before {
-            self.dot(camera.project(WORLD));
-        }
-
-        // `draw_world` pose deja son propre point quand le monde est trop
-        // petit pour montrer la moindre bande : le releve ne peut donc pas se
-        // fier au garde-fou ci-dessus. Il regarde le resultat — une image
-        // reduite a un seul rectangle est un point.
-        let point = self.commands.len() == STRIDE && self.commands[0] == KIND_RECT;
-        self.last_nests = u32::from(point);
+        self.last_nests = u32::from(self.commands.is_empty());
     }
 
     fn book_title_size(&mut self, camera: Camera, show_chapters: bool) -> f32 {
         if show_chapters {
             return self.uniform_title(camera);
         }
+        (self.overview_title() * camera.z).min(self.height * TITLE_CEILING)
+    }
 
+    /// Taille d'un titre de livre en vue d'ensemble, en unites monde : la boite
+    /// entiere lui appartient tant que les chapitres sont masques.
+    fn overview_title(&mut self) -> f32 {
         let widest = (0..corpus::book_count())
             .map(|book| self.ratio(corpus::book_name(book)))
             .fold(0.3_f32, f32::max);
 
         let box_ = self.layout.books[0];
-        let world = (box_.h * 0.6).min(box_.w * 0.88 / widest);
-        (world * camera.z).min(self.height * TITLE_CEILING)
+        (box_.h * 0.6).min(box_.w * 0.88 / widest)
     }
 
     fn uniform_title(&mut self, camera: Camera) -> f32 {
@@ -806,18 +869,62 @@ impl App {
 
         let scale = self.scale_of(camera);
 
-        // Trop petit pour que la moindre bande soit visible : on pose un point.
+        // **Les trois portions seules, en grand, a egale distance.**
         //
-        // Sans cela il resterait un vide entre le moment ou le monde est trop
-        // petit pour montrer sa structure et celui ou ses bandes depassent le
-        // demi-pixel : tout serait elague et l'ecran deviendrait noir. Le point
-        // grandit avec le monde, jusqu'a ceder la place a la structure.
-        let span = WORLD.w * camera.z;
-        if span < STRUCTURE_FROM {
-            let x = WORLD.x * camera.z + camera.x;
-            let y = WORLD.y * camera.z + camera.y + (WORLD.h * camera.z - span) / 2.0;
-            let side = span.max(MIN_WORLD_PX);
-            self.dot(Rect { x, y, w: side, h: side });
+        // **Un seul cran de de-zoom y suffit** (`PORTIONS_UNDER`). Les trois
+        // niveaux sont a un cran l'un de l'autre : trois portions, puis
+        // portions et livres au cadrage, puis les chapitres. Attendre que les
+        // titres de livres passent sous le plancher du texte demandait cinq
+        // crans, pendant lesquels la carte n'etait qu'une grille de mots de
+        // plus en plus pales : rien n'y etait lisible et il fallait pourtant
+        // continuer.
+        //
+        // Deux choses changent de regle a ce niveau.
+        //
+        // Leur place, d'abord : dans le monde, elle vient du volume des
+        // sections — une rangee de livres pour la Torah, cinq pour les
+        // Prophetes — ce qui les met a des distances tres inegales. Une fois les
+        // livres partis, cette inegalite ne dit plus rien ; on les repartit a
+        // parts egales.
+        //
+        // Leur taille, ensuite : **elle quitte le monde pour l'ecran.** Suivre
+        // le zoom les rendait minuscules au moment meme ou ils devenaient le
+        // seul contenu de l'image — trois mots de 4 px sur une fenetre vide. Ils
+        // reprennent donc la taille que leur tiers d'ecran autorise, et la
+        // gardent : on peut continuer a de-zoomer sans qu'ils se reduisent, et
+        // sans qu'aucun aplat n'ait a prendre leur place.
+        //
+        // Le niveau se reconnait au zoom seul, et du bon cote du cadrage : tres
+        // zoome dans un livre, les bandes de titre ont aussi quitte l'ecran, et
+        // juger sur elles faisait peindre les trois portions en geant
+        // par-dessus les versets.
+        if camera.z < self.fit_scale() * PORTIONS_UNDER {
+            let widest = (0..3)
+                .map(|section| self.ratio(corpus::section_name(section)))
+                .fold(0.3_f32, f32::max);
+
+            // Tout est pris sur le monde **projete** : les trois mots naissent
+            // grands au premier cran de de-zoom, puis rapetissent et se
+            // rapprochent avec lui, sans fin. Les figer a une taille d'ecran a
+            // ete essaye : on les lisait bien, mais de-zoomer ne faisait plus
+            // rien du tout.
+            let world = camera.project(WORLD);
+            let size = (world.h * SECTION_CARD / 3.0).min(world.w * 0.8 / widest);
+            let line = size * 1.35;
+            let gap = world.h * CARD_GAP;
+            let middle = world.y + world.h / 2.0;
+
+            // **Un seul bord droit pour les trois**, celui que donne le mot le
+            // plus large : c'est la lecture qui le veut, et trois mots centres
+            // chacun pour soi partaient dans trois directions. Le pave ainsi
+            // forme est, lui, centre sur le monde.
+            let right = (world.w + widest * size) / 2.0;
+
+            for section in 0..3 {
+                let y = middle + (section as f32 - 1.0) * gap;
+                let area = Rect { x: world.x, y: y - line / 2.0, w: right, h: line };
+                self.emit_text(corpus::section_name(section), area, size, alpha);
+            }
             return;
         }
 
@@ -908,6 +1015,15 @@ impl App {
 
 }
 
+/// Les deux dispositions : air large pour la vue d'ensemble, moitie moins des
+/// que les chapitres paraissent.
+fn levels(numeral: f32) -> (Layout, Layout) {
+    (
+        treemap::build(numeral, treemap::SECTION_LEAD_WIDE),
+        treemap::build(numeral, treemap::SECTION_LEAD_TIGHT),
+    )
+}
+
 /// Colonne de texte d'une case : la case moins sa marge.
 fn column(cell: Rect) -> Rect {
     cell.inset(cell.w * CELL_PAD)
@@ -939,8 +1055,11 @@ fn key_of(fragment: &'static str) -> (u32, u32) {
 /// Prepare l'etat. Renvoie le nombre de livres, qui sert de verification.
 #[unsafe(no_mangle)]
 pub extern "C" fn init(width: f32, height: f32) -> u32 {
+    let (wide, tight) = levels(ESTIMATED_NUMERAL);
     let mut app = App {
-        layout: treemap::build(ESTIMATED_NUMERAL),
+        layout: wide,
+        spare: tight,
+        detail: false,
         camera: Camera { z: 1.0, x: 0.0, y: 0.0 },
         width: width.max(1.0),
         height: height.max(1.0),
