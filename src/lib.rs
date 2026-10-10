@@ -645,7 +645,7 @@ impl App {
             if let Some(cell) = aimed
                 && cell.w < self.width
             {
-                let k = 0.18;
+                let k = pull(factor);
                 self.camera.x += (px - (cell.x + cell.w / 2.0)) * k;
                 self.camera.y += (py - (cell.y + cell.h / 2.0)) * k;
             }
@@ -673,7 +673,7 @@ impl App {
                     // point est au centre de sa lettre et deriverait sinon hors
                     // de l'ecran.
                     let closeness = (cell.w / self.width).clamp(0.0, 1.0);
-                    let k = 0.14 + 0.62 * closeness;
+                    let k = (0.14 + 0.62 * closeness).max(pull(factor));
                     self.camera.x += (px - (screen.x + screen.w / 2.0)) * k;
                     self.camera.y += (py - (screen.y + screen.h / 2.0)) * k;
                 }
@@ -1119,6 +1119,19 @@ fn number_in(layout: &Layout, widest: f32) -> f32 {
     (layout.book_bands[0].h * treemap::CHAPTER_OVER_BOOK)
         .min(cell.h * treemap::NUMBER_HEIGHT)
         .min(cell.w * treemap::NUMBER_WIDTH / widest)
+}
+
+/// Force de l'attraction vers la cible, pour un cran de zoom donne.
+///
+/// **Elle doit battre la derive du zoom.** Un cran multiplie par `facteur` la
+/// distance entre le curseur et la cible : une correction de `1 - 1/facteur` la
+/// compense exactement, tout ce qui est en dessous laisse la cible s'echapper.
+/// A 18 % fixes et des crans de 1,4, la case visee sortait de l'ecran et
+/// l'image devenait noire : mesure, quatre images vides sur cinquante crans
+/// quand le bloc de chapitres a ete cale en haut de sa boite, donc plus loin du
+/// centre de la vue. On ajoute une marge pour converger au lieu de suivre.
+fn pull(factor: f32) -> f32 {
+    ((1.0 - 1.0 / factor.max(1.0)) + 0.12).clamp(0.0, 0.75)
 }
 
 /// Colonne de texte d'une case : la case moins sa marge.

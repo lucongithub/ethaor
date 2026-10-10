@@ -269,7 +269,13 @@ Tout en decoule :
 - un livre prend le nombre de rangees qui donne a son bloc **la forme de son
   corps**, et se repartit a **parts egales** entre elles — sans quoi un livre de
   50 chapitres donnait une rangee pleine de 45 et un moignon de 5 ;
-- le bloc est **cale a droite**, d'ou part la lecture, et centre verticalement.
+- le bloc est **cale en haut a droite**, la ou commence la lecture. Centre
+  verticalement, un livre de peu de chapitres posait sa rangee au milieu d'une
+  boite vide, loin de son titre, et l'on ne voyait plus a quel livre elle
+  appartenait. Cale en haut, chaque bloc suit immediatement son titre et le vide
+  tombe en bas de la boite. Mesure : 11,4 unites entre le haut d'une boite et sa
+  premiere rangee, les memes pour les 39 livres ; le reste — de 2,2 unites pour
+  Tehilim a 56,5 pour Obadia — est en dessous.
 
 Un livre qui ne remplit pas sa rangee s'arrete donc ou il finit, au pas de tous
 les autres. Trois chapitres occupent 20 unites sur 159, et c'est juste : les
@@ -533,8 +539,16 @@ large de mille pixels d'un cote, un plancher de de-zoom de l'autre.
   zero apres.
 - Ensuite la place du monde contenu est au centre de la lettre alors que le
   zoom garde le curseur immobile : sans aide elle deriverait hors de l'ecran.
-  Une **attraction faible** (14 % par cran, renforcee a l'approche) ramene la
-  vue vers elle.
+  Une **attraction** (14 % par cran, renforcee a l'approche) ramene la vue vers
+  elle.
+- **L'attraction doit battre la derive du zoom** (`pull`). Un cran multiplie par
+  son facteur la distance entre le curseur et la cible : une correction de
+  `1 - 1/facteur` la compense exactement, tout ce qui est en dessous laisse la
+  cible s'echapper. A 18 % fixes et des crans de 1,4, la case visee sortait de
+  l'ecran et l'image devenait noire — mesure, quatre images vides sur cinquante
+  crans des que le bloc de chapitres a ete cale en haut de sa boite, donc plus
+  loin du centre de la vue. On ajoute 12 points de marge pour converger au lieu
+  de suivre.
 - Apres le repli, le monde est plus petit que le cadrage : la regle du de-zoom
   le **centre**, ce qui le place exactement au milieu et l'y maintient pendant
   qu'il grandit. Le cadrage libre revient quand le monde remplit l'ecran.

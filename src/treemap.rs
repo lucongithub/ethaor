@@ -351,9 +351,12 @@ pub fn build(numeral: f32, lead: f32) -> Layout {
         // de 5.
         let columns = range.len().div_ceil(rows);
 
-        // Le bloc est centre verticalement dans le corps ; horizontalement il
-        // est cale a droite, d'ou part la lecture.
-        let top = body.y + (body.h - rows as f32 * pitch) / 2.0;
+        // **Le bloc est cale en haut a droite**, la ou commence la lecture, et
+        // non centre dans le corps. Centre, un livre de peu de chapitres posait
+        // sa rangee au milieu d'une boite vide, loin de son titre : on lisait
+        // mal a quel livre elle appartenait. Cale en haut, chaque rangee suit
+        // immediatement le titre du livre, et le vide tombe en bas de la boite.
+        let top = body.y;
         let right = body.x + body.w;
 
         for (i, chapter) in range.enumerate() {
