@@ -1,0 +1,33 @@
+@import 'tailwindcss';
+
+/* Noto Serif Hebrew : hebreu pointe complet, niqqud et cantillation.
+   Baloo 2 ne contient aucun glyphe hebreu — verifie dans sa table `cmap`,
+   0 consonne sur 27 — elle ne sert donc qu'a l'interface. */
+@import '@fontsource-variable/noto-serif-hebrew';
+
+@theme {
+	--font-sans: 'Baloo2', ui-sans-serif, system-ui, sans-serif;
+	--font-hebrew: 'Noto Serif Hebrew Variable', 'Taamey Frank CLM', 'SBL Hebrew', serif;
+}
+
+@font-face {
+	font-family: 'Baloo2';
+	src: url('/fonts/Baloo2-Regular.ttf') format('truetype');
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+}
+@font-face {
+	font-family: 'Baloo2';
+	src: url('/fonts/Baloo2-Medium.ttf') format('truetype');
+	font-weight: 500;
+	font-style: normal;
+	font-display: swap;
+}
+@font-face {
+	font-family: 'Baloo2';
+	src: url('/fonts/Baloo2-SemiBold.ttf') format('truetype');
+	font-weight: 600;
+	font-style: normal;
+	font-display: swap;
+}
