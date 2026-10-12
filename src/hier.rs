@@ -39,3 +39,6 @@ fn is_base(c: char) -> bool {
 pub fn letter_count(s: &str) -> usize {
     s.chars().filter(|&c| is_base(c)).count()
 }
+
+#[cfg(test)]
+mod tests;

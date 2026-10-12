@@ -42,6 +42,10 @@ SvelteKit dans `web/`.
 
 ```
 Cargo.toml, build.rs, src/      module WebAssembly — tout le calcul
+build/mamre.rs                  lecture des sources, inclus par build.rs
+src/*/tests.rs                  tests du module (corpus, hier, treemap)
+src/tests/                      tests de l'application : camera, image, clic
+tests/builder.rs                tests de la construction du corpus
 web/                            SvelteKit 2 + Svelte 5 + Tailwind 4
   src/lib/ethaor.ts             pont vers le module : gestes, peinture, mesures
   src/lib/components/           TanakhMap.svelte
@@ -60,6 +64,7 @@ les polices et deux jetons de theme (`--font-sans`, `--font-hebrew`).
 ## Construire
 
 ```sh
+cargo test         # 148 tests, moins d'une seconde — avant tout commit
 cd web
 npm install
 npm run wasm       # cargo build --release puis copie dans static/
@@ -102,7 +107,7 @@ Mesures verifiees — ne pas les reestimer :
 
 | | |
 |---|---|
-| Livres | 35 (`עזרא / נחמיה` est un seul titre dans la source) |
+| Livres | 39, pour 35 titres dans la source (`עזרא / נחמיה` n'en est qu'un) |
 | Chapitres | 929 |
 | Versets | 23 200 |
 | Texte embarque | 4 653 Ko |
@@ -695,8 +700,79 @@ sans quoi le navigateur mobile intercepte tout.
 `select` renvoie le chemin complet (livre, chapitre, verset) : c'est le point
 d'accroche pour afficher demain des informations sur un mot ou une lettre.
 
+## Tests
+
+**Rien ne s'ajoute au calcul sans test.** C'est la contrepartie du principe
+directeur : si tout est calcule ici, tout se verifie ici. `cargo test` tient
+148 tests et rend sa reponse en moins d'une seconde — il n'y a donc aucune
+raison de ne pas le lancer a chaque pas.
+
+```sh
+cargo test                        # tout
+cargo test -- tests::frame        # un seul volet
+cargo test --test builder         # la construction du corpus
+```
+
+### Ce qu'un test verifie ici
+
+**Des invariants, pas des captures.** Un rapport, un ordre, une egalite entre
+les 929 cases — jamais une liste de coordonnees attendues, qui casserait au
+premier reglage sans rien avoir protege. Un chiffre n'apparait que la ou cette
+prose le donne comme mesure : le test est alors ce qui garde la mesure vraie.
+
+Ce qui est garanti, volet par volet :
+
+| fichier | ce qu'il tient |
+|---|---|
+| `src/corpus/tests.rs` | 39 livres, 929 chapitres, 23 200 versets ; index monotone et borne ; la hierarchie partitionne ; coupures aux rangs traditionnels ; numeros sans nom divin ; texte nettoye ; les 414 `U+05BA` ; un fragment se retrouve par son offset |
+| `src/hier/tests.rs` | une lettre = une consonne et ses marques ; decoupage sans perte sur le corpus ; marques jamais detachees |
+| `src/treemap/tests.rs` | boites de livres toutes identiques ; **un seul pas pour les 929 chapitres** ; emboitement, non-chevauchement, ordre de lecture ; bloc cale en haut a droite ; sept rangees pour Tehilim ; l'air d'une portion paye en cases ; rapport numero/titre = 0,5 |
+| `src/tests/geometry.rs` | distances, marge de case proportionnelle, attraction qui bat la derive du zoom |
+| `src/tests/camera.rs` | cadrage plancheise, plongee en `DIVE_NOTCHES` crans, **numeros au premier cran sur neuf fenetres**, niveau de detail qui n'oscille pas, repli qui rabaisse l'echelle, descente a sens unique |
+| `src/tests/frame.rs` | **aucun aplat, aucune image vide, aucun texte recouvert** sur neuf fenetres et soixante crans ; 42 titres au cadrage ; trois tailles au niveau des chapitres ; trois portions au de-zoom, a ecarts egaux et bord droit unique ; convergence des mesures en une image ; disposition de l'enregistrement, qui est un contrat avec `ethaor.ts` ; budget de temps et de commandes |
+| `src/tests/locate.rs` | 7 605 points sur 7 605 d'une boite de livre designent un chapitre, zero dans l'air entre portions ; le survol dit ce que le clic fera |
+| `src/tests/text.rs` | une taille par chapitre ; les lignes se recomposent en verset **a l'octet** ; chaque ligne reste une tranche du corpus ; lettres de droite a gauche |
+| `src/tests/api.rs` | l'interface que la page appelle vraiment, etat global pris sous un verrou : gestes, selection, fil d'Ariane, oubli des mesures, sondes |
+| `tests/builder.rs` | `build/mamre.rs` inclus et non recopie : cp1255 et l'octet 0xCA, numeros hebreux, page de garde, ordre du document, les quatre coupures, l'ordre canonique |
+
+### Ce que la suite a deja trouve
+
+`hebrew_numeral(15)` rendait `טה` et `16` rendait `טו` : un decalage d'indice.
+Les moities renumerotees — שמואל ב, מלכים ב, דברי הימים ב — portaient donc un
+15 inexistant et un 16 qui s'ecrivait 15. La regle etait dans la prose et dans
+le commentaire du code depuis le debut ; rien ne la verifiait.
+
+Deux bornes ont aussi ete rendues totales dans `chapters_fit` — `clamp` sur une
+hauteur negative paniquait — pour qu'une disposition absurde rende des cases
+vides plutot que de tomber.
+
+### La regle, pour la suite
+
+- **Un pas = un test.** Une fonction de calcul ajoutee ou modifiee arrive avec
+  le test qui la tient, dans le meme commit. `cargo test` doit etre vert avant
+  de passer au pas suivant.
+- **Une mesure citee dans ce fichier est un test.** Si cette prose annonce un
+  rapport, un cran ou un compte, il doit exister une assertion qui le garde.
+- **Un bug corrige laisse un test derriere lui**, ecrit sur le cas exact qui
+  echouait.
+- **Les tests d'un module privé vivent dans le module** (`src/<mod>/tests.rs`,
+  declare par `#[cfg(test)] mod tests;`) : c'est le seul endroit d'ou l'on voit
+  ses fonctions privees. Le reste va dans `src/tests/`.
+- **Rien de ce qui touche a l'etat global n'est teste en parallele** :
+  `src/tests/api.rs` prend un verrou, parce que `APP` est unique.
+- **Les fragments passes a `ratio` ou `key_of` viennent toujours du corpus.**
+  `offset_of` est une difference de pointeurs : une chaine litterale la fait
+  deborder. Dans un test, prendre une tranche de `corpus::text()`.
+- **La disposition d'un enregistrement est un contrat** : la changer en Rust
+  oblige a la changer dans `ethaor.ts`. Le test
+  `a_record_keeps_the_layout_the_page_reads` est l'alarme, pas la garantie.
+- **Le pont TypeScript n'est pas couvert** — il ne mesure et ne peint. Si de la
+  logique y apparait, elle doit redescendre en Rust, ou venir avec ses propres
+  tests.
+
 ## Interdits
 
+- Calcul ajoute ou modifie sans test : voir **Tests**.
 - Alignement de texte delegue au moteur : on calcule la position soi-meme.
 - Parsing du HTML a l'execution : c'est le travail de `build.rs`.
 - Allocation par lettre, par mot ou par verset dans la boucle d'image.

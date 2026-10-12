@@ -138,10 +138,13 @@ fn chapters_fit(inner: Rect, densest: usize, fill: f32) -> (f32, f32, usize) {
     for _ in 0..8 {
         pitch = ((inner.h - band) / rows as f32).max(0.1).min(inner.w / columns as f32);
         band = ((fill / CHAPTER_OVER_BOOK) * (pitch - 2.0 * CHAPTER_GAP))
-            .clamp(0.0, inner.h * 0.5);
+            .clamp(0.0, (inner.h * 0.5).max(0.0));
     }
 
-    (pitch.min((inner.h - band) / rows as f32), band, columns)
+    // Never negative: a box lower than its own gutters would otherwise give
+    // cells turned inside out, which every geometry downstream relies on not
+    // happening.
+    (pitch.min((inner.h - band) / rows as f32).max(0.0), band, columns)
 }
 
 /// Number of book columns, for the three sections.
@@ -483,3 +486,6 @@ fn grid(count: usize, area: Rect, fixed: Option<usize>, square: bool) -> Vec<Rec
 
 
 
+
+#[cfg(test)]
+mod tests;

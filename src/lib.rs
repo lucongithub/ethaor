@@ -12,6 +12,8 @@
 
 mod corpus;
 mod hier;
+#[cfg(test)]
+mod tests;
 mod treemap;
 
 use std::collections::HashMap;
@@ -252,6 +254,37 @@ fn app() -> &'static mut App {
 }
 
 impl App {
+    /// Fresh state for a window, framed on the whole world.
+    ///
+    /// `init` only wraps it in the global slot: the computation itself holds no
+    /// global state, which is what lets a test drive a window of its own.
+    fn new(width: f32, height: f32) -> App {
+        let (wide, tight) = levels(ESTIMATED_NUMERAL);
+        let mut app = App {
+            layout: wide,
+            spare: tight,
+            detail: false,
+            base: 0.0,
+            camera: Camera { z: 1.0, x: 0.0, y: 0.0 },
+            width: width.max(1.0),
+            height: height.max(1.0),
+            level: 0,
+            ratios: HashMap::new(),
+            pending: Vec::new(),
+            commands: Vec::new(),
+            last_nests: 0,
+            space: None,
+            lines: HashMap::new(),
+            number: None,
+            numeral: ESTIMATED_NUMERAL,
+            selection: [0; 4],
+            focus: [0; 6],
+        };
+        app.base = app.base_scale();
+        app.fit();
+        app
+    }
+
     /// Scale of the initial framing.
     ///
     /// It is the whole world in the window — unless that made the chapters
@@ -1172,31 +1205,7 @@ fn key_of(fragment: &'static str) -> (u32, u32) {
 /// Prepares the state. Returns the number of books, which serves as a check.
 #[unsafe(no_mangle)]
 pub extern "C" fn init(width: f32, height: f32) -> u32 {
-    let (wide, tight) = levels(ESTIMATED_NUMERAL);
-    let mut app = App {
-        layout: wide,
-        spare: tight,
-        detail: false,
-        base: 0.0,
-        camera: Camera { z: 1.0, x: 0.0, y: 0.0 },
-        width: width.max(1.0),
-        height: height.max(1.0),
-        level: 0,
-        ratios: HashMap::new(),
-        pending: Vec::new(),
-        commands: Vec::new(),
-        last_nests: 0,
-        space: None,
-        lines: HashMap::new(),
-        number: None,
-        numeral: ESTIMATED_NUMERAL,
-        selection: [0; 4],
-        focus: [0; 6],
-    };
-    app.base = app.base_scale();
-    app.fit();
-
-    unsafe { APP = Some(app) };
+    unsafe { APP = Some(App::new(width, height)) };
     corpus::book_count() as u32
 }
 
@@ -1250,7 +1259,11 @@ pub extern "C" fn hover(x: f32, y: f32) -> i32 {
 
 /// Fills the selection: book, chapter, verse, letter (offset/length readable
 /// via `selection_ptr`). Returns 1 if something was hit.
-#[unsafe(no_mangle)]
+///
+/// The export is only unmangled on wasm: on a host build — the one the test
+/// suite uses — the symbol `select` collides with the one of the system socket
+/// library, and the link fails.
+#[cfg_attr(target_arch = "wasm32", unsafe(no_mangle))]
 pub extern "C" fn select(x: f32, y: f32) -> u32 {
     let app = app();
     let (wx, wy) = app.camera.to_world(x, y);

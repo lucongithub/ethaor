@@ -80,7 +80,8 @@ pub fn offset_of(fragment: &str) -> usize {
     fragment.as_ptr() as usize - TEXT.as_ptr() as usize
 }
 
-/// Number of books (35 for the Mechon-Mamre Tanakh, Ezra and Nehemiah apart).
+/// Number of books: 39 — the 35 titles of the Mechon-Mamre source, four of
+/// which `build.rs` splits in two.
 pub fn book_count() -> usize {
     index()[0] as usize
 }
@@ -128,3 +129,6 @@ pub fn verse_label(verse: usize) -> &'static str {
 pub fn verse_text(verse: usize) -> &'static str {
     slice(layout().verse_text, verse)
 }
+
+#[cfg(test)]
+mod tests;
