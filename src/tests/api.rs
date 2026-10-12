@@ -97,71 +97,157 @@ fn resizing_keeps_the_framing() {
     assert_eq!(cam_z(), z, "le redimensionnement a recadre une vue zoomee");
 }
 
-/// `select` fills the four slots — book, chapter, offset and length of the
-/// verse — and answers 0 when nothing was hit.
+/// **A click is only live on a passage one can read.** At the framing, where a
+/// chapter is a title in a box, nothing is clickable and the cursor says so.
 #[test]
-fn selecting_gives_the_full_path() {
+fn a_click_is_dead_above_the_reading_zoom() {
     let _hold = hold(REFERENCE.0, REFERENCE.1);
     converge();
 
-    let (book, chapter, px, py) = {
+    let (px, py) = {
         let app = app();
-        // The centre of a cell, brought back to the screen.
-        let chapter = 40;
-        let cell = app.layout.chapters[chapter];
-        let r = app.camera.project(cell);
-        (book_of(chapter), chapter, r.x + r.w / 2.0, r.y + r.h / 2.0)
+        let r = app.camera.project(app.layout.chapters[40]);
+        (r.x + r.w / 2.0, r.y + r.h / 2.0)
     };
-
-    assert_eq!(hover(px, py), chapter as i32, "le survol ne designe pas la case visee");
-    assert_eq!(select(px, py), 1, "le clic n'a rien touche");
-
-    let view = unsafe { std::slice::from_raw_parts(selection_ptr(), 4) };
-    assert_eq!(view[0] as usize, book);
-    assert_eq!(view[1] as usize, chapter);
-    if view[3] > 0 {
-        let text = &corpus::text()[view[2] as usize..(view[2] + view[3]) as usize];
-        assert!(corpus::verses_of(chapter).any(|v| corpus::verse_text(v) == text));
-    }
-
-    // Far outside the map: nothing, and the selection is cleared.
-    let outside = {
-        let app = app();
-        app.camera.project(WORLD)
-    };
-    let (ox, oy) = (outside.x - 500.0, outside.y - 500.0);
-    assert_eq!(hover(ox, oy), -1, "le survol designe quelque chose dans le vide");
-    assert_eq!(select(ox, oy), 0);
-    let view = unsafe { std::slice::from_raw_parts(selection_ptr(), 4) };
-    assert_eq!(view, [0, 0, 0, 0], "la selection n'a pas ete effacee");
+    assert_eq!(hover(px, py), -1, "le curseur annonce un clic au cadrage");
+    assert_eq!(select(px, py), 0, "le clic a touche un verset invisible");
+    assert_eq!(select_word(px, py), 0, "le double clic a touche un mot invisible");
+    let view = unsafe { std::slice::from_raw_parts(selection_ptr(), 6) };
+    assert_eq!(view, [0; 6], "la selection n'a pas ete effacee");
 }
 
-/// `focus` feeds the breadcrumb: section, book and chapter under the centre of
-/// the view, each as an (offset, length) into the corpus.
+/// Once the lines are read, a click gives the passage and a double click the
+/// word inside it — the six slots of `selection_ptr`.
+#[test]
+fn clicking_gives_the_passage_then_the_word() {
+    let _hold = hold(REFERENCE.0, REFERENCE.1);
+    converge();
+
+    // Down to the reading zoom, aiming at the centre of the view.
+    let (cx, cy) = (REFERENCE.0 / 2.0, REFERENCE.1 / 2.0);
+    let step = zoom_step();
+    let mut live = false;
+    for _ in 1..=20 {
+        zoom(cx, cy, step);
+        build_frame();
+        if hover(cx, cy) >= 0 {
+            live = true;
+            break;
+        }
+    }
+    assert!(live, "le clic ne s'active jamais en vingt crans");
+
+    let read = |slot: usize| {
+        let view = unsafe { std::slice::from_raw_parts(selection_ptr(), 6) };
+        (view[slot + 1] > 0)
+            .then(|| &corpus::text()[view[slot] as usize..(view[slot] + view[slot + 1]) as usize])
+    };
+    let indices = || {
+        let view = unsafe { std::slice::from_raw_parts(selection_ptr(), 6) };
+        (view[0] as usize, view[1] as usize)
+    };
+
+    // One click: the passage, and no word.
+    assert_eq!(select(cx, cy), 1, "le clic n'a rien touche au zoom de lecture");
+    let (book, chapter) = indices();
+    let verse = read(2).expect("un verset");
+    assert_eq!(book, book_of(chapter));
+    assert!(
+        corpus::verses_of(chapter).any(|v| corpus::verse_text(v) == verse),
+        "le verset doit etre du chapitre"
+    );
+    assert_eq!(read(4), None, "un clic simple ne doit pas nommer de mot");
+
+    // Double click: the same passage, plus the word under the point.
+    assert_eq!(select_word(cx, cy), 1, "le double clic n'a rien touche");
+    assert_eq!(indices(), (book, chapter), "le double clic a change de chapitre");
+    assert_eq!(read(2), Some(verse), "le double clic a change de verset");
+    let word = read(4).expect("un mot");
+    assert!(!word.contains(' '), "le mot porte une espace : {word:?}");
+    assert!(verse.split(' ').any(|w| w == word), "le mot {word:?} n'est pas du verset");
+}
+
+/// `focus` feeds the breadcrumb from the centre of the view: section, book,
+/// chapter and verse, each as an (offset, length) into the corpus.
 #[test]
 fn the_breadcrumb_is_filled_from_the_centre_of_the_view() {
     let _hold = hold(REFERENCE.0, REFERENCE.1);
     converge();
-    let step = zoom_step();
-    for _ in 0..6 {
-        zoom(REFERENCE.0 / 2.0, REFERENCE.1 / 2.0, step);
-    }
-    focus();
-    let view = unsafe { std::slice::from_raw_parts(focus_ptr(), 6) };
-    let read = |slot: &[u32]| &corpus::text()[slot[0] as usize..(slot[0] + slot[1]) as usize];
 
-    assert!(view[1] > 0 && view[3] > 0 && view[5] > 0, "le fil d'Ariane est vide");
-    let section = read(&view[0..2]);
-    let book = read(&view[2..4]);
-    let chapter = read(&view[4..6]);
+    let read = |slot: usize| {
+        let view = unsafe { std::slice::from_raw_parts(focus_ptr(), 8) };
+        (view[slot + 1] > 0)
+            .then(|| &corpus::text()[view[slot] as usize..(view[slot] + view[slot + 1]) as usize])
+    };
+
+    // At the framing: a portion and a book, and nothing below.
+    focus();
+    assert!(read(0).is_some() && read(2).is_some(), "le fil d'Ariane est vide au cadrage");
+    assert_eq!(read(4), None, "un chapitre annonce au cadrage");
+    assert_eq!(read(6), None, "un verset annonce au cadrage");
+
+    // Deep in a chapter: the four levels, and they hold together.
+    let step = zoom_step();
+    let mut dived = 0;
+    for notch in 1..=20 {
+        zoom(REFERENCE.0 / 2.0, REFERENCE.1 / 2.0, step);
+        build_frame();
+        focus();
+        if read(6).is_some() {
+            dived = notch;
+            break;
+        }
+    }
+    assert!(dived > 0, "pas de verset en vingt crans");
+
+    let section = read(0).expect("une portion");
+    let name = read(2).expect("un livre");
+    let label = read(4).expect("un chapitre");
+    let verse = read(6).expect("un verset");
     assert!((0..3).any(|s| corpus::section_name(s) == section), "portion inconnue : {section}");
     let book = (0..corpus::book_count())
-        .find(|&b| corpus::book_name(b) == book)
-        .unwrap_or_else(|| panic!("livre inconnu : {book}"));
+        .find(|&b| corpus::book_name(b) == name)
+        .unwrap_or_else(|| panic!("livre inconnu : {name}"));
+    let chapter = corpus::chapters_of(book)
+        .find(|&c| corpus::chapter_label(c) == label)
+        .expect("le chapitre doit etre du livre");
     assert!(
-        corpus::chapters_of(book).any(|c| corpus::chapter_label(c) == chapter),
-        "le chapitre {chapter} n'est pas du livre"
+        corpus::verses_of(chapter).any(|v| corpus::verse_label(v) == verse),
+        "le verset doit etre du chapitre"
     );
+}
+
+/// `focus_at` is the hover: it answers 1 when the pointer is on something, and
+/// 0 when it is on nothing — falling back on the centre of the view, so that
+/// the navbar never blinks out.
+#[test]
+fn the_breadcrumb_follows_the_pointer() {
+    let _hold = hold(REFERENCE.0, REFERENCE.1);
+    converge();
+
+    let read = |slot: usize| {
+        let view = unsafe { std::slice::from_raw_parts(focus_ptr(), 8) };
+        (view[slot + 1] > 0)
+            .then(|| &corpus::text()[view[slot] as usize..(view[slot] + view[slot + 1]) as usize])
+    };
+
+    // Two different books under the pointer, two different breadcrumbs.
+    let mut named: Vec<&str> = Vec::new();
+    for book in [0usize, 7, 26, 38] {
+        let r = {
+            let app = app();
+            app.camera.project(app.layout.books[book])
+        };
+        let (px, py) = (r.x + r.w / 2.0, r.y + r.h / 2.0);
+        assert_eq!(focus_at(px, py), 1, "le livre {book} ne nomme rien");
+        assert_eq!(read(2), Some(corpus::book_name(book)), "le pointeur nomme un autre livre");
+        named.push(read(0).expect("une portion"));
+    }
+    assert!(named.contains(&corpus::section_name(0)) && named.contains(&corpus::section_name(2)));
+
+    // The black at the left edge names nothing, and the centre takes over.
+    assert_eq!(focus_at(1.0, REFERENCE.1 / 2.0), 0, "le bord de l'ecran nomme un livre");
+    assert!(read(0).is_some(), "le fil d'Ariane s'est vide");
 }
 
 /// A font change forgets every measured width: a width taken on a fallback font

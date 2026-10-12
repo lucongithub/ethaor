@@ -40,7 +40,12 @@
 <div class="flex h-full flex-col bg-black">
 	<!-- Breadcrumb. The title bands stay inside the map and therefore never
 	     cover anything; when they leave the screen, it is this that says where
-	     one is. It takes its own row: not one pixel of map lost. -->
+	     one is. It takes its own row: not one pixel of map lost.
+
+	     Its depth is the module's: a portion and a book at the framing, the
+	     chapter once the numbers are out, the verse once the lines are read.
+	     Its place is the pointer as soon as there is one — hovering a title, a
+	     chapter or a line says where **that** is. -->
 	<header
 		class="flex h-[calc(var(--nav)+env(safe-area-inset-top))] shrink-0 items-center gap-2
 		       border-b border-white/10 px-3 pt-[env(safe-area-inset-top)]
@@ -55,6 +60,10 @@
 			{#if focus.chapter}
 				<span class="text-white/25">›</span>
 				<span class="font-hebrew text-white">{focus.chapter}</span>
+			{/if}
+			{#if focus.verse}
+				<span class="text-white/25">›</span>
+				<span class="font-hebrew text-white">{focus.verse}</span>
 			{/if}
 		{/if}
 	</header>
@@ -105,7 +114,18 @@
 
 		<p dir="ltr" class="mb-2 text-xs tracking-wider text-white/55">
 			livre {selection.book + 1} · chapitre {selection.chapter + 1}
+			{#if selection.word}· mot{/if}
 		</p>
-		<p class="font-hebrew text-[22px] leading-loose">{selection.verse}</p>
+
+		<!-- A click gives the passage; a double click gives the word, shown in
+		     place inside its passage rather than torn out of it. -->
+		{#if selection.word}
+			<p class="font-hebrew mb-3 text-[30px] leading-tight text-white">{selection.word}</p>
+			<p class="font-hebrew text-[22px] leading-loose text-white/45">
+				{selection.head}<span class="text-white">{selection.word}</span>{selection.tail}
+			</p>
+		{:else}
+			<p class="font-hebrew text-[22px] leading-loose">{selection.verse}</p>
+		{/if}
 	</aside>
 {/if}

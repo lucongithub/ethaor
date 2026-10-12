@@ -242,8 +242,10 @@ struct App {
     detail: bool,
     /// Minimum framing, cached: see `base_scale`.
     base: f32,
-    selection: [u32; 4],
-    focus: [u32; 6],
+    /// Selection: book, chapter, verse, word — the last two as (offset, length).
+    selection: [u32; 6],
+    /// Breadcrumb: section, book, chapter and verse, each an (offset, length).
+    focus: [u32; 8],
 }
 
 static mut APP: Option<App> = None;
@@ -277,8 +279,8 @@ impl App {
             lines: HashMap::new(),
             number: None,
             numeral: ESTIMATED_NUMERAL,
-            selection: [0; 4],
-            focus: [0; 6],
+            selection: [0; 6],
+            focus: [0; 8],
         };
         app.base = app.base_scale();
         app.fit();
@@ -567,6 +569,115 @@ impl App {
             .collect()
     }
 
+    /// Cells of a line's words, right to left.
+    ///
+    /// Same split as `letter_cells`, one step coarser: it is what a double
+    /// click reads. The spaces are counted — they are what separates two words
+    /// on screen — so a word's box holds its ink and nothing else, and the gaps
+    /// between boxes are the spaces.
+    fn word_cells(&mut self, text: &'static str, row: Rect, size: f32) -> Vec<(Rect, &'static str)> {
+        let drawn = self.width_of(text, size);
+        if text.is_empty() || drawn <= 0.0 {
+            return Vec::new();
+        }
+
+        let words: Vec<&'static str> = text.split(' ').collect();
+        let space = self.space_ratio();
+        let ink: f32 = words.iter().map(|w| self.ratio(w)).sum();
+        let total = ink + words.len().saturating_sub(1) as f32 * space;
+        if total <= 0.0 {
+            return Vec::new();
+        }
+
+        // The drawn width is the measured one; the ratios only share it out.
+        let scale = drawn / total;
+        let mut right = row.x + row.w;
+        let mut out = Vec::with_capacity(words.len());
+        for (i, word) in words.iter().enumerate() {
+            if i > 0 {
+                right -= space * scale;
+            }
+            let w = self.ratio(word) * scale;
+            right -= w;
+            out.push((Rect { x: right, w, ..row }, *word));
+        }
+        out
+    }
+
+    /// Line of a chapter nearest to a point, vertically.
+    ///
+    /// Nearest and not containing: the breathing spaces between verses leave
+    /// gaps where the cursor often falls, and a strict search would find
+    /// nothing there.
+    fn line_at(&mut self, chapter: usize, y: f32) -> Option<Line> {
+        self.chapter_lines(chapter)
+            .into_iter()
+            .min_by(|a, b| vertical_gap(a.rect, y).total_cmp(&vertical_gap(b.rect, y)))
+    }
+
+    /// Is a chapter **read** at this zoom, or merely numbered?
+    ///
+    /// That is the whole condition for a click: one only selects a passage one
+    /// can see. Above that zoom a click would name a verse chosen by the
+    /// geometry alone, which the reader has no way of checking.
+    ///
+    /// It is the condition of the **drawing**, taken in the same order: the
+    /// cheap estimate first — a line of at least `READABLE_LINE`, which costs
+    /// no layout — then the laid-out size, which is what `draw_line` really
+    /// compares to `MIN_TEXT`. The estimate alone was not enough: a chapter of
+    /// long verses wraps, hence lays out smaller than the estimate, and its
+    /// cell fell back on its number while a click still believed the text was
+    /// there.
+    fn readable(&mut self, chapter: usize) -> bool {
+        if self.line_height(chapter, self.camera) < READABLE_LINE {
+            return false;
+        }
+        let z = self.camera.z;
+        // All the lines of a chapter share one size.
+        self.chapter_lines(chapter).first().is_some_and(|line| line.size * z >= MIN_TEXT)
+    }
+
+    /// Chapter one can click on, under a point of the world.
+    ///
+    /// The same tolerance as `locate` — a book box, never the air between two
+    /// portions — plus the reading condition.
+    fn clickable_at(&mut self, x: f32, y: f32) -> Option<usize> {
+        let (_, chapter, _, _) = self.locate(x, y)?;
+        self.readable(chapter).then_some(chapter)
+    }
+
+    /// What a click selects: book, chapter, verse, and the word if one is
+    /// asked for. Each level is an (offset, length) in the corpus.
+    ///
+    /// Returns nothing above the reading zoom: **a click is only live on a
+    /// passage one can read.**
+    fn pick(&mut self, x: f32, y: f32, word: bool) -> Option<[u32; 6]> {
+        let chapter = self.clickable_at(x, y)?;
+        let book = (0..corpus::book_count()).find(|&b| corpus::chapters_of(b).contains(&chapter))?;
+        let line = self.line_at(chapter, y)?;
+
+        let mut out = [book as u32, chapter as u32, 0, 0, 0, 0];
+        let (offset, len) = key_of(corpus::verse_text(line.verse));
+        out[2] = offset;
+        out[3] = len;
+
+        if word {
+            // Same tolerance horizontally as everywhere else: the text is set
+            // to the right, so the left of the strip is often empty.
+            let hit = self
+                .word_cells(line.text, line.rect, line.size)
+                .into_iter()
+                .min_by(|(a, _), (b, _)| horizontal_gap(*a, x).total_cmp(&horizontal_gap(*b, x)));
+            if let Some((_, word)) = hit {
+                let (offset, len) = key_of(word);
+                out[4] = offset;
+                out[5] = len;
+            }
+        }
+
+        Some(out)
+    }
+
     /// Chapter nearest to a point, even if that point falls in a gap between two
     /// boxes.
     fn nearest_chapter(&self, x: f32, y: f32) -> Option<usize> {
@@ -581,6 +692,90 @@ impl App {
     /// Book whose box contains a point.
     fn book_at(&self, x: f32, y: f32) -> Option<usize> {
         (0..corpus::book_count()).find(|&b| self.layout.books[b].contains(x, y))
+    }
+
+    /// Portion whose **title band** holds a point.
+    ///
+    /// The band is the only part of a section that belongs to no book: it is
+    /// where its name is written, and pointing at it names the portion and
+    /// nothing below it.
+    fn section_at(&self, x: f32, y: f32) -> Option<usize> {
+        (0..3).find(|&s| self.layout.section_bands[s].contains(x, y))
+    }
+
+    /// Height of a line of this chapter, on screen, without laying the chapter
+    /// out: 929 chapters per frame would be as many vectors thrown away.
+    ///
+    /// It is the one measure that says whether a chapter is **read** or merely
+    /// numbered, so the drawing and the breadcrumb both take it from here.
+    fn line_height(&self, chapter: usize, camera: Camera) -> f32 {
+        let count = corpus::verses_of(chapter).len().max(1);
+        column(self.layout.chapters[chapter]).h / count as f32 * camera.z
+    }
+
+    /// Path to show in the breadcrumb, for a point of the world: section, book,
+    /// chapter, verse, each as an (offset, length) in the corpus.
+    ///
+    /// **Depth follows the zoom**, and follows it on what the frame really
+    /// draws: the chapter appears with the numbers (`chapters_ready`), the
+    /// verse with the text (`READABLE_LINE`). The breadcrumb says where one is,
+    /// never more than what the map shows.
+    ///
+    /// `strict` is what tells a pointer from the centre of the view. Under the
+    /// pointer, only a box names something — a book box, or the title band of a
+    /// portion; pointing at the air between two portions names nothing, exactly
+    /// as a click there selects nothing. At the centre of the view, the nearest
+    /// chapter is taken, so that the breadcrumb never goes blank while panning.
+    fn path_at(&mut self, x: f32, y: f32, strict: bool) -> Option<[u32; 8]> {
+        let mut out = [0u32; 8];
+        let put = |slot: &mut [u32], text: &'static str| {
+            let (offset, len) = key_of(text);
+            slot[0] = offset;
+            slot[1] = len;
+        };
+
+        let chapter = if strict {
+            match self.locate(x, y) {
+                Some((_, chapter, _, _)) => chapter,
+                None => {
+                    // A portion title names its portion, and stops there.
+                    let section = self.section_at(x, y)?;
+                    put(&mut out[0..2], corpus::section_name(section));
+                    return Some(out);
+                }
+            }
+        } else {
+            self.chapter_at(x, y).or_else(|| self.nearest_chapter(x, y))?
+        };
+
+        let book = (0..corpus::book_count()).find(|&b| corpus::chapters_of(b).contains(&chapter))?;
+        let section = treemap::SECTIONS
+            .iter()
+            .position(|&(_, first, last)| book >= first && book < last)
+            .unwrap_or(0);
+
+        put(&mut out[0..2], corpus::section_name(section));
+        put(&mut out[2..4], corpus::book_name(book));
+
+        let camera = self.camera;
+        if !self.chapters_ready(camera) {
+            return Some(out);
+        }
+        put(&mut out[4..6], corpus::chapter_label(chapter));
+
+        // Below this, the chapter is a number and not a text: there is no verse
+        // to be on. It is the very condition of a click — the breadcrumb and
+        // the cursor must agree on what is readable, or one would promise a
+        // verse the other refuses.
+        if !self.readable(chapter) {
+            return Some(out);
+        }
+        if let Some((_, _, verse, _)) = self.locate_in(chapter, x, y)
+            && verse != usize::MAX
+        {
+            put(&mut out[6..8], corpus::verse_label(verse));
+        }
+        Some(out)
     }
 
     /// Full path under a point of the world.
@@ -616,15 +811,9 @@ impl App {
             chapter >= r.start && chapter < r.end
         })?;
 
-        // Nearest line vertically, and not the one containing the point: the
-        // breathing spaces between verses leave gaps where the cursor often
-        // falls, and a strict search would find nothing there.
-        let lines = self.chapter_lines(chapter);
-        let hit = lines.into_iter().min_by(|a, b| {
-            vertical_gap(a.rect, y).total_cmp(&vertical_gap(b.rect, y))
-        });
-
-        let Some(line) = hit else { return Some((book, chapter, usize::MAX, None)) };
+        let Some(line) = self.line_at(chapter, y) else {
+            return Some((book, chapter, usize::MAX, None));
+        };
 
         // Same tolerance horizontally: the text is set to the right, so the left
         // of the strip is often empty.
@@ -1084,8 +1273,7 @@ impl App {
 
             // Line height, estimated without materialising the layout: 929
             // chapters per frame would be as many vectors thrown away.
-            let count = corpus::verses_of(chapter).len().max(1);
-            let line = column(self.layout.chapters[chapter]).h / count as f32 * camera.z;
+            let line = self.line_height(chapter, camera);
 
             // A cell **always** shows something: its text as soon as that is
             // legible, its number otherwise. Without this guarantee, a cell too
@@ -1246,78 +1434,96 @@ pub extern "C" fn zoom(x: f32, y: f32, factor: f32) {
     app().zoom_at(x, y, factor);
 }
 
-/// Chapter under the cursor, or -1. Only serves the pointer shape: hovering
-/// changes nothing in the drawing.
+/// Chapter the cursor can click on, or -1. Only serves the pointer shape:
+/// hovering changes nothing in the drawing.
+///
+/// **The pointer announces what a click will really do**, so it answers on the
+/// very condition of a click: the same tolerance as `locate` — a book box,
+/// never the air between two portions — and a chapter one can read. Above the
+/// reading zoom nothing is clickable, and the cursor says so.
 #[unsafe(no_mangle)]
 pub extern "C" fn hover(x: f32, y: f32) -> i32 {
     let app = app();
     let (wx, wy) = app.camera.to_world(x, y);
-    // Same tolerance as `locate`, so that the pointer announces what a click
-    // will really select.
-    app.locate(wx, wy).map_or(-1, |(_, chapter, _, _)| chapter as i32)
+    app.clickable_at(wx, wy).map_or(-1, |chapter| chapter as i32)
 }
 
-/// Fills the selection: book, chapter, verse, letter (offset/length readable
-/// via `selection_ptr`). Returns 1 if something was hit.
+/// Fills the selection: book, chapter, verse, and the word when one is asked
+/// for — each level an (offset, length) readable via `selection_ptr`. Returns 1
+/// if something was hit.
+///
+/// **A click is only live on a passage one can read.** Above that zoom a
+/// chapter is a number, and naming one of its verses would be a choice of the
+/// geometry, not of the reader: the answer is then 0 and the selection is
+/// cleared.
 ///
 /// The export is only unmangled on wasm: on a host build — the one the test
 /// suite uses — the symbol `select` collides with the one of the system socket
 /// library, and the link fails.
 #[cfg_attr(target_arch = "wasm32", unsafe(no_mangle))]
 pub extern "C" fn select(x: f32, y: f32) -> u32 {
+    pick_into(x, y, false)
+}
+
+/// Same, one step finer: **the word under the point**, which a double click
+/// asks for. The verse is filled too, so the page can show the word inside it.
+#[unsafe(no_mangle)]
+pub extern "C" fn select_word(x: f32, y: f32) -> u32 {
+    pick_into(x, y, true)
+}
+
+fn pick_into(x: f32, y: f32, word: bool) -> u32 {
     let app = app();
     let (wx, wy) = app.camera.to_world(x, y);
-
-    match app.locate(wx, wy) {
-        Some((book, chapter, verse, _)) => {
-            let text = if verse == usize::MAX { "" } else { corpus::verse_text(verse) };
-            let (offset, len) =
-                if text.is_empty() { (0, 0) } else { key_of(text) };
-            app.selection = [book as u32, chapter as u32, offset, len];
+    match app.pick(wx, wy, word) {
+        Some(selection) => {
+            app.selection = selection;
             1
         }
         None => {
-            app.selection = [0, 0, 0, 0];
+            app.selection = [0; 6];
             0
         }
     }
 }
 
-/// Fills `focus_ptr`: section, book and chapter under the centre of the view,
-/// each as an (offset, length) in the corpus. Zero length = nothing.
+/// Fills `focus_ptr`: section, book, chapter and verse under the **centre of
+/// the view**, each as an (offset, length) in the corpus. Zero length =
+/// nothing at that level.
 ///
-/// That is what feeds the breadcrumb: it always says where one is, including
-/// when the title bands have left the screen.
+/// That is what feeds the breadcrumb when the pointer says nothing: it always
+/// tells where one is, including when the title bands have left the screen.
+/// Its depth is that of the zoom — the chapter arrives with the numbers, the
+/// verse with the text.
 #[unsafe(no_mangle)]
 pub extern "C" fn focus() {
     let app = app();
     let (wx, wy) = app.camera.to_world(app.width / 2.0, app.height / 2.0);
+    app.focus = app.path_at(wx, wy, false).unwrap_or([0; 8]);
+}
 
-    let chapter = app.chapter_at(wx, wy).or_else(|| app.nearest_chapter(wx, wy));
-    app.focus = [0; 6];
-
-    let Some(chapter) = chapter else { return };
-    let Some(book) = (0..corpus::book_count()).find(|&b| {
-        let r = corpus::chapters_of(b);
-        chapter >= r.start && chapter < r.end
-    }) else {
-        return;
-    };
-
-    let section = treemap::SECTIONS
-        .iter()
-        .position(|&(_, first, last)| book >= first && book < last)
-        .unwrap_or(0);
-
-    let put = |slot: &mut [u32], text: &'static str| {
-        let (offset, len) = key_of(text);
-        slot[0] = offset;
-        slot[1] = len;
-    };
-
-    put(&mut app.focus[0..2], corpus::section_name(section));
-    put(&mut app.focus[2..4], corpus::book_name(book));
-    put(&mut app.focus[4..6], corpus::chapter_label(chapter));
+/// Same, under a point of the screen: **what the pointer is on**.
+///
+/// Returns 1 when the pointer names something — a chapter of a book box, or a
+/// portion by its title — and fills `focus_ptr` with it. Returns 0 when it
+/// names nothing, the air between two portions for instance, and falls back on
+/// the centre of the view, so that the breadcrumb never blinks out while the
+/// pointer wanders.
+#[unsafe(no_mangle)]
+pub extern "C" fn focus_at(x: f32, y: f32) -> u32 {
+    let app = app();
+    let (wx, wy) = app.camera.to_world(x, y);
+    match app.path_at(wx, wy, true) {
+        Some(path) => {
+            app.focus = path;
+            1
+        }
+        None => {
+            let (cx, cy) = app.camera.to_world(app.width / 2.0, app.height / 2.0);
+            app.focus = app.path_at(cx, cy, false).unwrap_or([0; 8]);
+            0
+        }
+    }
 }
 
 #[unsafe(no_mangle)]

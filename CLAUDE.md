@@ -1,782 +1,543 @@
 # ethaor
 
-Le Tanakh en carte zoomable, sans fond. **Rust compile en WebAssembly, affiche
-dans une page.** Critere unique : la vitesse.
+Zoomable map of the Tanakh, no background. **Rust compiles to WebAssembly and
+paints into a page.** Single criterion: speed.
 
-Reference d'affichage : https://github.com/Peeter95/code-map — la taille d'une
-boite suit son volume, et en zoomant son contenu apparait dedans.
+Display reference: https://github.com/Peeter95/code-map — a box's size follows
+its volume, and zooming reveals its contents inside it.
 
-## Repartition du travail
+## How this file works
 
-**Tout le calcul est en Rust** : corpus, disposition, camera, repli du zoom,
-elagage, detection de clic. Le module produit une liste de commandes ; la page
-ne fait que la peindre.
+**Rules here, numbers in tests.** This file states invariants, intent and
+rejected alternatives — the things a test cannot express. Every measurement,
+ratio, count and threshold lives in `cargo test` (174 tests, 2 s), which is the
+only place they stay true. Do not restate a measured value here; if a rule can
+be asserted, assert it and leave only the *why* in prose.
 
-**Deux choses restent au navigateur**, pour une seule raison : le faconnage de
-l'hebreu pointe — bidi et marques combinantes — y vit, et rien d'autre ne le
-fait aussi bien.
+When you add a rule: synthesize. One line per invariant, reason attached.
+If a test already enforces it, the test is the documentation — the sole rule
+that must stay written is **"no calculation without a test"** (see *Tests*),
+because that is what keeps the rest verifiable long-term.
 
-1. mesurer la largeur des fragments que Rust reclame ;
-2. tracer le texte.
+## Work split
 
-Rust dessine d'abord avec une estimation, inscrit les fragments inconnus dans
-`pending`, la page les mesure et redemande une image. Chaque fragment n'est
-mesure qu'une fois ; la convergence prend une image.
+**All computation is in Rust**: corpus, layout, camera, zoom folding, pruning,
+hit testing. The module emits a command list; the page only paints it.
 
-### Pourquoi pas un serveur
+**Two things stay in the browser**, for one reason: pointed-Hebrew shaping
+(bidi + combining marks) lives there and nothing else does it as well.
 
-Un geste de zoom doit repondre sous 16 ms. Un aller-retour reseau, meme en
-local, c'est 20 a 100 ms. Actix n'aura de sens que le jour ou le dictionnaire
-demandera des donnees que l'on ne peut pas embarquer.
+1. measure the widths Rust asks for;
+2. draw the text.
 
-### Pourquoi pas three.js
+Rust draws first with an estimate, records unknown fragments in `pending`, the
+page measures them and asks for a new frame. Each fragment is measured once;
+convergence takes one frame.
 
-WebGL imposerait un atlas de glyphes et un moteur de texte maison : pas de bidi,
-pas de marques combinantes. Les 1 000 462 points de niqqud du corpus ne
-s'afficheraient pas. Canvas 2D donne le faconnage du navigateur gratuitement.
+**No server**: a zoom gesture must answer under 16 ms; a round trip, even
+local, is 20–100 ms. Actix only makes sense once the dictionary needs data we
+cannot embed.
+
+**No three.js / WebGL**: it would force a glyph atlas and a home-made text
+engine — no bidi, no combining marks, so the corpus' million niqqud points
+would not render. Canvas 2D gives browser shaping for free.
 
 ## Structure
 
-Meme disposition que check8ge : la caisse Rust a la racine, l'application
-SvelteKit dans `web/`.
+Same layout as check8ge: Rust crate at the root, SvelteKit app in `web/`.
 
 ```
-Cargo.toml, build.rs, src/      module WebAssembly — tout le calcul
-build/mamre.rs                  lecture des sources, inclus par build.rs
-src/*/tests.rs                  tests du module (corpus, hier, treemap)
-src/tests/                      tests de l'application : camera, image, clic
-tests/builder.rs                tests de la construction du corpus
+Cargo.toml, build.rs, src/      WebAssembly module — all computation
+build/mamre.rs                  source reading, included by build.rs
+src/{corpus,hier,treemap}/tests.rs   module-private tests
+src/tests/                      app tests: camera, frame, click, breadcrumb, …
+tests/builder.rs                corpus build tests
 web/                            SvelteKit 2 + Svelte 5 + Tailwind 4
-  src/lib/ethaor.ts             pont vers le module : gestes, peinture, mesures
-  src/lib/components/           TanakhMap.svelte
+  src/lib/ethaor.ts             bridge: gestures, painting, measurements
+  src/lib/components/TanakhMap.svelte
   src/routes/+page.svelte
-  static/ethaor.wasm            copie par `npm run wasm`
-  static/fonts/Baloo2-*.ttf     interface seulement (voir Polices)
+  static/ethaor.wasm            copied by `npm run wasm`
+  static/fonts/Baloo2-*.ttf     UI only (see Fonts)
   scripts/copy-wasm.mjs
 ```
 
-`adapter-node`, comme check8ge : `npm start` lance `node build`.
-`ssr = false` — le canevas et le module n'ont rien a faire sur le serveur.
+`adapter-node`, like check8ge: `npm start` runs `node build`.
+`ssr = false` — canvas and module have no business on the server.
 
-Le CSS passe par Tailwind partout. `app.css` ne porte que l'import Tailwind,
-les polices et deux jetons de theme (`--font-sans`, `--font-hebrew`).
+CSS is Tailwind everywhere. `app.css` holds only the Tailwind import, the fonts
+and two theme tokens (`--font-sans`, `--font-hebrew`).
 
-## Construire
+## Build
 
 ```sh
-cargo test         # 148 tests, moins d'une seconde — avant tout commit
+cargo test         # 174 tests, 2 s — before any commit
 cd web
 npm install
-npm run wasm       # cargo build --release puis copie dans static/
+npm run wasm       # cargo build --release, then copy into static/
 npm run dev        # 127.0.0.1:8095
 npm run build
-npm run preview    # meme port que dev (vite preview n'herite pas de `server`)
+npm run preview    # same port as dev (vite preview ignores `server`)
 npm run host       # 0.0.0.0:8080
 npm start          # node build, 127.0.0.1:8095
 ```
 
-Le corpus est soude au module : un seul telechargement, ~1 Mo compresse, aucune
-requete ensuite.
+The corpus is welded into the module: one download, ~1 MB gzip, no request
+afterwards.
 
-## Polices
+## Fonts
 
-**Baloo 2 ne contient aucun glyphe hebreu** — verifie dans sa table `cmap` :
-0 consonne sur 27, 0 marque sur 55. Elle ne sert qu'a l'interface.
+**Baloo 2 has no Hebrew glyph** (checked in its `cmap`: 0/27 consonants,
+0/55 marks). UI only. Pointed Hebrew uses **Noto Serif Hebrew**
+(`@fontsource-variable`), which covers niqqud and cantillation.
 
-L'hebreu pointe utilise **Noto Serif Hebrew** (`@fontsource-variable`), qui
-couvre le niqqud et la cantillation.
+`ethaor.ts` awaits `document.fonts.ready` before the first measurement: a width
+taken on a fallback font would be cached and wrong for good.
 
-`ethaor.ts` attend `document.fonts.ready` avant la premiere mesure : une largeur
-relevee sur une police de repli serait mise en cache et fausse pour de bon.
+## Guiding principle
 
-## Principe directeur
+**Whatever can be computed at build time must not be computed at run time.**
+The corpus is frozen: `build.rs` reads the HTML sources, builds text and index,
+and welds them into the binary. `corpus.rs` does `O(1)` indexing over two
+`include_bytes!` blocks.
 
-**Tout ce qui peut etre calcule a la compilation ne doit pas l'etre a
-l'execution.** Le corpus est fige : `build.rs` lit les sources HTML, construit
-texte et index, et les soude au binaire. `corpus.rs` ne fait plus que de
-l'indexation `O(1)` sur deux blocs `include_bytes!`.
+## Data
 
-Mesure : `build_frame` pour la vue d'ensemble (1 749 commandes) prend **0,03 ms**.
+Source: `archive/t002/t/` — Mechon Mamre HTML in **cp1255**, not UTF-8;
+`t01.htm`..`t35.htm`, one file per book. 39 books (35 source titles —
+`עזרא / נחמיה` is one), 929 chapters, 23 200 verses. Counts are asserted; do
+not re-estimate them.
 
-## Donnees
+Source traps, handled in `build.rs`:
 
-Source : `archive/t002/t/` — Mechon Mamre, HTML en **cp1255**, pas UTF-8.
-`t01.htm`..`t35.htm`, un fichier par livre.
+- byte **0xCA** is unassigned in standard cp1255; Mechon-Mamre uses it for
+  `U+05BA`. Without the fix, signs are lost.
+- the first `<H1>` of `t01.htm` is a cover page, no verse.
+- cleaning strips `{פ} {ס} {ר} {ש}` and all punctuation. The maqaf joins two
+  distinct words, so it becomes a **space**, not a deletion.
+- four books are split (`SPLITS`): Mechon-Mamre numbers Samuel, Kings,
+  Chronicles and Ezra/Nehemiah straight through with **no restart at `א`**, so
+  we cut at the traditional rank and renumber with `hebrew_numeral`, where 15
+  and 16 are `טו` / `טז`, never `יה` / `יו`.
 
-Mesures verifiees — ne pas les reestimer :
+## Layout (`treemap.rs`)
 
-| | |
+**Canonical order beats tiling aesthetics.** A squarified treemap sorts by
+size; that would be wrong here. Row cutting that preserves order.
+
+- **Books sit on a 5-column grid**, the one the five books of the Torah impose.
+  Rejected: 7 columns — bigger cells, but the grid states the order of the
+  Tanakh, not a cell-size knob, and the overview must not move for a reason
+  that is not its own.
+- A section's height is not proportional to its text volume: it is computed so
+  that **all book boxes are identical** (`band + n × row`).
+- **A column's width comes from the chapter block, not from the world**
+  (`BOOK_SLACK`): widest block (Tehilim) plus a tenth of air. So the vertical
+  is solved first (row height, band, stride), then the column is cut to the
+  stride — change the stride and the width follows, ratio intact. The book area
+  is centred in the world, leaving black left and right rather than void inside
+  every box. Price: smaller overview titles. Accepted.
+- **Sections touch; what separates them is the air of their band**
+  (`SECTION_LEAD`). The section title is flush to the bottom of its band, so
+  the empty top of the band — and it alone — is the breathing space between
+  portions. Setting it here rather than as a margin keeps book boxes identical
+  across sections.
+- **Portion air is the map's only knob, and it is paid in cells**: world height
+  is fixed, so what the three bands take, the book rows do not get. Cost of the
+  retained value: one more zoom notch to reach the verses. Accepted.
+- **Air has two values, one per detail level** (`SECTION_LEAD_WIDE`,
+  `SECTION_LEAD_TIGHT` = half). In overview it says the Tanakh is in three
+  parts; once chapters show, the division is known and the same void only pushes
+  the text away. Both layouts are built at startup and **swapped** at the
+  threshold (`set_detail`); nothing is recomputed mid-zoom, only verse layout
+  (which depends on cells) is dropped. The world keeps its proportions, so the
+  camera stays valid: the map reorganizes, the view does not jump.
+- The world's **bottom margin is `SECTION_LEAD`**, not the general margin, or
+  the last row of the Writings looked cut off. The top needs nothing — the first
+  section already carries its own lead above its title.
+- **A book's title band is deduced, not set** (`chapters_fit`): band and stride
+  are tied (title fills its band, number fills its cell, number is half the
+  title, and what the band leaves splits between the rows). Fixing one fixes the
+  other, so they are solved by fixed point — a few passes settle the pair. The
+  bigger the cell, the sooner verses become readable, so the cell is what the
+  trade-off protects.
+- **Numeral width enters the computation**: a number is bounded by its cell's
+  height *and* width, so if measured Hebrew digits are wider than the estimate,
+  width decides and the band must tighten to keep the ratio. `build_frame`
+  therefore redoes the layout **once**, when the page has measured the numerals
+  — not per zoom.
+- The band is **never clipped** to a share of the section: an `h / 2` bound gave
+  the Torah (single row) much taller boxes and overlapping rows.
+
+**One single stride for the 929 chapters.** A cell — and therefore a chapter
+number — is exactly the same size everywhere in the corpus. **This is a rule,
+not a setting**: no cell or numeral size may depend on the book, the zoom or
+what is on screen. Everything follows:
+
+- **rows are imposed** (`CHAPTER_ROWS`): the row count of the densest book, the
+  150 Psalms. Everything else derives from it, so the whole Tanakh shares one
+  grid. Few rows stretch a block into a ribbon and hit the width; many rows
+  crush it in height; the retained count is at the crossing.
+- **stride** = body height / those rows.
+- **cells per row** = `ceil(densest / CHAPTER_ROWS)`: it comes from the densest
+  book having to fill its rows, not from box width, which would take twice as
+  many. In a wide, short box height is scarce, never width — so a block takes
+  only half the box in width, and that is intended.
+- the block is **flush top-right**, where reading starts. Centred vertically, a
+  short book put its row in the middle of an empty box, far from its title; the
+  emptiness belongs at the bottom.
+- a book that does not fill its row stops where it ends, at everyone else's
+  stride, leaving the slots to its left empty. Stretching three chapters across
+  the full width gave three cells lost in void.
+- more rows for Tehilim are **paid on the cell** (`CHAPTER_GAP` was tightened to
+  give part of it back, and that was all there was to give).
+- books and sections, unlike chapters, get their columns from `grid`: the **most
+  balanced arrangement among those costing almost nothing in cell size**
+  (`KEEP`), biggest cell breaking ties; cells fill right to left, then down —
+  reading order. An imposed column count never falls back on the element count,
+  or the Torah's five books would inherit wider boxes than the other sections
+  and the chapter cell would no longer be unique.
+- Rejected: **max cell per book** (one size per book — excluded by the rule
+  above); **square packing** (25 chapters in 5×5) — tiny cells in a wide box,
+  and making it big would need a portrait world that wastes a landscape screen.
+
+### Verses
+
+- **All verses of a chapter share one character size.** A long verse wraps
+  instead of being compressed: only the line count varies. A breathing space
+  (`gap_k`) separates verses so one can see where each begins.
+- `lay_out` starts at one line per verse and tightens while the column
+  overflows — line count can only grow with size, so a few passes suffice.
+  Cached per chapter, invalidated when a measurement arrives from the page.
+- The unit of rendering is the **line**, not the verse: `Line` carries its
+  corpus slice, box and size. `wrap` cuts at words keeping contiguous slices, so
+  only an offset and a length cross the boundary.
+- Each line is flush right from the measured width; **alignment is never
+  delegated**.
+- **A cell's padding follows the cell** (`CELL_PAD`, a share of the side). Fixed
+  in world units it threw away most of the ink of a small cell and delayed
+  verses by several notches. All rendering is proportional, so padding must be.
+- **A line's readability floor is the text's** (`READABLE_LINE`): at the given
+  line height it yields exactly `MIN_TEXT` characters. Asking more gained no
+  readability and pushed verses back two notches.
+- **Goal: dive into the text fast.** Overview shows books, the first notch the
+  chapter numbers, verses around the tenth notch (window-dependent). It used to
+  take twice that.
+
+### Labels
+
+- **Titles are sized by their band**, which is in world units: they grow with
+  the zoom, like the box and the chapters. A fixed pixel size opened an
+  ever-growing gap between frame and first chapter — what is wanted is a
+  constant *padding* in the web sense.
+- `uniform_title` keeps the **median** on-screen band, never the smallest: one
+  tiny book would crush every overview title. All titles share one size at a
+  given zoom.
+- **A book title keeps the right edge of its box, never the screen's.** It
+  reads just after the last cell of its first chapter row; clamping it to the
+  window made the name slide left while the book was dragged right.
+- **Portion titles are the only ones pinned to the screen**: a portion is
+  several screens wide once chapters show, and its name must stay readable while
+  you are inside it. The caller clamps its box to the window.
+- A title is flush to the **bottom of its band**, i.e. just above the first
+  chapter: that is what keeps the gap stable, up to `TITLE_CEILING` — past that
+  the band has left the screen, you are inside the book, and the title no longer
+  needs to grow.
+- **A title stays in its band, never pinned over content.** The band is reserved
+  for it, so it covers nothing. Pinning made titles bite into chapters, verses
+  and other titles; a dark veil made them readable but still masked.
+- When the band leaves the screen, the **breadcrumb** takes over: `focus`
+  returns the position under the view centre and the page shows it in its own
+  row above the canvas. Nothing is covered, nothing is lost.
+- **The breadcrumb goes down to the verse, and its depth is the zoom's.** Four
+  levels — portion, book, chapter, verse — each appearing only with what the map
+  already shows (`chapters_ready` for the chapter, `READABLE_LINE` for the
+  verse). Announcing an invisible chapter would be an invented position; the
+  breadcrumb never says more than the image.
+- **Its point is the pointer when there is one** (`focus_at`), the view centre
+  otherwise: one reads the breadcrumb to know what is under the cursor. The
+  level stays the zoom's — hovering a book in overview gives portion and book,
+  not a chapter.
+- A **portion title band** names the portion and stops there: it belongs to no
+  book. Elsewhere the click rule applies as is — **tolerance stops at the
+  book**: in the black around the map, or in the air between portions, the
+  pointer names nothing, `focus_at` returns 0 and the view centre speaks again.
+  So the breadcrumb never flickers.
+- The verse is given by its **number**, not its text: it is a position and must
+  fit one navbar row. Text comes from a click (`select`).
+- Each title is clipped **in width only**. A small book's band is lower than the
+  text line; clipping in height cut the tops of letters and faked different
+  sizes. Overflow goes up, into the gutter between books, never onto the
+  chapters — the title is anchored to the bottom of its band.
+- The band reserved by `treemap` is of **constant height** (section:
+  `lead + SECTION_TITLE`; book: deduced by `chapters_fit`, clipped by `header`
+  only when the box is too low to hold it), not proportional: a proportional
+  band is nonexistent for a small book and its title then landed on the
+  chapters.
+- **A chapter number is the same size everywhere** (`number_size`), since all
+  cells are. One size per book was tried: ten different sizes on screen at once.
+  Excluded.
+- **A number is half a book title** (`CHAPTER_OVER_BOOK`). From that ratio
+  `book_band` derives the band height, hence the stride, hence the cell size:
+  the cell is cut for that body, not the other way round.
+- **And it reads whole or not at all**: the height/width fill bounds only hold
+  the invariant if a measurement from the page makes digits wider than the
+  estimate. Overflow is impossible by construction.
+- Numbers appear **from the first notch** (`MIN_NUMBER`, below the running-text
+  floor: a numeral is one to three known letters read as a shape, where a verse
+  line must be deciphered). The floor no longer decides anything on usual
+  windows.
+- The number is **centred in its cell**: `emit_text` is flush right, so it gets
+  a box stopping at the middle of the numeral.
+- **At startup the map shows only sections and books.** While chapter numbers
+  are hidden, a book's box is free: its title fills it, width and height, and
+  centres in it.
+- Numbers arrive **at the first zoom notch** (`CHAPTER_FROM`, expressed as a
+  multiple of the initial framing, not in pixels, so the threshold falls at the
+  same notch on any window and after a fold as before).
+- **The threshold is not enough on a small screen**: `chapters_ready` also
+  requires the numeral to clear its floor (on a phone the first notch crossed
+  the threshold and the frame was entirely black). The switch is always decided
+  on the *chapter* layout, the one that will be in place after; judging it on
+  the current layout made the level oscillate frame to frame.
+- **The framing has a floor so levels fall at the same notch everywhere**
+  (`base_scale`). Natural framing is the whole world in the window; on a narrow
+  window that was three times smaller than on a phone. We prefer to **crop the
+  map**: framing never goes below the scale that puts a numeral just above its
+  floor at the first notch. Price: a narrow window does not show the full map
+  width at start — one notch out and a drag brings it back.
+- **The wheel notch is computed, not fixed** (`zoom_step`, exported to the
+  page): whatever makes the dive from framing to a full-screen chapter take
+  `DIVE_NOTCHES` notches. Landscape gives the nominal step; floored framings
+  give slightly more.
+- The one size step over the whole zoom range is the detail-level change, and it
+  is intended. The title then **fills its band** (`TITLE_FILL`): a smaller share
+  deepened the step and gained nothing, the glyph slab being shorter than its
+  line anyway.
+- **A section title is a quarter bigger than a book title**
+  (`SECTION_OVER_BOOK`) — just enough to read as a title above the books, pure
+  white against `BOOK_INK` doing the rest. Bigger, it ate the air between
+  portions. It has no ceiling of its own; the book ceiling bounds both, so the
+  ratio holds at every zoom.
+- **A cell always shows something**: its text as soon as it is readable, its
+  number otherwise. Two holes gave empty cells (a minimum-size threshold on the
+  cell, and a text-mode cell whose lines all fell under `MIN_TEXT`), so we check
+  afterwards that text was emitted and fall back on the number.
+
+## Endless zoom
+
+At the heart of every letter, `NEST` reserves the place of the whole Tanakh —
+a large share of its cell, not a point.
+
+**No fill is ever painted.** Rendering emits text and clips only: no white
+square, zooming in or out. That was the patch over a hole, and the hole was
+plugged on both sides — a newborn world a thousand pixels wide on one side, a
+zoom-out floor on the other.
+
+- Nothing of the contained world is drawn before the fold: a letter can be
+  zoomed fully with nothing appearing.
+- **Once the letter is exceeded, `wrap_in` re-roots the camera** and the level
+  increases. There are never two worlds on screen: `build_frame` draws the
+  current world, full stop. No cross-fade, no point list, no nested camera.
+- At that instant the new Tanakh takes most of the screen, so its portion titles
+  are already readable: no intermediate state. With a tiny `NEST` it was born a
+  few pixels wide and took a dozen notches to become readable — hence the old
+  white fill.
+- **Re-rooting early is about precision, not looks.** Waiting for the point to
+  cover the screen left ~30 notches where the camera handled coordinates near
+  1e8 in f32: the ulp exceeds the pixel and the point drifted hundreds of pixels
+  off centre. Folded into the point's world, everything is small and exact.
+- Zoom follows **the chapter** while it does not fill the screen, then the
+  letter. Backgrounds being black, the void between cells looks like everything
+  else: without that attraction, zooming beside a cell led to a black screen with
+  no way out.
+- The contained world then sits at the centre of the letter while zoom keeps the
+  cursor still, so an **attraction** pulls the view toward it, strengthened on
+  approach — otherwise the point would have to grow far past the screen to cover
+  its corners, losing float precision.
+- **The attraction must beat the drift of the zoom** (`pull`): one notch
+  multiplies the cursor-to-target distance by its factor, so a correction of
+  `1 - 1/factor` compensates exactly and anything below lets the target escape.
+  A fixed percentage let the aimed cell leave the screen. A margin is added on
+  top to converge instead of merely following.
+- After the fold the world is smaller than the framing, so the zoom-out rule
+  **centres** it and holds it there while it grows. Free framing returns when
+  the world fills the screen.
+- **The descent is one-way.** Once the new Tanakh fills the screen the old one
+  ceases to exist: no return path is kept, and zooming out does not come back.
+
+**One notch out, and the map is just the three portions, large, evenly spaced**
+(`PORTIONS_UNDER`). The three levels are one notch apart, either side of the
+framing:
+
+| zoom | what is shown |
 |---|---|
-| Livres | 39, pour 35 titres dans la source (`עזרא / נחמיה` n'en est qu'un) |
-| Chapitres | 929 |
-| Versets | 23 200 |
-| Texte embarque | 4 653 Ko |
-| Module wasm | 4,9 Mo, ~1,0 Mo gzip |
-
-Pieges de la source, traites dans `build.rs` :
-
-- L'octet **0xCA** n'est pas attribue en cp1255 standard ; Mechon-Mamre l'emploie
-  pour `U+05BA`. Sans correctif, 414 signes sont perdus.
-- Le premier `<H1>` de `t01.htm` est une page de garde, sans verset.
-- Nettoyage : on retire `{פ} {ס} {ר} {ש}` et toute ponctuation. Le maqaf joint
-  deux mots distincts, il devient donc une **espace**, pas une suppression.
-
-## Disposition
-
-
-`treemap.rs` — **l'ordre canonique prime sur l'esthetique du pavage.** Un treemap
-« squarified » trie par taille ; ce serait faux ici. Decoupage en rangees qui
-conserve l'ordre.
-
-**39 livres** : 5 pour la Torah, 21 pour les Prophetes, 13 pour les Ecrits.
-`build.rs` tient l'ordre canonique dans `ORDER` et y classe ce que la source
-livre.
-
-Quatre livres sont scindes (`SPLITS`). Mechon-Mamre numerote Samuel de 1 a 55,
-Rois de 1 a 47, Chroniques de 1 a 65 et Ezra/Nehemie de 1 a 23, **sans aucun
-redemarrage a `א`** : on coupe donc au rang traditionnel — 31, 22, 29, 10 — et
-les totaux concordent exactement. La seconde moitie est renumerotee avec
-`hebrew_numeral`, ou 15 et 16 s'ecrivent `טו` et `טז`, jamais `יה` ni `יו`.
-
-**Les livres sont poses sur une grille a 5 colonnes**, celle qu'imposent les
-cinq livres de la Torah. Les 21 Prophetes tiennent en cinq rangees, les 13
-Ecrits en trois — neuf rangees pour les 39 livres.
-
-Sept colonnes ont ete essayees et mesurees : six rangees de livres, boites de
-221,7 x 87,0, cases de 8,9 au lieu de 6,3, et la case a l'ecran passait de 5,74
-a 6,49 px. Abandonnees : **la grille des livres n'est pas un reglage de la taille
-des cases.** Elle dit l'ordre du Tanakh, la Torah y a sa rangee pleine, et la vue
-d'ensemble — celle ou les chapitres ne s'affichent pas — ne doit pas bouger pour
-une raison qui n'est pas la sienne.
-
-La hauteur d'une section n'est pas proportionnelle a son volume de texte mais
-calculee pour que **toutes les boites de livres soient identiques** : a hauteur
-de rangee commune, une section de `n` rangees mesure `bandeau + n x rangee`.
-Mesure : 163,1 x 56,7 pour les 39 livres.
-
-**La largeur d'une colonne vient du bloc de chapitres, pas du monde**
-(`BOOK_SLACK`). La boite valait 312 unites pour un bloc de 145 : plus de la
-moitie etait du vide a gauche des chapitres, et le titre d'un livre flottait au
-milieu de rien. Elle vaut desormais ce que demande le bloc le plus large — les
-sept rangees de 22 de Tehilim — plus un dixieme d'air : 163,1, dont le bloc
-occupe 91 %.
-
-L'ordre du calcul s'inverse donc pour la largeur : la verticale d'abord — hauteur
-de rangee, bande, pas — puis la colonne taillee sur le pas. Si le pas change, la
-largeur suit, et le rapport reste le meme.
-
-Le monde garde ses proportions : l'aire des livres est centree dedans, ce qui
-laisse du noir a gauche et a droite plutot qu'un vide dans chaque boite. Mesure :
-836 unites de carte sur les 1 600 du monde, et 887 chapitres a l'ecran au premier
-cran de zoom contre 827 avant — la carte s'est resserree, pas appauvrie.
-
-Le prix est sur les titres : le plus long — דברי הימים א — doit tenir dans 159
-unites au lieu de 308, donc la taille de la vue d'ensemble tombe de 24,8 a
-16,4 px. C'est la contrepartie directe de colonnes deux fois plus etroites.
-
-**Les sections sont jointives ; ce qui les separe est l'air de leur bandeau.**
-Le titre de section est cale en bas de sa bande, donc juste au-dessus de ses
-livres : la part haute de la bande (`SECTION_LEAD`) est vide, et c'est elle,
-et elle seule, qui tient lieu de respiration entre deux portions. La regler ici
-plutot que par une marge autour de la section garde les boites de livres
-identiques d'une section a l'autre — c'est leur hauteur commune qui decoule du
-reste, pas l'inverse.
-
-**L'air d'une portion est le seul reglage de la carte, et il se paie en
-cases.** La hauteur du monde est fixe : ce que prennent les trois bandeaux, les
-rangees de livres ne l'ont pas. Trois valeurs ont ete mesurees pour
-`SECTION_LEAD`, a cinq colonnes : 30 donnait des boites de 83,3 et des cases de
-9,9 ; 60, des boites de 70,0 ; 90 — la valeur retenue, le triple de la premiere
-— des boites de 56,7 et des cases de 7,9. La ligne du titre, elle, est restee a
-28 : elle n'est pas de l'air, et la rogner n'aurait rien separe.
-
-Le cout est connu et accepte : un cran de zoom de plus pour atteindre les
-versets, et un tiers d'encre en moins a la vue d'ensemble. C'est le seul endroit
-ou l'on peut rendre de la hauteur aux cases sans toucher a la grille des livres :
-a 60, les boites font 70,0 et les cases 7,9.
-
-Mesure : 4,0 unites monde entre deux rangees d'un meme bloc, 122,0 entre deux
-sections — 4 de gouttiere, 90 d'air, 28 pour la ligne du titre. Trente fois la
-gouttiere : une portion ne se confond avec rien.
-
-**L'air a deux valeurs, une par niveau de detail** (`SECTION_LEAD_WIDE` et
-`SECTION_LEAD_TIGHT`, sa moitie). En vue d'ensemble, ou l'on ne lit que des
-titres, c'est lui qui dit que le Tanakh se divise en trois. Des que les
-chapitres paraissent, la lecture se fait dans un livre, la division est acquise,
-et le meme vide ne fait plus que repousser le texte : on le reduit de moitie.
-
-Les deux dispositions sont construites au demarrage et **echangees** au passage
-du seuil (`set_detail`) ; rien n'est recalcule en cours de zoom, seule la mise
-en page des versets, qui depend des cases, est jetee. Le monde garde ses
-proportions, donc la camera reste valable : c'est la carte qui se reorganise,
-pas la vue qui saute.
-
-Mesure : boites de 163,1 x 56,7 et cases de 6,3 en vue d'ensemble, 223,2 x 76,7
-et cases de **8,8** au niveau des chapitres — un tiers de plus. Les numeros
-passent de 3,4 a 4,7 px au premier cran, et les versets arrivent au dixieme cran
-au lieu du onzieme.
-
-**Le bas de la carte reprend cette meme air.** La marge basse du monde vaut
-`SECTION_LEAD`, et non la marge generale : sinon la derniere rangee des Ecrits
-s'arretait a 13 unites du bord quand une portion en recoit 32, et le bas de page
-paraissait coupe. Le haut n'a rien a corriger — la premiere section porte deja
-son propre `SECTION_LEAD` au-dessus de son titre. Mesure : 92,0 unites de blanc
-sous le dernier livre, exactement l'air qui precede un titre de portion.
-
-**La bande de titre d'un livre n'est pas reglee, elle est deduite**
-(`chapters_fit`). Bande, pas et nombre de rangees sont noues : le titre remplit
-sa bande, le numero remplit sa case, le numero vaut la moitie du titre, et ce
-que la bande ne prend pas se partage entre les rangees. Fixer l'une fixe les
-deux autres. On les resout donc par point fixe, et l'on retient le nombre de
-rangees qui donne **la plus grosse case** — c'est la case qui porte le texte,
-et plus elle est grande, plus tot les versets se lisent.
-
-**La largeur des chiffres entre dans le calcul.** Un numero est borne par la
-hauteur de sa case et par sa largeur ; si les chiffres hebreux sont plus larges
-que l'estimation, c'est la largeur qui decide, et la bande doit se resserrer
-d'autant pour que le rapport tienne. `build_frame` refait donc la disposition
-**une fois**, quand la page a mesure les numeros — pas a chaque zoom, une seule
-fois au demarrage, et le rapport vaut alors exactement un demi dans le
-navigateur et pas seulement sous l'estimation.
-
-Mesure, boite de 312,0 x 56,7 : sous l'estimation (0,42 par lettre), une bande
-de 8,6, un pas de 7,0 et des cases de 6,0 ; sous des chiffres mesures a 0,58 par
-lettre — ce que donne une serif hebraique — la bande tombe a 6,6, le pas a 6,6 et
-la case monte a 6,3. Rapport numero/titre : 0,500 dans les deux cas. Une bande
-plus haute donne un titre plus gros et des cases plus petites : les deux reglages
-sont le meme.
-
-
-La bande n'est **jamais rognee** a une part de la section. Une borne a `h / 2`
-donnait a la Torah, seule a n'avoir qu'une rangee, des boites bien plus hautes
-que celles des autres sections, et les rangees se chevauchaient.
-
-**Un seul pas pour les 929 chapitres du Tanakh.** Une case a donc exactement la
-meme taille partout, d'un bout a l'autre du corpus — et par consequent un numero
-de chapitre aussi. **C'est une regle, pas un reglage** : aucune taille de case ni
-de numero ne doit dependre du livre, du zoom ou de ce qui est a l'ecran.
-
-Tout en decoule :
-
-- le **nombre de rangees** n'est pas fixe : `chapters_fit` essaie toutes les
-  hauteurs de bloc jusqu'a `CHAPTER_ROWS_MAX` et garde celle qui donne la plus
-  grosse case. Peu de rangees etirent le bloc en bande et butent sur la largeur
-  — les 150 Psaumes ne tiennent pas en deux rangees de 25 — et beaucoup de
-  rangees l'ecrasent en hauteur ; l'optimum est au croisement, et il se deplace
-  avec la hauteur d'une boite. Le figer a quatre laissait un tiers de la boite
-  vide des que les bandeaux de section ont rendu leur air ;
-- le **pas** vaut donc la hauteur du corps divisee par ces rangees ;
-- le **nombre de cases par rangee** vaut `ceil(150 / 7)`, soit 22 : il vient du
-  livre le plus dense qui doit remplir ses rangees, et non de la largeur de la
-  boite, qui en accepterait 46. Un bloc n'occupe donc qu'une moitie de boite en
-  largeur, et c'est voulu — dans une boite de 312 x 57, c'est la hauteur qui est
-  rare, jamais la largeur ;
-- un livre prend le nombre de rangees qui donne a son bloc **la forme de son
-  corps**, et se repartit a **parts egales** entre elles — sans quoi un livre de
-  50 chapitres donnait une rangee pleine de 45 et un moignon de 5 ;
-- le bloc est **cale en haut a droite**, la ou commence la lecture. Centre
-  verticalement, un livre de peu de chapitres posait sa rangee au milieu d'une
-  boite vide, loin de son titre, et l'on ne voyait plus a quel livre elle
-  appartenait. Cale en haut, chaque bloc suit immediatement son titre et le vide
-  tombe en bas de la boite. Mesure : 11,4 unites entre le haut d'une boite et sa
-  premiere rangee, les memes pour les 39 livres ; le reste — de 2,2 unites pour
-  Tehilim a 56,5 pour Obadia — est en dessous.
-
-Un livre qui ne remplit pas sa rangee s'arrete donc ou il finit, au pas de tous
-les autres. Trois chapitres occupent 20 unites sur 159, et c'est juste : les
-etirer sur toute la largeur donnait trois cases perdues au milieu du vide.
-
-**Le nombre de rangees est celui qui rapproche le bloc de la forme de sa
-boite**, et non le minimum. Prendre le minimum — tout sur une rangee des que la
-largeur l'accepte — mettait 34 livres sur 39 en longue bande, et faisait
-voisiner deux dispositions sans rapport : Shemot alignait ses 40 chapitres sur
-une rangee pendant que Bereshit, juste a cote, en posait 50 sur deux, pour la
-seule raison que 50 depassait les colonnes disponibles — 45 a l'epoque, 22
-aujourd'hui, puisqu'elles viennent desormais du livre le plus dense.
-
-Le pas etant commun a tout le Tanakh, l'encre posee est la **meme quel que soit
-le decoupage** : seule la forme du bloc change. La forme la plus proche de celle
-du corps est la plus compacte, la mieux centree, et celle qui laisse le moins
-d'air entre deux livres. A rapport egal on prend le plus de rangees : deux
-rangees de dix valent mieux qu'une de vingt.
-
-Mesure, chiffres mesures : pas de 6,6 unites monde, cases de 6,3, identiques
-pour les 929 chapitres. Les 150 Psaumes tiennent en **7 rangees de 22**, Isaie en
-5 de 14, la Genese en 4 de 13, Shemot en 4 de 10 ; 29 livres sur 39 passent a
-deux rangees ou plus, et les 10 qui gardent une seule rangee comptent au plus 5
-chapitres — a deux rangees, leur bloc serait bien plus etroit que haut par
-rapport a sa boite.
-
-**Sept rangees pour Tehilim se paient sur la case** (`CHAPTER_ROWS`). A boite
-constante, chaque rangee de plus retire au pas ce qu'elle prend en hauteur :
-mesure, cinq rangees donnaient des cases de 8,5, six de 7,2, sept de 6,3. La
-respiration entre cases a ete resserree de 0,5 a 0,15 pour en rendre une part
-(5,7 — 6,3), et c'est tout ce qu'il y avait a rendre : le reste est de la hauteur
-de boite, qui ne depend que de la grille des livres et de l'air des portions.
-
-Deux autres repartitions ont ete essayees et mesurees :
-
-- **une case maximale** par livre alignait tout sur une seule rangee des qu'un
-  livre comptait moins de 23 chapitres, et donnait une taille de case par
-  livre ;
-- un **rangement carre** (25 chapitres en 5 x 5) tient dans un carre de 26
-  unites au milieu d'une boite large de 300, avec des cases de 3 unites, et les
-  150 Psaumes tombent a 0,2 unite par case. Le rendre grand demanderait un monde
-  en portrait, ou la carte n'occupe plus que 600 des 1400 pixels de large d'un
-  ecran paysage — essaye, puis abandonne.
-
-Les livres, eux, remplissent leur bande : c'est la largeur des cinq premiers qui
-fixe la colonne.
-
-### Les versets
-
-**Tous les versets d'un chapitre partagent la meme taille de caractere.** Un
-verset trop long passe sur plusieurs lignes au lieu d'etre comprime : seul le
-nombre de lignes varie. Une respiration (`gap_k`) separe les versets, de sorte
-qu'on voie ou l'un finit et ou l'autre commence.
-
-`lay_out` choisit la taille en partant d'une ligne par verset puis en
-resserrant tant que la colonne deborde — le nombre de lignes ne peut que
-croitre avec la taille, donc quelques passes suffisent. Le resultat est mis en
-cache par chapitre et invalide des qu'une mesure arrive de la page.
-
-L'unite du rendu n'est donc pas le verset mais **la ligne** : `Line` porte sa
-tranche de corpus, sa boite et sa taille. `wrap` coupe aux mots en gardant des
-tranches contigues, pour que seuls un decalage et une longueur traversent la
-frontiere.
-
-Chaque ligne est calee sur le bord droit, a partir de la largeur mesuree ; on
-ne delegue jamais l'alignement.
-
-**La marge d'une case suit la case** (`CELL_PAD`, 6 % du cote). Fixee a 2 unites
-monde, elle ne laissait que 5,9 unites de texte dans une case de 9,9 : 40 % de
-l'encre jetee, en largeur comme en hauteur, et des versets qui n'apparaissaient
-que six crans de zoom plus tard. Tout le rendu etant proportionnel, sa marge
-doit l'etre aussi.
-
-**Le plancher de lisibilite d'une ligne est celui du texte** (`READABLE_LINE` =
-5,5 px) : a l'interligne de 1,30, une telle ligne porte des caracteres de 4,2 px,
-soit `MIN_TEXT`. Exiger 7 px ne gagnait rien en lisibilite et repoussait les
-versets de deux crans.
-
-**But : plonger vite dans le texte.** Mesure, fenetre de 1536 x 730 : la vue
-d'ensemble montre les livres, le premier cran les numeros de chapitre, et les
-versets apparaissent au **dixieme** cran, a 29 fois le cadrage — neuvieme sur une
-fenetre de 1080 px de haut, onzieme sur une de 620. Avant — marge de case
-fixe, plancher a 7 px et cran de 1,22 — il en fallait **vingt et un**, a 65 fois
-le cadrage. Quatre de ces treize crans sont le prix des sept rangees de Tehilim,
-deux celui de l'air des portions.
-
-### Les etiquettes
-
-**Les titres sont dimensionnes par leur bande**, qui est en unites monde : ils
-grandissent donc avec le zoom, exactement comme la boite et les chapitres. Une
-taille fixe en pixels creusait un espace de plus en plus grand entre le cadre et
-le premier chapitre — c'est un **padding constant** qu'il faut, au sens du web.
-
-`uniform_title` retient la bande **mediane** parmi celles qui sont a l'ecran,
-jamais la plus petite : un seul livre minuscule ecraserait tous les titres de la
-vue d'ensemble. Tous les titres partagent ainsi une taille unique a un zoom
-donne.
-
-**Un titre de livre garde le bord droit de sa boite, jamais celui de l'ecran.**
-Il se lit juste apres la derniere case de sa premiere rangee de chapitres : c'est
-sa place, et elle ne doit pas dependre du cadrage. Le rabattre sur la fenetre le
-faisait glisser a l'interieur de sa boite pendant un deplacement — on tirait un
-livre vers la droite et son nom partait vers la gauche. Mesure, trois
-deplacements de 150 px : le titre reste a 3,1 px de la derniere case, soit sur le
-bord de sa boite, et sort de l'ecran avec elle.
-
-**Les titres de portion, eux, sont epingles a l'ecran**, et ce sont les seuls :
-une portion mesure plusieurs ecrans de large une fois les chapitres visibles, et
-son nom doit rester lisible tant qu'on est dedans. C'est l'appelant qui rabat sa
-boite sur la fenetre.
-
-Le titre est cale **en bas de sa bande**, donc juste au-dessus du premier
-chapitre : c'est ce qui rend l'espace stable. Mesure : rapport ecart/taille
-constant a 0,14 sur quatre niveaux de zoom, jusqu'au plafond `TITLE_CEILING` —
-passe ce point la bande a quitte l'ecran, on est entre dans le livre, et le
-titre n'a plus a grandir.
-
-Les versets suivent la meme logique : leur mise en page est en unites monde, et
-le rapport interligne/taille reste a 1,85 quel que soit le zoom.
-
-**Un titre reste dans sa bande, jamais epingle par-dessus le contenu.** La
-bande lui est reservee, donc il ne recouvre rien. Epingler un titre le faisait
-mordre sur les chapitres, sur les versets, et parfois sur un autre titre — un
-voile sombre le rendait lisible mais masquait quand meme.
-
-Quand la bande sort de l'ecran, c'est le **fil d'Ariane** qui prend le relais :
-`focus` renvoie section, livre et chapitre sous le centre de la vue, et la page
-les affiche dans sa propre rangee, au-dessus du canevas. Rien n'est recouvert,
-rien n'est perdu. Mesure : zero chevauchement de texte sur 25 niveaux de zoom,
-decoupage compris.
-
-Chaque titre est decoupe **en largeur seulement**. La bande d'un petit livre est
-plus basse que la ligne de texte ; decouper aussi en hauteur coupait la tete des
-lettres et donnait l'illusion de tailles differentes, alors que tous les titres
-partagent la meme. Le debordement se fait vers le haut, dans la gouttiere entre
-livres, jamais sur les chapitres : le titre est ancre au bas de sa bande.
-
-Mesure : zero titre rogne en hauteur. Deux le restent en largeur a la vue
-d'ensemble — עובדיה et שיר השירים, les plus petites boites — et redeviennent
-entiers des le premier cran de zoom.
-
-La bande de titre reservee par `treemap` est de **hauteur constante**
-(`BOOK_BAND`, `SECTION_BAND`), non proportionnelle a la boite : une bande
-proportionnelle est inexistante pour un petit livre, et son titre venait alors
-se superposer aux chapitres. Mesure : zero chevauchement titre/numero.
-
-**Un numero de chapitre a la meme taille partout** (`number_size`), puisque
-toutes les cases ont la meme taille. Une taille par livre a ete essayee, pour
-montrer les numeros deux crans plus tot : elle donnait dix tailles differentes a
-l'ecran en meme temps. C'est exclu.
-
-**Un numero vaut la moitie d'un titre de livre** (`CHAPTER_OVER_BOOK` = 0,5).
-C'est de ce rapport que `book_band` deduit la hauteur de bande, donc le pas,
-donc la taille de case : la case est taillee pour ce corps-la, et non l'inverse.
-
-**Et il se lit en entier ou pas du tout** : les deux bornes qui suivent — 72 %
-de la hauteur de case, 92 % de sa largeur pour le numero le plus large du Tanakh,
-trois lettres — ne font plus que tenir l'invariant si une mesure venue de la page
-rend les chiffres plus larges que l'estimation. Le debordement reste impossible
-par construction. Mesure : une seule taille de numero par image sur quarante
-crans de zoom, zero chevauchement de texte, zero image vide.
-
-Les numeros apparaissent **des le premier cran** (`MIN_NUMBER` = 3,5 px, plus bas
-que le plancher du texte courant : un numero compte une a trois lettres connues
-d'avance, lues comme une forme, la ou une ligne de verset doit se dechiffrer).
-Mesure, fenetre de 1536 x 730, chiffres mesures : masques au cadrage — la vue
-d'ensemble ne montre que les livres — puis 4,7 px au cran suivant, ou l'air des
-portions s'est resserre ; 4,0 px sur une fenetre de 620 px de haut, 7,0 sur une
-de 1080. La promesse tient sur toute la plage de fenetres usuelles, et le
-plancher (3,5 px) ne decide plus de rien.
-
-Le numero est **centre dans sa case** : `emit_text` cale sur le bord droit, on
-lui passe donc une boite qui s'arrete au milieu du nombre.
-
-**Au lancement, la carte ne montre que les sections et les livres.** Tant que
-les numeros de chapitre sont masques, la boite d'un livre est libre : son titre
-l'occupe entierement, en largeur comme en hauteur, et s'y centre.
-
-Les numeros arrivent **des le premier cran de zoom** (`CHAPTER_FROM`, exprime en
-multiple du cadrage initial et non en pixels : le seuil tombe ainsi au meme
-endroit quelle que soit la fenetre, et apres un repli comme avant).
-
-**Le seuil ne suffit pas sur petit ecran** : `chapters_ready` exige en plus que
-le numero passe son plancher. Sur un telephone, le premier cran franchissait le
-seuil, le titre d'un livre rentrait dans sa bande — trois pixels — et les
-numeros valaient un pixel et demi : l'image etait **entierement noire**. Le
-basculement attend donc la lisibilite, et il se decide toujours sur la
-disposition des chapitres, celle qui sera en place apres : la juger sur la
-disposition courante ferait osciller le niveau d'une image a l'autre.
-
-**Le cadrage a un plancher, pour que les niveaux tombent au meme cran partout**
-(`base_scale`). Le cadrage naturel est le monde entier dans la fenetre ; sur une
-fenetre etroite il devenait trois fois plus petit que sur un portable, donc des
-numeros au quatrieme cran au lieu du premier et des titres de livres de 5 px. On
-prefere desormais **rogner la carte** : le cadrage ne descend jamais sous
-l'echelle qui met un numero juste au-dessus de son plancher au premier cran.
-
-Le prix est connu : sur une fenetre etroite, la vue de depart ne montre plus
-toute la largeur de la carte. On la retrouve en de-zoomant d'un cran — les trois
-portions — et en glissant.
-
-**Le pas de la molette est calcule, non fixe** (`zoom_step`, exporte vers la
-page) : il vaut ce qu'il faut pour que la plongee du cadrage jusqu'a un chapitre
-plein ecran demande toujours `DIVE_NOTCHES` crans. Sur un ecran paysage le
-cadrage est deja proportionnel a la hauteur, donc le calcul rend 1,40
-exactement ; sur les fenetres etroites, ou le cadrage a ete plancheise, il monte
-a 1,47.
-
-Mesure, neuf fenetres de 320 x 568 a 3 840 x 2 160 : **numeros au premier cran
-sur les neuf**, titres de livres de 12,1 px au minimum (contre 4,5 avant), zero
-image sans texte, zero chevauchement. Les versets, eux, arrivent entre le
-septieme et le douzieme cran : ils dependent d'un plancher en pixels, donc un
-grand ecran les montre plus tot. Jamais plus tard. Le titre
-rentre alors dans sa bande pour leur laisser la place.
-
-C'est la seule marche de taille de toute la plage de zoom, et elle est voulue :
-c'est le changement de niveau de detail. Mesure, fenetre de 1536 x 730 : 16,4 px
-au lancement, 6,8 au cran suivant, puis croissance reguliere. Le titre **remplit alors sa bande**
-(`TITLE_FILL` = 1,0) : une part plus faible creusait la marche sans rien gagner,
-le pave de glyphes etant de toute facon plus court que la ligne qui le porte.
-
-**Un titre de section est un quart plus grand qu'un titre de livre**
-(`SECTION_OVER_BOOK` = 1,25). Juste assez pour se lire comme un titre au-dessus
-des livres — le blanc pur contre `BOOK_INK` fait le reste. Plus gros, il mangeait
-l'air qui separe les portions. Il n'a pas de plafond propre : celui des titres de
-livres borne deja les deux, et le rapport reste donc exact a tous les zooms.
-Mesure : 16,4 et 20,5 px au cadrage initial, rapport 1,25 jusqu'au zoom de
-lecture. Trois tailles par image une fois les chapitres visibles, et trois
-seulement : 3,4 pour les numeros, 6,8 pour les livres, 8,5 pour les sections.
-
-**Une case montre toujours quelque chose** : son texte des qu'il est lisible,
-son numero sinon. Deux failles donnaient des cases vides, et donc des numeros
-qui apparaissaient ici mais pas la :
-
-- un seuil de taille minimale sur la case, qui privait les petites de leur
-  numero sans rien mettre a la place ;
-- une case en mode texte dont les lignes tombaient toutes sous `MIN_TEXT`.
-
-On verifie donc apres coup que du texte a ete pose ; sinon on retombe sur le
-numero. Mesure : zero case vide, du cadrage initial jusqu'au zoom de lecture.
-
-## Zoom sans fin
-
-Au coeur de chaque lettre, `NEST` reserve la place du Tanakh entier — **les
-sept dixiemes de sa cellule**, et non un point.
-
-**Aucun aplat n'est jamais peint.** Le rendu ne sort que du texte et des
-decoupages : il n'y a plus de carre blanc, ni au zoom ni au de-zoom. C'etait le
-pansement d'un trou, et le trou a ete bouche des deux cotes — un monde naissant
-large de mille pixels d'un cote, un plancher de de-zoom de l'autre.
-
-- Rien du monde contenu n'est dessine avant le repli : on peut zoomer
-  pleinement une lettre sans rien voir arriver.
-- **Des que la lettre est depassee, `wrap_in` re-enracine la camera** et le
-  niveau augmente. Il n'y a jamais deux mondes a l'ecran : `build_frame`
-  dessine le monde courant, et c'est tout. Ni fondu, ni liste de points, ni
-  camera imbriquee.
-- A cet instant le nouveau Tanakh fait **sept dixiemes de l'ecran**, donc ses
-  titres de portion sont deja lisibles : le passage d'un texte a l'autre n'a
-  pas d'etat intermediaire. A `NEST` = 0,004, il naissait large de six pixels
-  et mettait une quinzaine de crans a devenir lisible — d'ou l'aplat blanc.
-  Mesure : repli au trentieme cran, monde large de 1 250 px, 42 titres a
-  l'ecran a 17,6 et 22,0 px, zero aplat.
-- **Re-enraciner tot est une question de precision, pas d'esthetique.**
-  Attendre que le point recouvre l'ecran laissait une trentaine de crans ou la
-  camera manipulait des coordonnees voisines de 1e8 en f32 : l'ulp y depasse le
-  pixel, et le point — large de quelques pixels — derivait du centre jusqu'a
-  800 px mesures. Replie dans le monde du point, tout redevient petit et exact.
-  Mesure : ecart au centre 0 px sur toute la croissance du point.
-- Le zoom suit d'abord **le chapitre** tant qu'il ne remplit pas l'ecran, puis
-  la lettre. Les fonds etant noirs, le vide entre deux cases ne se distingue en
-  rien du reste : sans cette attraction, zoomer a cote menait a un ecran noir
-  dont on ne savait pas sortir. Mesure : 20 images vides sur 160 crans avant,
-  zero apres.
-- Ensuite la place du monde contenu est au centre de la lettre alors que le
-  zoom garde le curseur immobile : sans aide elle deriverait hors de l'ecran.
-  Une **attraction** (14 % par cran, renforcee a l'approche) ramene la vue vers
-  elle.
-- **L'attraction doit battre la derive du zoom** (`pull`). Un cran multiplie par
-  son facteur la distance entre le curseur et la cible : une correction de
-  `1 - 1/facteur` la compense exactement, tout ce qui est en dessous laisse la
-  cible s'echapper. A 18 % fixes et des crans de 1,4, la case visee sortait de
-  l'ecran et l'image devenait noire — mesure, quatre images vides sur cinquante
-  crans des que le bloc de chapitres a ete cale en haut de sa boite, donc plus
-  loin du centre de la vue. On ajoute 12 points de marge pour converger au lieu
-  de suivre.
-- Apres le repli, le monde est plus petit que le cadrage : la regle du de-zoom
-  le **centre**, ce qui le place exactement au milieu et l'y maintient pendant
-  qu'il grandit. Le cadrage libre revient quand le monde remplit l'ecran.
-
-**La descente est a sens unique.** Des que le nouveau Tanakh occupe l'ecran,
-l'ancien cesse d'exister : aucun chemin de retour n'est garde, et de-zoomer ne
-ramene pas au monde precedent.
-
-**Un cran de de-zoom, et la carte n'est plus que les trois portions, en grand,
-a egale distance** (`PORTIONS_UNDER`). Les trois niveaux sont ainsi a **un cran
-l'un de l'autre**, de part et d'autre du cadrage :
-
-| zoom | ce qu'on voit |
-|---|---|
-| un cran sous le cadrage | les trois portions seules, en grand |
-| cadrage | les portions et les 39 livres |
-| un cran au-dessus | les chapitres |
-
-Le seuil est juste sous 1 et non a 1 : le cadrage lui-meme doit rester du cote
-des livres, y compris aux arrondis pres. Attendre que les titres de livres
-passent sous le plancher du texte demandait cinq crans, pendant lesquels la
-carte n'etait qu'une grille de mots de plus en plus pales.
-
-Deux regles changent a ce niveau.
-
-Leur **place** : dans le monde, elle vient du volume des sections — une rangee de
-livres pour la Torah, cinq pour les Prophetes — ce qui les met a des distances
-tres inegales. Une fois les livres partis, cette inegalite ne dit plus rien ;
-`draw_world` les repartit a parts egales sur la hauteur de l'ecran.
-
-Leur **taille** : elle est prise sur le tiers du monde projete
-(`SECTION_CARD`), et non plus sur la bande de la section. Suivre la bande les
-rendait minuscules au moment meme ou ils devenaient le seul contenu de l'image —
-trois mots de 4 px sur une fenetre vide. Ils naissent donc grands, puis
-**rapetissent et se rapprochent a chaque cran de de-zoom, sans fin** : la carte
-s'eloigne au lieu de disparaitre.
-
-Une taille figee en pixels d'ecran a ete essayee : on lisait bien les trois
-mots, mais de-zoomer ne faisait plus rien du tout.
-
-Leur **ecart** vaut un quart de la hauteur du monde (`CARD_GAP`), soit 2,1 fois
-la taille des mots. A un tiers, les trois mots tenaient les coins de l'ecran et
-ne se lisaient plus comme un groupe ; a un sixieme, ils etaient trop serres.
-
-Et **les trois partagent un seul bord droit**, celui du mot le plus large : c'est
-la lecture qui le veut, et trois mots centres chacun pour soi partaient dans
-trois directions. Le pave ainsi forme est, lui, centre sur le monde.
-
-Le niveau se reconnait **au zoom seul, et du bon cote du cadrage**. Tres zoome
-dans un livre, les bandes de titre ont aussi quitte l'ecran : juger sur elles
-faisait peindre les trois portions en geant par-dessus les versets. Verifie : sur
-cinquante crans de zoom, les seules images a trois textes sont les trois numeros
-de chapitre d'un petit livre — א, ב, ג a 70 puis 98 px — jamais la carte.
-
-**Le de-zoom n'est donc plus borne par la lisibilite** (`floor_scale`), puisque
-les trois titres ne rapetissent plus : il ne reste qu'un garde-fou technique pour
-que l'echelle ne tombe pas a zero. La carte reste **centree** — en dessous du
-cadrage, la camera se recentre a chaque cran.
-
-Mesure, de-zoom depuis le cadrage sur une fenetre de 1 536 x 730 : les 42 titres
-du cadrage (16,4 et 20,5 px) cedent **des le premier cran** la place a trois mots
-de **60,8 px** ecartes de 130,4 px, puis 43,5 et 93,1, puis 31,0 et 66,5, puis
-22,2 et 47,5 — et ainsi de suite jusqu'au garde-fou technique. A chaque cran les
-deux ecarts restent egaux au dixieme de pixel, les trois bords droits sont
-confondus au pixel, et aucun aplat n'est emis.
-
-L'attraction se renforce a l'approche (`0,14 + 0,62 x proximite`). Sans cela le
-point devrait grandir bien au-dela de l'ecran pour en couvrir les quatre coins,
-et les flottants y perdraient leur precision : mesure, le repli se produit vers
-un zoom de 1e6 au lieu de 5e7.
-
-`locate` tolere les interstices — respiration entre versets, intervalle entre
-cases, marges entre livres — en retenant la ligne, la case ou le chapitre le
-plus proche plutot que celui qui contient le point. Sans cela, viser entre deux
-boites ne descendait jamais, et depuis que les cases sont espacees pour remplir
-leur boite, un clic entre deux chapitres d'un petit livre ne selectionnait rien.
-
-**La tolerance s'arrete au livre.** Un point hors de toute boite de livre ne
-designe rien : cliquer dans l'air qui separe deux portions, ou dans le blanc du
-bas, ne selectionne pas le chapitre le plus proche. `hover` suit la meme regle,
-pour que le pointeur annonce ce qu'un clic fera. Mesure : 195 points sur 195
-d'une boite de livre designent un chapitre — y compris chez un livre de trois
-chapitres, dont les cases sont a cent unites l'une de l'autre — et zero dans
-l'air entre portions comme dans le blanc du bas.
-
-Sans ce repli, atteindre une lettre demanderait un zoom de l'ordre de 1e6 et les
-`f32` perdraient toute precision — c'est pourquoi il intervient des le
-depassement de la lettre, et non plus tard.
+| one notch below framing | the three portions alone, large |
+| framing | the portions and the 39 books |
+| one notch above | the chapters |
+
+The threshold sits just under 1, not at 1: the framing itself must stay on the
+books' side, rounding included. Waiting for book titles to fall under the text
+floor took five notches of ever-paler word grid.
+
+Two rules change at that level:
+
+- **Position**: in the world it comes from section volume, which spaces them very
+  unevenly. Once the books are gone that inequality says nothing, so
+  `draw_world` spreads them in equal parts over the screen height.
+- **Size**: taken from a share of the projected world (`SECTION_CARD`), not from
+  the section band. Following the band made them minuscule exactly when they
+  became the whole image. So they are born large, then **shrink and close in at
+  every notch out, endlessly**: the map recedes instead of disappearing.
+  Rejected: a fixed pixel size — readable, but zooming out then did nothing.
+- Their **gap** is a share of the world height (`CARD_GAP`). Larger, the three
+  words held the screen corners and stopped reading as a group; smaller, too
+  tight.
+- **The three share one right edge**, that of the widest word; three separately
+  centred words pulled in three directions. The resulting slab is centred on the
+  world.
+
+The level is recognized **by zoom alone, and on the right side of the framing**.
+Deep inside a book the title bands have also left the screen; judging on them
+painted the three portions giant over the verses.
+
+**Zoom-out is therefore no longer bounded by readability** (`floor_scale`),
+since the three titles no longer shrink to nothing: only a technical guard keeps
+the scale off zero. The map stays **centred** — below the framing the camera
+recentres at each notch.
+
+`locate` tolerates gaps — verse breathing, inter-cell spacing, book margins — by
+keeping the nearest line, cell or chapter rather than the containing one.
+Without it, aiming between two boxes never descended.
+**Tolerance stops at the book**: a point outside every book box designates
+nothing. `hover` follows the same rule, so the pointer announces what a click
+will do.
 
 ## Interface
 
-Monochrome : fond noir, structures en degrades de blanc. Pas de couleur.
+Monochrome: black background, structures in shades of white. No colour.
 
-**Aucun cadre, aucun fond.** Ni trait de contour ni aplat : sections, livres et
-chapitres partagent le meme noir, et seules les lettres portent l'information.
+**No frame, no fill.** Neither outline nor plate: sections, books and chapters
+share the same black, and only letters carry information. Rank reads in the
+**intensity of the white**: section pure white, book one step down (`BOOK_INK`),
+chapter number a touch lower (`CHAPTER_INK`). The three parts of the Tanakh are
+told apart by the **air above their title** (`SECTION_LEAD`) and by that title
+in pure white.
 
-Le rang se lit alors a **l'intensite du blanc** : une section en blanc pur, un
-livre un ton en dessous (`BOOK_INK`), un numero de chapitre un rien plus bas
-encore (`CHAPTER_INK`). Mesure : 1,00 / 0,78 / 0,58.
+**Hover changes nothing in the drawing**; it only sets the cursor shape. The
+command list is bit-identical with and without hover.
 
-Les trois parties du Tanakh se distinguent par l'**air au-dessus de leur titre**
-(`SECTION_LEAD`) et par ce titre lui-meme, en blanc pur. Mesure : 122,0 unites
-monde entre deux sections, contre 4,0 entre deux rangees de livres.
+Structure labels (titles, numbers) are drawn in world coordinates, so they grow
+with the zoom — but `label` drops them as soon as their box exceeds the screen;
+beyond that it would only be a giant glyph floating over the current level.
+**One exception, at the last zoom-out state**: when the map is just the three
+portion names, their size and gap come from the projected world
+(`SECTION_CARD`, `CARD_GAP`), not from their band — a section's band is worth
+its volume of books, and once the books are gone it says nothing.
 
-**Il n'y a aucun aplat.** Mesure : zero commande de rectangle sur soixante
-crans de zoom, repli compris, et zero image sans texte.
+Gestures: wheel or pinch to zoom, drag to pan, click for the passage, double
+click for the word, Esc for the overview. **One wheel notch is `ZOOM_STEP`**:
+from overview to a chapter's text is about ten notches, already long; at a
+smaller step it took twice as many and felt like never arriving. A trackpad
+sends fractions of a notch, so fine control remains. `touch-action: none` on the
+canvas, or the mobile browser intercepts everything.
 
-**Le survol ne change rien au dessin** ; il ne sert qu'a la forme du pointeur.
-Verifie : la liste de commandes est identique au bit pres, avec et sans survol.
+### The click
 
-Les etiquettes de structure (titres, numeros) sont dessinees en coordonnees
-monde, donc elles grandissent avec le zoom — mais `label` les supprime des que
-leur boite depasse l'ecran : au-dela, ce ne serait qu'un glyphe geant flottant
-par-dessus le niveau courant.
+**The click is only live at reading level.** A chapter one cannot read is just a
+number in a cell: clicking it would name a verse chosen by geometry, which the
+reader has no way to check. `select` returns 0 above the reading zoom and the
+selection is cleared.
 
-**Une seule exception, au dernier etat du de-zoom** : quand la carte n'est plus
-que les trois noms de portion, leur taille et leur ecart ne viennent plus de
-leur bande mais du monde projete (`SECTION_CARD`, `CARD_GAP`). La bande d'une
-section vaut ce que vaut son volume de livres ; une fois les livres partis, elle
-ne dit plus rien, et c'est le monde entier qui sert de mesure. Les trois mots
-grandissent et rapetissent donc toujours avec le zoom, comme tout le reste.
+The threshold is not one more setting: **it is the drawing's**, taken in the
+same order as `draw_book` — the estimate first (a line of at least
+`READABLE_LINE`, costing no layout), then the actually laid-out size, the one
+`draw_line` compares to `MIN_TEXT`. The estimate alone was not enough: a chapter
+with long verses wraps, so it lays out smaller than the estimate, and its cell
+fell back on its number while a click still believed there was text. The click
+is thus live **exactly where the text is drawn**.
 
-Gestes : molette ou pincement pour zoomer, glisser pour deplacer, clic pour
-selectionner, Echap pour la vue d'ensemble. **Un cran de molette vaut 1,4** : de
-la vue d'ensemble au texte d'un chapitre il y a une dizaine de crans, et c'est
-deja long ; a 1,22 il en fallait le double, ce qui donnait l'impression de ne
-jamais arriver au texte. Le pave tactile envoie des fractions de cran, donc le
-reglage fin reste possible. `touch-action: none` sur le canvas,
-sans quoi le navigateur mobile intercepte tout.
+The cursor says the same: `hover` answers on the click's condition, not on
+geometry alone.
 
-`select` renvoie le chemin complet (livre, chapitre, verset) : c'est le point
-d'accroche pour afficher demain des informations sur un mot ou une lettre.
+**A click gives the passage, a double click the word** (`select_word`). Both
+share the condition: there is no word to show where there is no text.
+`word_cells` cuts a line into words as `letter_cells` cuts it into letters, one
+step coarser, counting spaces — a word's box carries its ink and nothing else,
+and the gaps between boxes are the spaces. Same tolerance as elsewhere: keep the
+nearest word, text being flush right.
+
+The first click never delays anything: it shows the passage at once, and the
+second click (within the double-click window) refines it to a word. Waiting for
+that window before answering would make every click feel sticky.
+
+`select` fills six slots: book, chapter, verse, word — the last two as
+(offset, length). The page finds the word **inside** its verse by cutting at
+byte offsets, never in the decoded string: one pointed letter is several UTF-16
+units.
 
 ## Tests
 
-**Rien ne s'ajoute au calcul sans test.** C'est la contrepartie du principe
-directeur : si tout est calcule ici, tout se verifie ici. `cargo test` tient
-148 tests et rend sa reponse en moins d'une seconde — il n'y a donc aucune
-raison de ne pas le lancer a chaque pas.
+**Nothing is added to the computation without a test.** That is the counterpart
+of the guiding principle: if everything is computed here, everything is verified
+here. `cargo test` holds 174 tests and answers in 2 s, so there is no reason not
+to run it at every step.
 
 ```sh
-cargo test                        # tout
-cargo test -- tests::frame        # un seul volet
-cargo test --test builder         # la construction du corpus
+cargo test                        # everything
+cargo test -- tests::frame        # one panel
+cargo test --test builder         # corpus build
 ```
 
-### Ce qu'un test verifie ici
+### What a test asserts here
 
-**Des invariants, pas des captures.** Un rapport, un ordre, une egalite entre
-les 929 cases — jamais une liste de coordonnees attendues, qui casserait au
-premier reglage sans rien avoir protege. Un chiffre n'apparait que la ou cette
-prose le donne comme mesure : le test est alors ce qui garde la mesure vraie.
+**Invariants, not snapshots.** A ratio, an order, an equality across the 929
+cells — never a list of expected coordinates, which would break at the first
+tweak having protected nothing. Numbers belong in tests: a measurement cited
+anywhere must be an assertion.
 
-Ce qui est garanti, volet par volet :
-
-| fichier | ce qu'il tient |
+| file | what it holds |
 |---|---|
-| `src/corpus/tests.rs` | 39 livres, 929 chapitres, 23 200 versets ; index monotone et borne ; la hierarchie partitionne ; coupures aux rangs traditionnels ; numeros sans nom divin ; texte nettoye ; les 414 `U+05BA` ; un fragment se retrouve par son offset |
-| `src/hier/tests.rs` | une lettre = une consonne et ses marques ; decoupage sans perte sur le corpus ; marques jamais detachees |
-| `src/treemap/tests.rs` | boites de livres toutes identiques ; **un seul pas pour les 929 chapitres** ; emboitement, non-chevauchement, ordre de lecture ; bloc cale en haut a droite ; sept rangees pour Tehilim ; l'air d'une portion paye en cases ; rapport numero/titre = 0,5 |
-| `src/tests/geometry.rs` | distances, marge de case proportionnelle, attraction qui bat la derive du zoom |
-| `src/tests/camera.rs` | cadrage plancheise, plongee en `DIVE_NOTCHES` crans, **numeros au premier cran sur neuf fenetres**, niveau de detail qui n'oscille pas, repli qui rabaisse l'echelle, descente a sens unique |
-| `src/tests/frame.rs` | **aucun aplat, aucune image vide, aucun texte recouvert** sur neuf fenetres et soixante crans ; 42 titres au cadrage ; trois tailles au niveau des chapitres ; trois portions au de-zoom, a ecarts egaux et bord droit unique ; convergence des mesures en une image ; disposition de l'enregistrement, qui est un contrat avec `ethaor.ts` ; budget de temps et de commandes |
-| `src/tests/locate.rs` | 7 605 points sur 7 605 d'une boite de livre designent un chapitre, zero dans l'air entre portions ; le survol dit ce que le clic fera |
-| `src/tests/text.rs` | une taille par chapitre ; les lignes se recomposent en verset **a l'octet** ; chaque ligne reste une tranche du corpus ; lettres de droite a gauche |
-| `src/tests/api.rs` | l'interface que la page appelle vraiment, etat global pris sous un verrou : gestes, selection, fil d'Ariane, oubli des mesures, sondes |
-| `tests/builder.rs` | `build/mamre.rs` inclus et non recopie : cp1255 et l'octet 0xCA, numeros hebreux, page de garde, ordre du document, les quatre coupures, l'ordre canonique |
+| `src/corpus/tests.rs` | counts; monotone bounded index; the hierarchy partitions; traditional cut ranks; numerals avoid the divine name; cleaned text; the `U+05BA` bytes; a fragment is found back from its offset |
+| `src/hier/tests.rs` | a letter = a consonant and its marks; lossless splitting over the corpus; marks never detached |
+| `src/treemap/tests.rs` | book boxes all identical; **one stride for the 929 chapters**; nesting, non-overlap, reading order; block flush top-right; rows for Tehilim; portion air paid in cells; number/title ratio |
+| `src/tests/geometry.rs` | distances, proportional cell padding, attraction beating zoom drift |
+| `src/tests/camera.rs` | floored framing, dive in `DIVE_NOTCHES` notches, **numbers at the first notch on nine windows**, non-oscillating detail level, fold lowering the scale, one-way descent |
+| `src/tests/frame.rs` | **no fill, no empty frame, no overlaid text** on nine windows and sixty notches; overview title count; three sizes at chapter level; three portions on zoom-out, equal gaps, single right edge; measurements converge in one frame; record layout, a contract with `ethaor.ts`; time and command budget |
+| `src/tests/click.rs` | the click live **exactly** where text is drawn, cell by cell on nine windows and twelve notches; dead at framing and chapter level; the cursor never lies about the click; the passage under the point; the word under the point, from the right verse; word boxes right-to-left, non-overlapping, covering the drawn width |
+| `src/tests/breadcrumb.rs` | depth bounded by what is drawn; portion and book at framing, chapter at the first notch, verse with the text; the pointer names the book, cell or line it is on; a portion band names the portion alone; the air names nothing and the centre takes over |
+| `src/tests/locate.rs` | every point of a book box names one of its chapters, none in the air between portions; hover says what the click will do |
+| `src/tests/text.rs` | one size per chapter; lines recompose the verse **byte for byte**; every line stays a corpus slice; letters right-to-left |
+| `src/tests/api.rs` | the interface the page really calls, global state under a lock: gestures, selection, breadcrumb at centre and under pointer, forgetting measurements, probes |
+| `tests/builder.rs` | `build/mamre.rs` included, not copied: cp1255 and byte 0xCA, Hebrew numerals, cover page, document order, the four cuts, canonical order |
 
-### Ce que la suite a deja trouve
+### Rules for what comes next
 
-`hebrew_numeral(15)` rendait `טה` et `16` rendait `טו` : un decalage d'indice.
-Les moities renumerotees — שמואל ב, מלכים ב, דברי הימים ב — portaient donc un
-15 inexistant et un 16 qui s'ecrivait 15. La regle etait dans la prose et dans
-le commentaire du code depuis le debut ; rien ne la verifiait.
+- **One step = one test.** A computation function added or changed arrives with
+  the test that holds it, in the same commit. `cargo test` must be green before
+  the next step.
+- **A measurement is a test, not a line of prose.** If a ratio, notch or count
+  matters, assert it; prose keeps the reason, not the number.
+- **A fixed bug leaves a test behind**, written on the exact failing case.
+- **Private-module tests live in the module** (`src/<mod>/tests.rs`, declared by
+  `#[cfg(test)] mod tests;`) — the only place its private functions are visible.
+  Everything else goes in `src/tests/`.
+- **Nothing touching global state is tested in parallel**: `src/tests/api.rs`
+  takes a lock, because `APP` is unique.
+- **Fragments passed to `ratio` or `key_of` always come from the corpus.**
+  `offset_of` is a pointer difference; a literal overflows it. In a test, take a
+  slice of `corpus::text()`.
+- **A record's layout is a contract**: changing it in Rust forces changing it in
+  `ethaor.ts`. `a_record_keeps_the_layout_the_page_reads` is the alarm, not the
+  guarantee.
+- **The TypeScript bridge is not covered** — it only measures and paints. Any
+  logic appearing there must move down into Rust, or come with its own tests.
 
-Deux bornes ont aussi ete rendues totales dans `chapters_fit` — `clamp` sur une
-hauteur negative paniquait — pour qu'une disposition absurde rende des cases
-vides plutot que de tomber.
+## Forbidden
 
-### La regle, pour la suite
-
-- **Un pas = un test.** Une fonction de calcul ajoutee ou modifiee arrive avec
-  le test qui la tient, dans le meme commit. `cargo test` doit etre vert avant
-  de passer au pas suivant.
-- **Une mesure citee dans ce fichier est un test.** Si cette prose annonce un
-  rapport, un cran ou un compte, il doit exister une assertion qui le garde.
-- **Un bug corrige laisse un test derriere lui**, ecrit sur le cas exact qui
-  echouait.
-- **Les tests d'un module privé vivent dans le module** (`src/<mod>/tests.rs`,
-  declare par `#[cfg(test)] mod tests;`) : c'est le seul endroit d'ou l'on voit
-  ses fonctions privees. Le reste va dans `src/tests/`.
-- **Rien de ce qui touche a l'etat global n'est teste en parallele** :
-  `src/tests/api.rs` prend un verrou, parce que `APP` est unique.
-- **Les fragments passes a `ratio` ou `key_of` viennent toujours du corpus.**
-  `offset_of` est une difference de pointeurs : une chaine litterale la fait
-  deborder. Dans un test, prendre une tranche de `corpus::text()`.
-- **La disposition d'un enregistrement est un contrat** : la changer en Rust
-  oblige a la changer dans `ethaor.ts`. Le test
-  `a_record_keeps_the_layout_the_page_reads` est l'alarme, pas la garantie.
-- **Le pont TypeScript n'est pas couvert** — il ne mesure et ne peint. Si de la
-  logique y apparait, elle doit redescendre en Rust, ou venir avec ses propres
-  tests.
-
-## Interdits
-
-- Calcul ajoute ou modifie sans test : voir **Tests**.
-- Alignement de texte delegue au moteur : on calcule la position soi-meme.
-- Parsing du HTML a l'execution : c'est le travail de `build.rs`.
-- Allocation par lettre, par mot ou par verset dans la boucle d'image.
-- Recalcul de la disposition au zoom.
-- Commentaire en francais : **tout commentaire de code s'ecrit en anglais** —
-  Rust, TypeScript, Svelte, scripts de construction. La documentation en prose,
-  ce fichier compris, reste en francais ; le code, lui, se lit en anglais.
+- Computation added or changed without a test (see *Tests*).
+- Text alignment delegated to the engine: positions are computed here.
+- HTML parsing at run time: that is `build.rs`' job.
+- Allocation per letter, word or verse in the frame loop.
+- Layout recomputation on zoom.
+- Restating a measured value in this file instead of asserting it in a test.
+- **All code comments in English** — Rust, TypeScript, Svelte, build scripts.

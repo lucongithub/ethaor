@@ -10,7 +10,9 @@
 //! is what keeps that measurement true.
 
 mod api;
+mod breadcrumb;
 mod camera;
+mod click;
 mod frame;
 mod geometry;
 mod locate;

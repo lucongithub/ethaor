@@ -1,0 +1,342 @@
+//! The breadcrumb: where one is, from the zoom and from the pointer.
+//!
+//! Two rules hold it. **Its depth is that of the zoom**, and of what the frame
+//! really draws: the chapter appears with the numbers, the verse with the text.
+//! **Its point is the pointer** when the pointer is on something, the centre of
+//! the view otherwise.
+
+use super::*;
+
+/// A path read back as the page reads it: four levels, each one empty or not.
+#[derive(Debug, Default, PartialEq)]
+pub struct Path {
+    pub section: Option<&'static str>,
+    pub book: Option<&'static str>,
+    pub chapter: Option<&'static str>,
+    pub verse: Option<&'static str>,
+}
+
+fn read(slots: [u32; 8]) -> Path {
+    let level = |i: usize| {
+        (slots[i + 1] > 0)
+            .then(|| &corpus::text()[slots[i] as usize..(slots[i] + slots[i + 1]) as usize])
+    };
+    Path { section: level(0), book: level(2), chapter: level(4), verse: level(6) }
+}
+
+fn centre(app: &mut App) -> Path {
+    let (wx, wy) = app.camera.to_world(app.width / 2.0, app.height / 2.0);
+    read(app.path_at(wx, wy, false).unwrap_or([0; 8]))
+}
+
+fn under(app: &mut App, px: f32, py: f32) -> Option<Path> {
+    let (wx, wy) = app.camera.to_world(px, py);
+    app.path_at(wx, wy, true).map(read)
+}
+
+/// Screen position of a world box.
+fn on_screen(app: &App, r: Rect) -> (f32, f32) {
+    let p = app.camera.project(r);
+    (p.x + p.w / 2.0, p.y + p.h / 2.0)
+}
+
+/// Zooms at the centre until the chapter there is read as text, and gives the
+/// number of notches it took.
+fn dive_to_text(app: &mut App) -> usize {
+    let step = app.zoom_step();
+    for notch in 1..=20 {
+        app.zoom_at(app.width * 0.5, app.height * 0.5, step);
+        app.build_frame();
+        if centre(app).verse.is_some() {
+            return notch;
+        }
+    }
+    panic!("le verset n'arrive jamais sous le centre");
+}
+
+// ----------------------------------------------------------- depth by zoom
+
+/// At the framing, the map shows the portions and the books: the breadcrumb
+/// says exactly that, and not a chapter nobody can see.
+#[test]
+fn the_framing_names_a_portion_and_a_book() {
+    for (w, h) in WINDOWS {
+        let mut app = app_at(w, h);
+        measure_all(&mut app);
+        let path = centre(&mut app);
+        assert!(path.section.is_some(), "{w}x{h}: aucune portion au cadrage");
+        assert!(path.book.is_some(), "{w}x{h}: aucun livre au cadrage");
+        assert_eq!(path.chapter, None, "{w}x{h}: un chapitre annonce avant d'etre visible");
+        assert_eq!(path.verse, None, "{w}x{h}: un verset annonce au cadrage");
+    }
+}
+
+/// The chapter arrives **with its number**, at the first notch.
+#[test]
+fn the_chapter_arrives_with_the_numbers() {
+    for (w, h) in WINDOWS {
+        let mut app = app_at(w, h);
+        measure_all(&mut app);
+        let step = app.zoom_step();
+        app.zoom_at(w * 0.5, h * 0.5, step);
+        app.build_frame();
+
+        let camera = app.camera;
+        assert!(app.chapters_ready(camera), "{w}x{h}: les numeros devaient etre la");
+        let path = centre(&mut app);
+        assert!(path.chapter.is_some(), "{w}x{h}: pas de chapitre au premier cran");
+        assert_eq!(path.verse, None, "{w}x{h}: un verset des le premier cran");
+    }
+}
+
+/// The verse arrives **with the text**, and it arrives: a dozen notches at
+/// most, on every window.
+#[test]
+fn the_verse_arrives_with_the_text() {
+    for (w, h) in WINDOWS {
+        let mut app = app_at(w, h);
+        measure_all(&mut app);
+        let notches = dive_to_text(&mut app);
+        assert!(notches <= 14, "{w}x{h}: {notches} crans avant le verset");
+
+        let path = centre(&mut app);
+        assert!(path.section.is_some() && path.book.is_some() && path.chapter.is_some());
+        let verse = path.verse.expect("un verset");
+        assert!(!verse.is_empty());
+    }
+}
+
+/// **The breadcrumb never says more than the map shows.** On the whole zoom
+/// range: a chapter only once the numbers are out, a verse only once the lines
+/// are read.
+#[test]
+fn the_depth_never_exceeds_what_is_drawn() {
+    let mut app = reference_app();
+    measure_all(&mut app);
+    let step = app.zoom_step();
+    for _ in 0..8 {
+        app.zoom_at(app.width * 0.5, app.height * 0.5, 1.0 / step);
+    }
+    for notch in 0..40 {
+        app.zoom_at(app.width * 0.5, app.height * 0.5, step);
+        app.build_frame();
+
+        let camera = app.camera;
+        let ready = app.chapters_ready(camera);
+        let path = centre(&mut app);
+
+        if path.chapter.is_some() {
+            assert!(ready, "cran {notch}: un chapitre annonce sans numero a l'ecran");
+        }
+        if path.verse.is_some() {
+            // A chapter number is only unique inside its book — א names 39
+            // chapters — so the book comes first.
+            let book = (0..corpus::book_count())
+                .find(|&b| Some(corpus::book_name(b)) == path.book)
+                .expect("le livre du verset");
+            let chapter = corpus::chapters_of(book)
+                .find(|&c| Some(corpus::chapter_label(c)) == path.chapter)
+                .expect("le chapitre du verset");
+            assert!(
+                app.line_height(chapter, camera) >= READABLE_LINE,
+                "cran {notch}: un verset annonce sans texte lisible"
+            );
+        }
+        // A level is never filled without the one above it.
+        if path.book.is_some() {
+            assert!(path.section.is_some(), "cran {notch}: un livre sans portion");
+        }
+        if path.chapter.is_some() {
+            assert!(path.book.is_some(), "cran {notch}: un chapitre sans livre");
+        }
+        if path.verse.is_some() {
+            assert!(path.chapter.is_some(), "cran {notch}: un verset sans chapitre");
+        }
+    }
+}
+
+/// Whatever the depth, the path holds together: the verse is of the chapter,
+/// the chapter of the book, the book of the portion.
+#[test]
+fn the_path_holds_together() {
+    let mut app = reference_app();
+    measure_all(&mut app);
+    dive_to_text(&mut app);
+
+    let path = centre(&mut app);
+    let book = (0..corpus::book_count())
+        .find(|&b| Some(corpus::book_name(b)) == path.book)
+        .expect("un livre nomme");
+    let section = treemap::SECTIONS
+        .iter()
+        .position(|&(_, first, last)| book >= first && book < last)
+        .expect("une portion pour ce livre");
+    assert_eq!(path.section, Some(corpus::section_name(section)));
+
+    let chapter = corpus::chapters_of(book)
+        .find(|&c| Some(corpus::chapter_label(c)) == path.chapter)
+        .expect("le chapitre doit etre du livre");
+    assert!(
+        corpus::verses_of(chapter).any(|v| Some(corpus::verse_label(v)) == path.verse),
+        "le verset doit etre du chapitre"
+    );
+}
+
+/// The verse level carries **a number, not the text of the verse**: it is a
+/// position, and it has a navbar to fit in.
+#[test]
+fn the_verse_level_is_a_number() {
+    let mut app = reference_app();
+    measure_all(&mut app);
+    dive_to_text(&mut app);
+    let verse = centre(&mut app).verse.expect("un verset");
+    assert!(verse.chars().count() <= 3, "le niveau du verset porte {verse:?}");
+    assert!(!verse.contains(' '), "le niveau du verset porte du texte");
+}
+
+// -------------------------------------------------------- point by pointer
+
+/// **The pointer names what it is on.** Pointing at a book box gives that book,
+/// whatever the centre of the view says.
+#[test]
+fn the_pointer_names_the_book_it_is_on() {
+    let mut app = reference_app();
+    measure_all(&mut app);
+
+    let mut named = 0;
+    for book in 0..corpus::book_count() {
+        let (px, py) = on_screen(&app, app.layout.books[book]);
+        if px < 0.0 || py < 0.0 || px > app.width || py > app.height {
+            continue;
+        }
+        let path = under(&mut app, px, py).expect("une boite de livre nomme quelque chose");
+        assert_eq!(path.book, Some(corpus::book_name(book)), "le pointeur nomme un autre livre");
+        named += 1;
+    }
+    assert_eq!(named, corpus::book_count(), "tous les livres sont a l'ecran au cadrage");
+}
+
+/// Pointing at the **title of a portion** names the portion, and stops there:
+/// that band belongs to no book.
+#[test]
+fn the_pointer_on_a_portion_title_names_the_portion_alone() {
+    let mut app = reference_app();
+    measure_all(&mut app);
+    for section in 0..3 {
+        let band = app.layout.section_bands[section];
+        let (px, py) = on_screen(&app, Rect { h: band.h * 0.5, ..band });
+        let path = under(&mut app, px, py).expect("la bande d'une portion nomme la portion");
+        assert_eq!(path.section, Some(corpus::section_name(section)));
+        assert_eq!(path.book, None, "une bande de portion ne nomme aucun livre");
+        assert_eq!(path.chapter, None);
+    }
+}
+
+/// Pointing at the air between two portions names nothing — the same rule as a
+/// click — and the caller falls back on the centre of the view.
+#[test]
+fn the_pointer_in_the_air_names_nothing() {
+    let mut app = reference_app();
+    measure_all(&mut app);
+
+    let last = app.layout.books[corpus::book_count() - 1];
+    let (px, py) = on_screen(&app, Rect { y: last.y + last.h + 20.0, h: 1.0, ..last });
+    assert!(under(&mut app, px, py).is_none(), "le blanc du bas nomme quelque chose");
+
+    // Left of the map, outside the centred book area.
+    let (px, py) = (1.0, app.height * 0.5);
+    assert!(under(&mut app, px, py).is_none(), "le noir du bord nomme quelque chose");
+
+    // And the centre still answers, so the breadcrumb does not blink out.
+    assert!(centre(&mut app).section.is_some());
+}
+
+/// Once the chapters are out, the pointer names the cell it is on — and the
+/// cell next to it names the next chapter.
+#[test]
+fn the_pointer_names_the_cell_it_is_on() {
+    let mut app = reference_app();
+    measure_all(&mut app);
+    let step = app.zoom_step();
+    app.zoom_at(app.width * 0.5, app.height * 0.5, step);
+    app.build_frame();
+
+    let mut seen: Vec<&'static str> = Vec::new();
+    for chapter in 0..corpus::chapter_count() {
+        let (px, py) = on_screen(&app, app.layout.chapters[chapter]);
+        if px < 0.0 || py < 0.0 || px > app.width || py > app.height {
+            continue;
+        }
+        let path = under(&mut app, px, py).expect("une case nomme son chapitre");
+        assert_eq!(
+            path.chapter,
+            Some(corpus::chapter_label(chapter)),
+            "la case du chapitre {chapter} en nomme un autre"
+        );
+        assert_eq!(path.book, Some(corpus::book_name(book_of(chapter))));
+        seen.push(corpus::chapter_label(chapter));
+    }
+    assert!(seen.len() > 100, "seulement {} cases a l'ecran", seen.len());
+}
+
+/// Deep in a chapter, the pointer follows the **lines**: two lines of two
+/// different verses give two different breadcrumbs.
+#[test]
+fn the_pointer_follows_the_verses_of_a_chapter() {
+    let mut app = reference_app();
+    measure_all(&mut app);
+    dive_to_text(&mut app);
+
+    let centre_path = centre(&mut app);
+    let book = (0..corpus::book_count())
+        .find(|&b| Some(corpus::book_name(b)) == centre_path.book)
+        .expect("un livre sous le centre");
+    let chapter = corpus::chapters_of(book)
+        .find(|&c| Some(corpus::chapter_label(c)) == centre_path.chapter)
+        .expect("un chapitre sous le centre");
+
+    let lines = app.chapter_lines(chapter);
+    assert!(lines.len() >= 2, "il faut deux lignes pour comparer");
+
+    // The cells of a book are a few units apart, so a point near the edge of a
+    // line can fall nearer to the neighbouring chapter: we only keep the
+    // readings that landed on the chapter aimed at.
+    let wanted = corpus::chapter_label(chapter);
+    let mut verses: Vec<&'static str> = Vec::new();
+    for line in &lines {
+        let (px, py) = on_screen(&app, line.rect);
+        let Some(path) = under(&mut app, px, py) else { continue };
+        if path.chapter != Some(wanted) || path.book != centre_path.book {
+            continue;
+        }
+        let verse = path.verse.expect("une ligne du chapitre vise doit nommer son verset");
+        if verses.last() != Some(&verse) {
+            verses.push(verse);
+        }
+    }
+
+    assert!(verses.len() >= 2, "le pointeur ne distingue pas deux versets : {verses:?}");
+    // In reading order, and each one really of that chapter.
+    let order: Vec<&'static str> = corpus::verses_of(chapter).map(corpus::verse_label).collect();
+    let ranks: Vec<usize> =
+        verses.iter().map(|v| order.iter().position(|o| o == v).expect("verset du chapitre")).collect();
+    assert!(ranks.windows(2).all(|p| p[0] < p[1]), "les versets ne descendent pas dans l'ordre");
+}
+
+/// Hovering still changes nothing in the drawing: the breadcrumb is read
+/// beside the frame, never inside it.
+#[test]
+fn reading_the_breadcrumb_does_not_touch_the_drawing() {
+    let mut app = reference_app();
+    measure_all(&mut app);
+    let step = app.zoom_step();
+    app.zoom_at(app.width * 0.5, app.height * 0.5, step);
+
+    let before = frame(&mut app);
+    let (width, middle) = (app.width, app.height * 0.5);
+    for i in 0..20 {
+        let _ = under(&mut app, width * (i as f32) / 20.0, middle);
+    }
+    let after = frame(&mut app);
+    assert_eq!(before, after, "lire le fil d'Ariane a change le dessin");
+}

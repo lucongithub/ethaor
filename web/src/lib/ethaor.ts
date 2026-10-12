@@ -35,10 +35,17 @@ interface Wasm {
 	zoom(x: number, y: number, factor: number): void;
 	/** Factor of one wheel notch, computed by the module for this window. */
 	zoom_step(): number;
+	/** Chapter one can click on, or -1: the cursor shape follows it. */
 	hover(x: number, y: number): number;
+	/** Selects the passage under the point. 0 when nothing is clickable there. */
 	select(x: number, y: number): number;
+	/** Same, one step finer: the word under the point. */
+	select_word(x: number, y: number): number;
 	selection_ptr(): number;
+	/** Breadcrumb from the centre of the view. */
 	focus(): void;
+	/** Breadcrumb under a point: 1 if it names something, 0 if it falls back. */
+	focus_at(x: number, y: number): number;
 	focus_ptr(): number;
 	build_frame(): number;
 	frame_ptr(): number;
@@ -51,17 +58,40 @@ interface Wasm {
 	text_len(): number;
 }
 
+/**
+ * What a click selected.
+ *
+ * A click is only live on a passage one can read — the module refuses
+ * elsewhere — so a selection always carries its verse. A double click adds the
+ * word, with the rest of the verse split around it so the page can show it in
+ * place.
+ */
 export interface Selection {
 	book: number;
 	chapter: number;
 	verse: string;
+	/** Word under the point, on a double click only. */
+	word: string;
+	/** What precedes and follows the word inside the verse. */
+	head: string;
+	tail: string;
 }
 
-/** Where the centre of the view is. Feeds the breadcrumb. */
+/**
+ * Where one is. Feeds the breadcrumb.
+ *
+ * The depth is the module's business: it fills the levels the map really shows
+ * — the chapter with its number, the verse with its text — so an empty string
+ * means "not at that depth yet", never "unknown".
+ */
 export interface Focus {
 	section: string;
 	book: string;
 	chapter: string;
+	/** Number of the verse, in Hebrew letters. Empty above the reading zoom. */
+	verse: string;
+	/** True when it comes from the pointer rather than the centre of the view. */
+	hovered: boolean;
 }
 
 export interface TanakhMap {
@@ -221,8 +251,14 @@ export async function createTanakhMap(
 	function reportFocus() {
 		if (!onFocus) return;
 
-		wasm.focus();
-		const view = new Uint32Array(wasm.memory.buffer, wasm.focus_ptr(), 6);
+		// The pointer has priority over the centre of the view: one reads the
+		// breadcrumb to know what one is pointing at. With no pointer on the
+		// canvas — a touch screen, or the cursor gone — the module answers for
+		// the centre, which is what the zoom alone says.
+		const hovered = pointer !== null && wasm.focus_at(pointer.x, pointer.y) === 1;
+		if (!hovered && pointer === null) wasm.focus();
+
+		const view = new Uint32Array(wasm.memory.buffer, wasm.focus_ptr(), 8);
 		const read = (i: number) => (view[i + 1] ? fragment(view[i], view[i + 1]) : '');
 
 		const section = read(0);
@@ -234,8 +270,14 @@ export async function createTanakhMap(
 			return;
 		}
 
-		const next: Focus = { section, book: read(2), chapter: read(4) };
-		const key = `${next.section}|${next.book}|${next.chapter}`;
+		const next: Focus = {
+			section,
+			book: read(2),
+			chapter: read(4),
+			verse: read(6),
+			hovered
+		};
+		const key = `${next.section}|${next.book}|${next.chapter}|${next.verse}|${next.hovered}`;
 		if (key === lastFocus) return;
 
 		lastFocus = key;
@@ -279,6 +321,23 @@ export async function createTanakhMap(
 	let pinch = 0;
 	let moved = false;
 
+	/**
+	 * Last click that selected something, to tell a double click from two
+	 * clicks. The first click already shows the passage; the second one, close
+	 * enough in time and in space, refines it down to the word. Nothing is ever
+	 * delayed waiting for it.
+	 */
+	let lastClick = { at: 0, x: 0, y: 0 };
+	const DOUBLE_MS = 350;
+	const DOUBLE_PX = 24;
+
+	/**
+	 * Last position of the pointer on the canvas, in CSS pixels, or `null` when
+	 * it is gone. It is what the breadcrumb is read at: hovering a title, a
+	 * chapter or a line of verse says where **that** is, not where the view is.
+	 */
+	let pointer: { x: number; y: number } | null = null;
+
 	const local = (event: PointerEvent) => {
 		const rect = canvas.getBoundingClientRect();
 		return { x: event.clientX - rect.left, y: event.clientY - rect.top };
@@ -302,9 +361,10 @@ export async function createTanakhMap(
 	}
 
 	function onPointerMove(event: PointerEvent) {
+		pointer = local(event);
+
 		if (!pointers.has(event.pointerId)) {
-			const { x, y } = local(event);
-			canvas.style.cursor = wasm.hover(x, y) < 0 ? 'default' : 'pointer';
+			canvas.style.cursor = wasm.hover(pointer.x, pointer.y) < 0 ? 'default' : 'pointer';
 			draw();
 			return;
 		}
@@ -332,6 +392,12 @@ export async function createTanakhMap(
 		draw();
 	}
 
+	/** The pointer has left: the breadcrumb goes back to the centre of the view. */
+	function onPointerLeave() {
+		pointer = null;
+		draw();
+	}
+
 	function onPointerUp(event: PointerEvent) {
 		if (!pointers.has(event.pointerId)) return;
 		const single = pointers.size === 1;
@@ -340,7 +406,14 @@ export async function createTanakhMap(
 
 		if (single && !moved) {
 			const { x, y } = local(event);
-			onSelect?.(selectionAt(x, y));
+			const now = event.timeStamp;
+			const again =
+				now - lastClick.at < DOUBLE_MS &&
+				Math.hypot(x - lastClick.x, y - lastClick.y) < DOUBLE_PX;
+
+			const hit = selectionAt(x, y, again);
+			onSelect?.(hit);
+			lastClick = hit ? { at: now, x, y } : { at: 0, x: 0, y: 0 };
 		}
 		draw();
 	}
@@ -354,26 +427,35 @@ export async function createTanakhMap(
 		// landscape screen. The trackpad sends fractions of a notch, so fine
 		// tuning stays possible.
 		const steps = event.deltaMode === 1 ? -event.deltaY : -event.deltaY / 100;
-		wasm.zoom(
-			event.clientX - rect.left,
-			event.clientY - rect.top,
-			Math.pow(wasm.zoom_step(), steps)
-		);
+		pointer = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+		wasm.zoom(pointer.x, pointer.y, Math.pow(wasm.zoom_step(), steps));
 		draw();
 	}
 
 	/**
-	 * Hook for what comes next: Rust returns the full path, enough to show
-	 * tomorrow what is known about a word or a letter.
+	 * What a click selected: the passage, and the word too on a double click.
+	 *
+	 * The word is split out of the verse by **byte** offsets, read straight from
+	 * the module's memory: slicing the decoded string would be wrong, since one
+	 * Hebrew letter with its marks is several UTF-16 units.
 	 */
-	function selectionAt(x: number, y: number): Selection | null {
-		if (wasm.select(x, y) === 0) return null;
+	function selectionAt(x: number, y: number, word: boolean): Selection | null {
+		const hit = word ? wasm.select_word(x, y) : wasm.select(x, y);
+		if (hit === 0) return null;
 
-		const view = new Uint32Array(wasm.memory.buffer, wasm.selection_ptr(), 4);
-		const [book, chapter, offset, length] = view;
+		const view = new Uint32Array(wasm.memory.buffer, wasm.selection_ptr(), 6);
+		const [book, chapter, offset, length, at, size] = view;
 		if (length === 0) return null;
 
-		return { book, chapter, verse: fragment(offset, length) };
+		const inside = size > 0 && at >= offset && at + size <= offset + length;
+		return {
+			book,
+			chapter,
+			verse: fragment(offset, length),
+			word: inside ? fragment(at, size) : '',
+			head: inside ? fragment(offset, at - offset) : '',
+			tail: inside ? fragment(at + size, offset + length - at - size) : ''
+		};
 	}
 
 	function onResize() {
@@ -391,6 +473,7 @@ export async function createTanakhMap(
 	canvas.addEventListener('pointermove', onPointerMove);
 	canvas.addEventListener('pointerup', onPointerUp);
 	canvas.addEventListener('pointercancel', onPointerUp);
+	canvas.addEventListener('pointerleave', onPointerLeave);
 	canvas.addEventListener('wheel', onWheel, { passive: false });
 
 	const observer = new ResizeObserver(onResize);
@@ -411,6 +494,7 @@ export async function createTanakhMap(
 			canvas.removeEventListener('pointermove', onPointerMove);
 			canvas.removeEventListener('pointerup', onPointerUp);
 			canvas.removeEventListener('pointercancel', onPointerUp);
+			canvas.removeEventListener('pointerleave', onPointerLeave);
 			canvas.removeEventListener('wheel', onWheel);
 			if (frame !== null) cancelAnimationFrame(frame);
 		}
