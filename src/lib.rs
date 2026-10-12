@@ -15,6 +15,7 @@ mod hier;
 #[cfg(test)]
 mod tests;
 mod treemap;
+mod variant;
 
 use std::collections::HashMap;
 
@@ -167,6 +168,17 @@ const KIND_TEXT: f32 = 1.0;
 const KIND_CLIP: f32 = 2.0;
 const KIND_UNCLIP: f32 = 3.0;
 
+/// Ink of a text command, last slot of the record.
+///
+/// **The one colour of the map, and it carries information.** A run marked
+/// `INK_OTHER` is the other publication's reading, inserted after ours; the
+/// page paints it `yellow-200` and everything else a shade of white. The
+/// intensity of the white was tried first and set aside: it read as a faded
+/// text rather than as another voice. Which colour is the page's business —
+/// the module only says which run is which.
+const INK_OURS: f32 = 0.0;
+const INK_OTHER: f32 = 1.0;
+
 // ------------------------------------------------------------------ camera
 
 #[derive(Clone, Copy)]
@@ -225,6 +237,9 @@ struct App {
     commands: Vec<f32>,
     /// Diagnostic: nests kept at the last frame.
     last_nests: u32,
+    /// Runs of the other edition's reading drawn at the last frame. The page
+    /// shows the index at the bottom only when there is one on screen.
+    variant_runs: u32,
     /// One space from the corpus, to measure its width once and for all.
     space: Option<&'static str>,
     /// Layout of the chapters already visited. Invalidated as soon as a
@@ -275,6 +290,7 @@ impl App {
             pending: Vec::new(),
             commands: Vec::new(),
             last_nests: 0,
+            variant_runs: 0,
             space: None,
             lines: HashMap::new(),
             number: None,
@@ -475,7 +491,7 @@ impl App {
         let mut y = cell.y;
 
         for verse in verses {
-            let text = corpus::verse_text(verse);
+            let text = drawn(verse);
             for slice in self.wrap(text, cell.w, size) {
                 out.push(Line {
                     rect: Rect { x: cell.x, y, w: cell.w, h: size * line_k },
@@ -498,7 +514,7 @@ impl App {
         let mut lines = 0usize;
 
         for verse in verses {
-            let drawn = self.width_of(corpus::verse_text(verse), size);
+            let drawn = self.width_of(drawn(verse), size);
             let needed = if width > 0.0 { (drawn / width).ceil() as usize } else { 1 };
             lines += needed.max(1);
         }
@@ -670,8 +686,24 @@ impl App {
                 .min_by(|(a, _), (b, _)| horizontal_gap(*a, x).total_cmp(&horizontal_gap(*b, x)));
             if let Some((_, word)) = hit {
                 let (offset, len) = key_of(word);
-                out[4] = offset;
-                out[5] = len;
+                // The navbar names the passage, so it names our text. In a
+                // verse carrying another reading, a word of ours is given back
+                // without the mark that numbers it, and a word of the other
+                // edition names nothing: it is not in the passage.
+                match variant::display(line.verse) {
+                    None => {
+                        out[4] = offset;
+                        out[5] = len;
+                    }
+                    Some(shown) => {
+                        let rel = offset as usize - corpus::offset_of(shown);
+                        if let Some((at, kept)) = variant::corpus_span(line.verse, rel, len as usize) {
+                            let verse = corpus::offset_of(corpus::verse_text(line.verse));
+                            out[4] = (verse + at) as u32;
+                            out[5] = kept as u32;
+                        }
+                    }
+                }
             }
         }
 
@@ -993,8 +1025,17 @@ impl App {
     /// The legibility floor is the caller's choice: a title and a line of verse
     /// stop at `MIN_TEXT`, a chapter number at `MIN_NUMBER`.
     fn emit_text(&mut self, content: &'static str, area: Rect, size: f32, alpha: f32) {
+        self.emit_ink(content, area, size, alpha, INK_OURS);
+    }
+
+    /// Same, naming the ink. Only the other edition's reading uses anything but
+    /// `INK_OURS`.
+    fn emit_ink(&mut self, content: &'static str, area: Rect, size: f32, alpha: f32, ink: f32) {
         if alpha <= 0.01 {
             return;
+        }
+        if ink == INK_OTHER {
+            self.variant_runs += 1;
         }
         let (offset, len) = key_of(content);
         self.commands.extend_from_slice(&[
@@ -1007,8 +1048,27 @@ impl App {
             size,
             offset as f32,
             len as f32,
-            0.0,
+            ink,
         ]);
+    }
+
+    /// Lays one run of a line and gives back the right edge for the next one.
+    ///
+    /// A line is set flush right, so the runs are laid from the right: the
+    /// first of the string is the rightmost on screen. Alignment stays here,
+    /// never delegated — the engine is only asked for a width.
+    fn emit_run(
+        &mut self,
+        content: &'static str,
+        row: Rect,
+        right: f32,
+        size: f32,
+        alpha: f32,
+        ink: f32,
+    ) -> f32 {
+        let w = self.width_of(content, size);
+        self.emit_ink(content, Rect { x: right - w, y: row.y, w, h: row.h }, size, alpha, ink);
+        right - w
     }
 
     /// Width of the widest number of the Tanakh, for a font of size 1.
@@ -1060,6 +1120,7 @@ impl App {
         // new one. And there is no fallback nest any more: the fold happens on a
         // world already a thousand pixels wide, and the zoom-out stops while its
         // titles are legible. A white fill never said anything.
+        self.variant_runs = 0;
         self.draw_world(camera, 1.0);
         self.last_nests = u32::from(self.commands.is_empty());
     }
@@ -1318,10 +1379,43 @@ impl App {
     /// The size comes from the layout, not from the box: all the verses of a
     /// chapter share the same one, a long verse taking several lines rather than
     /// smaller characters.
+    /// Draws a line, cut at the readings of the other edition.
+    ///
+    /// A verse carrying one is drawn from its display string, where the other
+    /// form already takes its place in the flow — so nothing is ever painted
+    /// over anything. The line is then cut into runs, ours and theirs, each
+    /// with its own ink; a line without a variant stays one single command, as
+    /// before.
     fn draw_line(&mut self, line: Line, row: Rect, scale: f32, alpha: f32) {
         let size = line.size * scale;
-        if size >= MIN_TEXT {
+        if size < MIN_TEXT {
+            return;
+        }
+
+        let Some(shown) = variant::display(line.verse) else {
             self.emit_text(line.text, row, size, alpha);
+            return;
+        };
+
+        let start = corpus::offset_of(line.text) - corpus::offset_of(shown);
+        let end = start + line.text.len();
+        let mut right = row.x + row.w;
+        let mut cursor = start;
+
+        for insert in variant::inserts_of(line.verse) {
+            let (at, len) = insert.other_range();
+            let (from, to) = (at.max(start), (at + len).min(end));
+            if to <= from {
+                continue;
+            }
+            if from > cursor {
+                right = self.emit_run(&shown[cursor..from], row, right, size, alpha, INK_OURS);
+            }
+            right = self.emit_run(&shown[from..to], row, right, size, alpha, INK_OTHER);
+            cursor = to;
+        }
+        if cursor < end {
+            self.emit_run(&shown[cursor..end], row, right, size, alpha, INK_OURS);
         }
     }
 
@@ -1360,6 +1454,18 @@ fn number_in(layout: &Layout, widest: f32) -> f32 {
 /// add a margin to converge instead of merely following.
 fn pull(factor: f32) -> f32 {
     ((1.0 - 1.0 / factor.max(1.0)) + 0.12).clamp(0.0, 0.75)
+}
+
+/// The text of a verse **as it is drawn**.
+///
+/// For the eighty-eight verses where another publication of the edition reads
+/// differently, that is the welded display string: our verse with the other
+/// form inserted right after ours. Everything downstream works on this string
+/// and nothing else — wrapping, measuring, word boxes — so the other reading
+/// takes room in the flow instead of being painted over the text. The corpus
+/// keeps the verse untouched, which is what the breadcrumb and the click name.
+fn drawn(verse: usize) -> &'static str {
+    variant::display(verse).unwrap_or_else(|| corpus::verse_text(verse))
 }
 
 /// Text column of a cell: the cell minus its margin.
@@ -1650,6 +1756,15 @@ pub extern "C" fn probe_fade() -> f32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn probe_points() -> u32 {
     app().last_nests
+}
+
+/// Readings of the other edition drawn at the last frame.
+///
+/// The page shows the index under the canvas only when one is on screen: a
+/// legend explaining a mark nobody can see would be noise.
+#[unsafe(no_mangle)]
+pub extern "C" fn variants_drawn() -> u32 {
+    app().variant_runs
 }
 
 /// Diagnostic: geometry of a book in the world (0=x 1=y 2=w 3=h).

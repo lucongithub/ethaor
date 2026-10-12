@@ -15,6 +15,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const SRC_DIR: &str = "archive/t002/t";
+const VARIANTS: &str = "build/variants.tsv";
 
 fn main() {
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
@@ -23,6 +24,8 @@ fn main() {
     println!("cargo:rerun-if-changed={SRC_DIR}");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=build/mamre.rs");
+    println!("cargo:rerun-if-changed=build/variants.rs");
+    println!("cargo:rerun-if-changed={VARIANTS}");
 
     let mut files: Vec<PathBuf> = fs::read_dir(src)
         .unwrap_or_else(|e| panic!("source introuvable: {}: {e}", src.display()))
@@ -51,6 +54,7 @@ fn main() {
 // Reading the sources lives in its own file, included here: that is what lets
 // `tests/builder.rs` check it on the very code the build runs.
 include!("build/mamre.rs");
+include!("build/variants.rs");
 
 // -------------------------------------------------------------------- output
 
@@ -131,6 +135,11 @@ fn write_output(corpus: &Corpus, out: &Path) {
     }
     verse_text.push(text.len() as u32);
 
+    // region 5: display strings — our verse with the other edition's reading
+    // inserted. Only the verses of `variants.tsv` have one, so the region is a
+    // tail of a hundred strings, and a drawn line stays a slice of `text.bin`.
+    let (variants, report_variants) = weld_variants(corpus, &mut text);
+
     // hierarchical indices
     let (mut ci, mut vi) = (0u32, 0u32);
     for b in &corpus.books {
@@ -159,15 +168,87 @@ fn write_output(corpus: &Corpus, out: &Path) {
         bytes.extend_from_slice(&v.to_le_bytes());
     }
 
+    let mut variant_bytes = Vec::with_capacity(variants.len() * 4);
+    for v in &variants {
+        variant_bytes.extend_from_slice(&v.to_le_bytes());
+    }
+
     fs::write(out.join("text.bin"), text.as_bytes()).unwrap();
     fs::write(out.join("index.bin"), &bytes).unwrap();
+    fs::write(out.join("variants.bin"), &variant_bytes).unwrap();
 
     let mut report = String::new();
     let _ = writeln!(
         report,
-        "corpus: {n_books} livres, {n_chapters} chapitres, {n_verses} versets, {} Ko de texte, {} Ko d'index",
+        "corpus: {n_books} livres, {n_chapters} chapitres, {n_verses} versets, {} Ko de texte, {} Ko d'index, {report_variants}",
         text.len() / 1024,
         bytes.len() / 1024
     );
     println!("cargo:warning={}", report.trim());
+}
+
+/// Appends the display strings to the text and returns `variants.bin`.
+///
+/// Layout, in u32:
+///
+///   [0]  n_display   verses carrying a display string
+///   [1]  n_variant   differences, all verses together
+///   then n_display  x 3: verse, offset in text.bin, length
+///   then n_variant  x 4: verse, start of the insertion inside the display
+///                        string, length of the mark on our form, length of the
+///                        other reading
+///
+/// Both series are sorted by verse, and the insertions of one verse come in the
+/// order of the text: the module looks an entry up by dichotomy and reads the
+/// ranges in one pass.
+fn weld_variants(corpus: &Corpus, text: &mut String) -> (Vec<u32>, String) {
+    let specs = parse_variants(
+        &fs::read_to_string(VARIANTS).unwrap_or_else(|e| panic!("{VARIANTS} illisible : {e}")),
+    );
+
+    // Indexed by place, so the walk below costs one lookup per verse instead of
+    // a scan of the whole table.
+    let mut wanted: BTreeMap<(usize, usize, String), Vec<Variant>> = BTreeMap::new();
+    for s in &specs {
+        wanted
+            .entry((s.book, s.chapter, s.verse.clone()))
+            .or_default()
+            .push(s.clone());
+    }
+
+    let mut display: Vec<u32> = Vec::new();
+    let mut inserts: Vec<u32> = Vec::new();
+    let mut matched = 0usize;
+    let mut verse = 0u32;
+
+    for (bi, b) in corpus.books.iter().enumerate() {
+        for (ci, c) in b.chapters.iter().enumerate() {
+            for v in &c.verses {
+                if let Some(entries) = wanted.get(&(bi, ci + 1, v.label.clone())) {
+                    let (shown, spans) = display_of(&v.text, entries);
+                    display.extend_from_slice(&[verse, text.len() as u32, shown.len() as u32]);
+                    text.push_str(&shown);
+                    for s in &spans {
+                        inserts.extend_from_slice(&[verse, s.at as u32, s.mark as u32, s.other as u32]);
+                    }
+                    matched += entries.len();
+                }
+                verse += 1;
+            }
+        }
+    }
+
+    assert_eq!(
+        matched,
+        specs.len(),
+        "{} entrees de {VARIANTS} ne tombent sur aucun verset",
+        specs.len() - matched
+    );
+
+    let mut out = vec![(display.len() / 3) as u32, (inserts.len() / 4) as u32];
+    out.extend_from_slice(&display);
+    out.extend_from_slice(&inserts);
+
+    let report = format!("{} ecarts sur {} versets", inserts.len() / 4, display.len() / 3);
+    (out, report)
 }

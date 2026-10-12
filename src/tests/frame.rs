@@ -613,7 +613,7 @@ fn a_record_keeps_the_layout_the_page_reads() {
     assert!(text[3] > 0.0 && text[4] > 0.0, "largeur et hauteur de la boite");
     assert!(text[5] > 0.0 && text[5] <= 1.0, "alpha en 5");
     assert!(text[6] >= MIN_TEXT, "taille en 6");
-    assert_eq!(text[9], 0.0, "le dixieme mot est reserve");
+    assert_eq!(text[9], INK_OURS, "le dixieme mot porte l'encre");
 
     // The clip is given as a box, and nothing else.
     let clip = &words[0..STRIDE];

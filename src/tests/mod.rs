@@ -16,7 +16,9 @@ mod click;
 mod frame;
 mod geometry;
 mod locate;
+mod readings;
 mod text;
+
 
 use crate::*;
 
@@ -83,6 +85,9 @@ pub struct Command {
     pub size: f32,
     pub offset: u32,
     pub len: u32,
+    /// Last slot: the ink. `INK_OURS` everywhere but on the reading of the
+    /// other edition.
+    pub ink: f32,
 }
 
 impl Command {
@@ -110,6 +115,7 @@ pub fn commands(app: &App) -> Vec<Command> {
             size: c[6],
             offset: c[7] as u32,
             len: c[8] as u32,
+            ink: c[9],
         })
         .collect()
 }

@@ -131,6 +131,31 @@ mod mamre {
             assert!(!clean("א - ב").contains("  "));
         }
 
+        /// Mechon-Mamre closes the bracketed section of Psalm 107 inside the
+        /// label itself — `<B>קז,כג ]</B>` — and that bracket was read as part
+        /// of the verse number, which the breadcrumb then announced.
+        #[test]
+        fn an_editorial_mark_never_enters_a_rank() {
+            let html = "<BODY><H1>תהילים</H1><B>קז,כג ]</B> יורדי הים";
+            let mut corpus = Corpus::default();
+            parse_book_file(html, &mut corpus);
+
+            let chapter = &corpus.books[0].chapters[0];
+            assert_eq!(chapter.label, "קז");
+            assert_eq!(chapter.verses[0].label, "כג");
+        }
+
+        /// The source gives a few ranks joined — Psalm 70 opens on `ע,א-ב`,
+        /// one text under two numbers. The hyphen is part of the rank.
+        #[test]
+        fn a_joined_rank_keeps_its_hyphen() {
+            let html = "<BODY><H1>תהילים</H1><B>ע,א-ב</B> למנצח לדויד";
+            let mut corpus = Corpus::default();
+            parse_book_file(html, &mut corpus);
+
+            assert_eq!(corpus.books[0].chapters[0].verses[0].label, "א-ב");
+        }
+
         /// A book file holds one or more `<H1>`; the cover page of `t01.htm`
         /// carries no verse at all and must be dropped.
         #[test]
@@ -281,6 +306,137 @@ mod mamre {
                 books: vec![Book { name: "בראשית".into(), chapters: Vec::new() }],
             };
             reorder(&mut corpus);
+        }
+    }
+}
+
+/// The table of the other edition's readings, tested on the very code the
+/// build runs — `build/variants.rs`, included rather than copied.
+#[allow(dead_code, unused_imports)]
+mod variants {
+    include!("../build/variants.rs");
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        fn entry(word: usize, count: usize, ours: &str, other: &str) -> Variant {
+            Variant {
+                book: 0,
+                chapter: 1,
+                verse: "א".into(),
+                word,
+                count,
+                ours: ours.into(),
+                other: other.into(),
+                kind: "letters".into(),
+            }
+        }
+
+        // ------------------------------------------------------------ reading
+
+        #[test]
+        fn comments_and_blank_lines_are_skipped() {
+            let tsv = "# un commentaire\n\n0\t1\tא\t2\t1\tאב\tאג\tletters\n";
+            let out = parse_variants(tsv);
+            assert_eq!(out.len(), 1);
+            assert_eq!(out[0], entry(2, 1, "אב", "אג"));
+        }
+
+        #[test]
+        #[should_panic(expected = "colonnes")]
+        fn a_short_line_stops_the_build() {
+            parse_variants("0\t1\tא\t2\n");
+        }
+
+        #[test]
+        #[should_panic(expected = "vide")]
+        fn an_empty_table_stops_the_build() {
+            parse_variants("# rien que des commentaires\n");
+        }
+
+        // ------------------------------------------------------------ anchors
+
+        /// A rank, never a search: a form may appear twice in the same verse,
+        /// and only the index says which one is meant.
+        #[test]
+        fn a_span_is_found_by_rank() {
+            let text = "אא בב גג דד";
+            assert_eq!(word_span(text, 0, 1), (0, 4));
+            assert_eq!(word_span(text, 1, 1), (5, 4));
+            assert_eq!(word_span(text, 3, 1), (15, 4));
+            // Several words: the span runs from the first to the last, spaces
+            // included.
+            assert_eq!(word_span(text, 1, 2), (5, 9));
+            assert_eq!(word_span(text, 0, 4), (0, 19));
+            let (at, len) = word_span(text, 1, 2);
+            assert_eq!(&text[at..at + len], "בב גג");
+        }
+
+        #[test]
+        #[should_panic(expected = "hors du verset")]
+        fn a_span_past_the_verse_stops_the_build() {
+            word_span("אא בב", 1, 5);
+        }
+
+        #[test]
+        #[should_panic(expected = "ancre absente")]
+        fn a_wrong_anchor_stops_the_build() {
+            display_of("אא בב גג", &[entry(1, 1, "דד", "הה")]);
+        }
+
+        // ------------------------------------------------------------ display
+
+        /// **The display string is the verse, plus insertions.** Taking the
+        /// insertions back out gives the verse again — that is what makes the
+        /// map add to our text instead of replacing it.
+        #[test]
+        fn the_display_string_is_the_verse_plus_the_other_reading() {
+            let text = "אא בב גג";
+            let (shown, inserts) = display_of(text, &[entry(1, 1, "בב", "בג")]);
+            assert_eq!(inserts.len(), 1);
+
+            let Insert { at, mark, other } = inserts[0];
+            assert_eq!(&shown[..at], "אא בב", "ce qui precede est intact");
+            assert_eq!(&shown[at..at + mark], MARK_OURS, "la marque suit notre forme");
+            assert_eq!(&shown[at + mark..at + mark + other], format!(" {OPEN}בג{CLOSE}{MARK_OTHER}"));
+            assert_eq!(&shown[at + mark + other..], " גג", "ce qui suit est intact");
+
+            let mut rebuilt = String::from(&shown[..at]);
+            rebuilt.push_str(&shown[at + mark + other..]);
+            assert_eq!(rebuilt, text, "le verset n'est pas retrouve");
+        }
+
+        #[test]
+        fn several_readings_in_one_verse_stay_in_order() {
+            let text = "אא בב גג דד";
+            let (shown, inserts) =
+                display_of(text, &[entry(0, 1, "אא", "אב"), entry(2, 1, "גג", "גד")]);
+            assert_eq!(inserts.len(), 2);
+            assert!(inserts[0].at < inserts[1].at, "insertions desordonnees");
+
+            let mut rebuilt = String::new();
+            let mut cursor = 0;
+            for Insert { at, mark, other } in inserts {
+                rebuilt.push_str(&shown[cursor..at]);
+                cursor = at + mark + other;
+            }
+            rebuilt.push_str(&shown[cursor..]);
+            assert_eq!(rebuilt, text);
+        }
+
+        #[test]
+        #[should_panic(expected = "entrees non ordonnees")]
+        fn entries_out_of_order_stop_the_build() {
+            display_of("אא בב גג", &[entry(2, 1, "גג", "גד"), entry(0, 1, "אא", "אב")]);
+        }
+
+        /// A verse with no entry is left exactly as it is.
+        #[test]
+        fn a_verse_without_an_entry_is_untouched() {
+            let (shown, inserts) = display_of("אא בב", &[]);
+            assert_eq!(shown, "אא בב");
+            assert!(inserts.is_empty());
         }
     }
 }

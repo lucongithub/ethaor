@@ -10,7 +10,7 @@ its volume, and zooming reveals its contents inside it.
 
 **Rules here, numbers in tests.** This file states invariants, intent and
 rejected alternatives — the things a test cannot express. Every measurement,
-ratio, count and threshold lives in `cargo test` (174 tests, 2 s), which is the
+ratio, count and threshold lives in `cargo test` (199 tests, 2 s), which is the
 only place they stay true. Do not restate a measured value here; if a rule can
 be asserted, assert it and leave only the *why* in prose.
 
@@ -49,7 +49,9 @@ Same layout as check8ge: Rust crate at the root, SvelteKit app in `web/`.
 ```
 Cargo.toml, build.rs, src/      WebAssembly module — all computation
 build/mamre.rs                  source reading, included by build.rs
-src/{corpus,hier,treemap}/tests.rs   module-private tests
+build/variants.rs               the other edition's readings, same inclusion
+build/variants.tsv              their table, measured and versioned
+src/{corpus,hier,treemap,variant}/tests.rs   module-private tests
 src/tests/                      app tests: camera, frame, click, breadcrumb, …
 tests/builder.rs                corpus build tests
 web/                            SvelteKit 2 + Svelte 5 + Tailwind 4
@@ -70,7 +72,7 @@ and two theme tokens (`--font-sans`, `--font-hebrew`).
 ## Build
 
 ```sh
-cargo test         # 174 tests, 2 s — before any commit
+cargo test         # 199 tests, 2 s — before any commit
 cd web
 npm install
 npm run wasm       # cargo build --release, then copy into static/
@@ -114,10 +116,26 @@ Source traps, handled in `build.rs`:
 - the first `<H1>` of `t01.htm` is a cover page, no verse.
 - cleaning strips `{פ} {ס} {ר} {ש}` and all punctuation. The maqaf joins two
   distinct words, so it becomes a **space**, not a deletion.
+- an **editorial mark can sit inside a rank**: Psalm 107 closes its bracketed
+  section in the label itself (`<B>קז,כג ]</B>`). A rank keeps Hebrew letters
+  and the hyphen of the joined ranks (`ע,א-ב`, one text under two numbers) —
+  anything else is markup, and the breadcrumb was reading it out.
 - four books are split (`SPLITS`): Mechon-Mamre numbers Samuel, Kings,
   Chronicles and Ezra/Nehemiah straight through with **no restart at `א`**, so
   we cut at the traditional rank and renumber with `hebrew_numeral`, where 15
   and 16 are `טו` / `טז`, never `יה` / `יו`.
+
+**Where another publication of the edition reads otherwise, the map shows
+both** (`build/variants.tsv`, 94 readings over 88 verses). The table was
+measured word by word against Miqra according to the Masorah, book by book —
+numbering plays no part — and every entry is **anchored by rank**, never by
+searching for a form: a form can appear twice in a verse, and only the index
+says which one is meant. The build checks each anchor and stops if one has
+moved, so the table cannot drift away from the source.
+
+Setting apart what is not the text: the other edition's own apparatus (its
+notes on Sefarad, Ashkenaz, Yemen or the Keter), its pointing of the divine
+name, and the cantillation — which our source does not carry at all.
 
 ## Layout (`treemap.rs`)
 
@@ -222,6 +240,35 @@ what is on screen. Everything follows:
 - **Goal: dive into the text fast.** Overview shows books, the first notch the
   chapter numbers, verses around the tenth notch (window-dependent). It used to
   take twice that.
+
+### The other reading
+
+- **It takes its place in the flow, it is never laid over the text.** The
+  build welds, for each verse concerned, a **display string** — our verse with
+  the other form inserted right after ours — and the verse is laid out from
+  that string: wrapping, measuring, word boxes, all of it. Painting it on top
+  would have broken the one rule the frame tests hold, that nothing covers
+  anything.
+- **The other reading is bracketed**, as both editions print an alternative
+  reading themselves. Side by side with a space alone the two forms read as two
+  words of the verse; the brackets say they are one place in two versions,
+  which no colour says.
+- Each form carries its index, `¹` ours and `²` theirs, and the page names the
+  two editions in a row under the canvas — shown only while one is on screen,
+  and taking its own row, so no pixel of map is lost. Each entry gives the
+  edition, then who publishes it in parentheses, and **wears the colour of the
+  form it names** — so the index is read twice over, by the number and by the
+  ink. The row reads right to left, like the map it explains.
+- **The ink is the last slot of a text record**, and it is all the page is
+  told: a run is ours or theirs, and which colour stands for which is the
+  page's business. Both are drawn at the same strength — the colour alone sets
+  them apart. A line is therefore cut into runs at drawing time, laid from the
+  right like everything else; a verse without a variant stays one single
+  command.
+- **The breadcrumb and the click keep naming our text.** They read the corpus,
+  which the display string leaves untouched. A word of ours is given back
+  without the mark that numbers it; a word of the other edition names nothing,
+  since the passage does not contain it.
 
 ### Labels
 
@@ -414,7 +461,12 @@ will do.
 
 ## Interface
 
-Monochrome: black background, structures in shades of white. No colour.
+Monochrome: black background, structures in shades of white — with **one
+exception, and it carries information**: the other publication's reading, in
+`yellow-200`, where its text and ours part ways. Rank, level and emphasis keep
+to the white; the colour says "another voice", which no shade of white says.
+Rejected: setting it apart by the intensity of the white alone — it read as a
+faded text rather than as a second reading.
 
 **No frame, no fill.** Neither outline nor plate: sections, books and chapters
 share the same black, and only letters carry information. Rank reads in the
@@ -479,7 +531,7 @@ units.
 
 **Nothing is added to the computation without a test.** That is the counterpart
 of the guiding principle: if everything is computed here, everything is verified
-here. `cargo test` holds 174 tests and answers in 2 s, so there is no reason not
+here. `cargo test` holds 199 tests and answers in 2 s, so there is no reason not
 to run it at every step.
 
 ```sh
@@ -508,7 +560,9 @@ anywhere must be an assertion.
 | `src/tests/locate.rs` | every point of a book box names one of its chapters, none in the air between portions; hover says what the click will do |
 | `src/tests/text.rs` | one size per chapter; lines recompose the verse **byte for byte**; every line stays a corpus slice; letters right-to-left |
 | `src/tests/api.rs` | the interface the page really calls, global state under a lock: gestures, selection, breadcrumb at centre and under pointer, forgetting measurements, probes |
-| `tests/builder.rs` | `build/mamre.rs` included, not copied: cp1255 and byte 0xCA, Hebrew numerals, cover page, document order, the four cuts, canonical order |
+| `src/variant/tests.rs` | the welded table: taking the insertions out gives the verse back byte for byte, every range is a slice on a letter boundary, an offset is mapped back to the verse or refused |
+| `src/tests/readings.rs` | the other reading **in the flow, never over it**: the runs of a line tile it from the right and recompose it, the ink marks theirs and only theirs, a verse without a variant stays one command, a click never names the other edition |
+| `tests/builder.rs` | `build/mamre.rs` and `build/variants.rs` included, not copied: cp1255 and byte 0xCA, Hebrew numerals, cover page, document order, the four cuts, canonical order; a reading anchored by rank, the display string that gives the verse back |
 
 ### Rules for what comes next
 

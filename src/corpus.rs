@@ -10,9 +10,9 @@
 /// `include_bytes!` promises no alignment; without this, reinterpreting the
 /// bytes as `u32` would be undefined behaviour.
 #[repr(C)]
-struct Align4<T: ?Sized> {
-    _align: [u32; 0],
-    bytes: T,
+pub struct Align4<T: ?Sized> {
+    pub _align: [u32; 0],
+    pub bytes: T,
 }
 
 static TEXT: &str = include_str!(concat!(env!("OUT_DIR"), "/text.bin"));

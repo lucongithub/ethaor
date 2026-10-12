@@ -20,6 +20,23 @@ export const HEBREW_FONT =
 /** Reference size for measuring: width is proportional. */
 const REFERENCE = 100;
 
+/**
+ * The one colour of the map, and it carries information: the reading of the
+ * other publication of the edition, inserted after ours. Everything else is a
+ * shade of white. Tailwind's yellow-200, the same the index uses under the
+ * canvas.
+ */
+const OTHER_READING = '254,240,138';
+
+
+/**
+ * What the module welds into the text around the other reading: the two index
+ * marks and the brackets. They live in the Latin block, so the font's latin
+ * subset must be loaded before the first measurement, like the Hebrew one — a
+ * width taken on a fallback font would be cached and wrong for good.
+ */
+const MARKS = '¹²[]';
+
 const KIND_RECT = 0;
 const KIND_TEXT = 1;
 const KIND_CLIP = 2;
@@ -56,6 +73,8 @@ interface Wasm {
 	clear_ratios(): void;
 	text_ptr(): number;
 	text_len(): number;
+	/** Readings of the other edition drawn at the last frame. */
+	variants_drawn(): number;
 }
 
 /**
@@ -113,6 +132,12 @@ export interface MapOptions {
 	 * breadcrumb that says where one is.
 	 */
 	onFocus?: (focus: Focus | null) => void;
+	/**
+	 * Called when the number of readings of the other edition on screen
+	 * changes. The page shows the index under the canvas only while there is
+	 * one to explain.
+	 */
+	onReadings?: (count: number) => void;
 	/** Path to the module, prefixed by `base` in case of a subdirectory. */
 	wasmUrl?: string;
 }
@@ -121,7 +146,7 @@ export async function createTanakhMap(
 	canvas: HTMLCanvasElement,
 	options: MapOptions = {}
 ): Promise<TanakhMap> {
-	const { onSelect, onFocus, wasmUrl = '/ethaor.wasm' } = options;
+	const { onSelect, onFocus, onReadings, wasmUrl = '/ethaor.wasm' } = options;
 
 	const context = canvas.getContext('2d', { alpha: false });
 	if (!context) throw new Error('canvas 2d indisponible');
@@ -131,7 +156,7 @@ export async function createTanakhMap(
 	// a fallback font would be cached and wrong for good.
 	if (document.fonts) {
 		try {
-			await document.fonts.load(`16px ${HEBREW_FONT}`, 'א');
+			await document.fonts.load(`16px ${HEBREW_FONT}`, `א${MARKS}`);
 			await document.fonts.ready;
 		} catch {
 			// Font unavailable: the system fallback will do.
@@ -233,8 +258,11 @@ export async function createTanakhMap(
 				continue;
 			}
 
+			// The last slot says what the run is: everything is white but the
+			// other edition's reading, which the module cut out as its own run.
+			const tint = commands[i + 9] > 0 ? OTHER_READING : '255,255,255';
 			ctx.font = `${commands[i + 6]}px ${HEBREW_FONT}`;
-			ctx.fillStyle = `rgba(255,255,255,${commands[i + 5]})`;
+			ctx.fillStyle = `rgba(${tint},${commands[i + 5]})`;
 			ctx.fillText(fragment(commands[i + 7], commands[i + 8]), x, y);
 		}
 
@@ -244,7 +272,17 @@ export async function createTanakhMap(
 		}
 
 		reportFocus();
+		reportReadings();
 		measurePending();
+	}
+
+	let lastReadings = -1;
+	function reportReadings() {
+		if (!onReadings) return;
+		const count = wasm.variants_drawn();
+		if (count === lastReadings) return;
+		lastReadings = count;
+		onReadings(count);
 	}
 
 	let lastFocus = '';

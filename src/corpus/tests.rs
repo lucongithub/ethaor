@@ -180,7 +180,13 @@ fn verse_texts_are_clean() {
 /// The 0xCA fix of `decode_cp1255`: without it, 414 signs are lost.
 #[test]
 fn the_holam_haser_of_mechon_mamre_survived() {
-    let count = text().chars().filter(|&c| c == '\u{05BA}').count();
+    // Counted over the verses, not over the whole block: the display strings
+    // of `variant` repeat a few words at the end of it.
+    let count = (0..verse_count())
+        .map(verse_text)
+        .flat_map(str::chars)
+        .filter(|&c| c == '\u{05BA}')
+        .count();
     assert_eq!(count, 414, "le correctif de l'octet 0xCA a bouge");
 }
 
@@ -241,6 +247,13 @@ fn the_text_regions_follow_the_documented_order() {
     assert!(offset_of(book_name(book_count() - 1)) < offset_of(chapter_label(0)));
     assert!(offset_of(chapter_label(chapter_count() - 1)) < offset_of(verse_label(0)));
     assert!(offset_of(verse_label(verse_count() - 1)) < offset_of(verse_text(0)));
+
+    // Region 5 closes the block: the display strings of the verses carrying
+    // another reading, after the verses themselves.
     let last = verse_text(verse_count() - 1);
-    assert_eq!(offset_of(last) + last.len(), text().len());
+    let shown: Vec<&str> = (0..verse_count()).filter_map(crate::variant::display).collect();
+    assert!(!shown.is_empty(), "aucune chaine d'affichage");
+    assert!(offset_of(last) + last.len() <= offset_of(shown[0]));
+    let tail = shown[shown.len() - 1];
+    assert_eq!(offset_of(tail) + tail.len(), text().len());
 }

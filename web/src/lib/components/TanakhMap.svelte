@@ -7,6 +7,7 @@
 	let map = $state<TanakhMap | null>(null);
 	let selection = $state<Selection | null>(null);
 	let focus = $state<Focus | null>(null);
+	let readings = $state(0);
 	let error = $state<string | null>(null);
 
 	onMount(() => {
@@ -15,7 +16,8 @@
 		createTanakhMap(canvas, {
 			wasmUrl: `${base}/ethaor.wasm`,
 			onSelect: (hit) => (selection = hit),
-			onFocus: (where) => (focus = where)
+			onFocus: (where) => (focus = where),
+			onReadings: (count) => (readings = count)
 		})
 			.then((created) => {
 				handle = created;
@@ -71,6 +73,32 @@
 	<!-- `touch-action: none` is indispensable: without it the mobile browser
 	     intercepts the pinch and the drag before we do. -->
 	<canvas bind:this={canvas} class="min-h-0 w-full flex-1 touch-none bg-black"></canvas>
+
+	<!-- Index of the readings. Where another publication of the same edition
+	     reads otherwise, the map shows our form then theirs, and this row says
+	     which is which. It appears only while there is one on screen, and it
+	     takes its own row: nothing is ever covered. -->
+	{#if readings > 0}
+		<footer
+			class="flex shrink-0 flex-wrap items-center justify-center gap-x-5 gap-y-1 border-t border-white/10
+			       px-3 py-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] text-xs text-white
+			       sm:px-4 sm:text-sm"
+			dir="rtl"
+		>
+			<span>
+				¹
+				<span class="font-hebrew" dir="rtl">נוסח ברויאר</span>
+				<span class="font-hebrew" dir="rtl">(מכון ממרא)</span>
+			</span>
+			<!-- The second entry wears the colour of the reading it names, the
+			     one the map paints in the text. -->
+			<span class="text-yellow-200">
+				²
+				<span class="font-hebrew" dir="rtl">מקרא על פי המסורה</span>
+				<span dir="ltr">(sefaria.org)</span>
+			</span>
+		</footer>
+	{/if}
 </div>
 
 {#if !map && !error}
@@ -111,11 +139,6 @@
 		>
 			×
 		</button>
-
-		<p dir="ltr" class="mb-2 text-xs tracking-wider text-white/55">
-			livre {selection.book + 1} · chapitre {selection.chapter + 1}
-			{#if selection.word}· mot{/if}
-		</p>
 
 		<!-- A click gives the passage; a double click gives the word, shown in
 		     place inside its passage rather than torn out of it. -->

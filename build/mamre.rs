@@ -186,7 +186,7 @@ fn parse_book_file(html: &str, corpus: &mut Corpus) {
             let Some((label, text)) = seg.split_once("</B>") else { continue };
             let label = strip_tags(label);
             let Some((chap, verse)) = label.split_once(',') else { continue };
-            let (chap, verse) = (chap.trim().to_string(), verse.trim().to_string());
+            let (chap, verse) = (label_only(chap), label_only(verse));
 
             let text = clean(text);
             if text.is_empty() {
@@ -208,6 +208,17 @@ fn parse_book_file(html: &str, corpus: &mut Corpus) {
         let chapters = order.into_iter().map(|k| chapters.remove(&k).unwrap()).collect();
         corpus.books.push(Book { name, chapters });
     }
+}
+
+/// A rank, with nothing but what writes it.
+///
+/// The source carries editorial marks inside the label itself: Mechon-Mamre
+/// closes the bracketed section of Psalm 107 with `<B>קז,כג ]</B>`. A rank is
+/// Hebrew letters, plus the hyphen of the ranks the source gives joined
+/// (`א-ב`, two verses under one number); anything else is markup and would be
+/// read out as part of the number.
+fn label_only(s: &str) -> String {
+    s.chars().filter(|c| matches!(c, '\u{05D0}'..='\u{05EA}' | '-')).collect()
 }
 
 fn strip_tags(s: &str) -> String {
