@@ -61,7 +61,7 @@ fn dive_to_text(app: &mut App) -> usize {
 #[test]
 fn the_framing_names_a_portion_and_a_book() {
     for (w, h) in WINDOWS {
-        let mut app = app_at(w, h);
+        let mut app = framed_app(w, h);
         measure_all(&mut app);
         let path = centre(&mut app);
         assert!(path.section.is_some(), "{w}x{h}: aucune portion au cadrage");
@@ -200,35 +200,57 @@ fn the_verse_level_is_a_number() {
 /// whatever the centre of the view says.
 #[test]
 fn the_pointer_names_the_book_it_is_on() {
-    let mut app = reference_app();
-    measure_all(&mut app);
+    let mut app = reference_framed();
+    let camera = app.camera;
 
     let mut named = 0;
     for book in 0..corpus::book_count() {
-        let (px, py) = on_screen(&app, app.layout.books[book]);
+        let ink = app.book_ink(book, camera).expect("le titre du livre est dessine");
+        let (px, py) = (ink.x + ink.w / 2.0, ink.y + ink.h / 2.0);
         if px < 0.0 || py < 0.0 || px > app.width || py > app.height {
             continue;
         }
-        let path = under(&mut app, px, py).expect("une boite de livre nomme quelque chose");
+        let path = under(&mut app, px, py).expect("un titre de livre nomme son livre");
         assert_eq!(path.book, Some(corpus::book_name(book)), "le pointeur nomme un autre livre");
         named += 1;
     }
     assert_eq!(named, corpus::book_count(), "tous les livres sont a l'ecran au cadrage");
 }
 
-/// Pointing at the **title of a portion** names the portion, and stops there:
-/// that band belongs to no book.
+/// **A portion is named by its own letters, and by nothing else.**
+///
+/// Its name belongs to no book, so it names the portion alone. And the band
+/// around the letters is not the letters: pointing in the air beside them used
+/// to name the portion from half a screen away. Checked in the two states the
+/// name is drawn in — the cards of the opening, and the band above the books.
 #[test]
 fn the_pointer_on_a_portion_title_names_the_portion_alone() {
-    let mut app = reference_app();
-    measure_all(&mut app);
-    for section in 0..3 {
-        let band = app.layout.section_bands[section];
-        let (px, py) = on_screen(&app, Rect { h: band.h * 0.5, ..band });
-        let path = under(&mut app, px, py).expect("la bande d'une portion nomme la portion");
-        assert_eq!(path.section, Some(corpus::section_name(section)));
-        assert_eq!(path.book, None, "une bande de portion ne nomme aucun livre");
-        assert_eq!(path.chapter, None);
+    for framed in [false, true] {
+        let mut app = if framed { reference_framed() } else { reference_app() };
+        measure_all(&mut app);
+        if framed {
+            at_framing(&mut app);
+            app.build_frame();
+        }
+        let camera = app.camera;
+
+        for section in 0..3 {
+            let ink = app.section_ink(section, camera).expect("le nom de la portion est dessine");
+            let (px, py) = (ink.x + ink.w / 2.0, ink.y + ink.h / 2.0);
+            let path = under(&mut app, px, py).expect("les lettres nomment leur portion");
+            assert_eq!(path.section, Some(corpus::section_name(section)), "portion {section}");
+            assert_eq!(path.book, None, "un nom de portion nomme un livre");
+            assert_eq!(path.chapter, None, "un nom de portion nomme un chapitre");
+
+            // The air at the left of the same letters: nothing.
+            let beside = ink.x - ink.w;
+            if beside > 0.0 {
+                assert!(
+                    under(&mut app, beside, py).is_none(),
+                    "l'air a cote du nom de la portion {section} nomme quelque chose"
+                );
+            }
+        }
     }
 }
 
@@ -247,7 +269,8 @@ fn the_pointer_in_the_air_names_nothing() {
     let (px, py) = (1.0, app.height * 0.5);
     assert!(under(&mut app, px, py).is_none(), "le noir du bord nomme quelque chose");
 
-    // And the centre still answers, so the breadcrumb does not blink out.
+    // And the centre, asked for itself, still answers: that is what the page
+    // falls back on when there is no pointer at all.
     assert!(centre(&mut app).section.is_some());
 }
 
@@ -385,10 +408,62 @@ fn the_void_of_a_cell_names_no_chapter() {
         if vx >= on_screen(&app, ink).0 - app.camera.project(ink).w {
             continue; // a narrow cell: the void and the ink overlap
         }
-        let off = under(&mut app, vx, vy).expect("le vide reste dans le livre");
-        assert_eq!(off.chapter, None, "le vide de la case {chapter} nomme un chapitre");
-        assert_eq!(off.book, Some(corpus::book_name(book_of(chapter))), "le vide a perdu le livre");
+        // Nothing is drawn there: neither the number, nor the title of the
+        // book, so nothing is named and the centre of the view takes over.
+        assert!(
+            under(&mut app, vx, vy).is_none(),
+            "le vide de la case {chapter} nomme quelque chose"
+        );
         tested += 1;
     }
     assert!(tested > 50, "seulement {tested} cases testees");
+}
+
+/// **The void of a book box names no book.** Once the numbers are out, the
+/// title falls back into its band and the block takes the top right: most of
+/// the box carries no ink, and pointing there used to name a book whose letters
+/// were an inch away. On nothing, the pointer names nothing, and the centre of
+/// the view takes over — the rule the air between portions already followed.
+#[test]
+fn the_void_of_a_book_box_names_no_book() {
+    let mut app = reference_framed();
+    let step = app.zoom_step();
+    app.zoom_at(app.width * 0.5, app.height * 0.5, step);
+    app.build_frame();
+
+    let camera = app.camera;
+    assert!(app.chapters_ready(camera), "les numeros ne sont pas sortis");
+
+    let on_screen_point = |app: &App, x: f32, y: f32| x >= 0.0 && y >= 0.0 && x <= app.width && y <= app.height;
+    let mut named = 0usize;
+    let mut voids = 0usize;
+
+    for book in 0..corpus::book_count() {
+        let Some(ink) = app.book_ink(book, camera) else { continue };
+        let rect = camera.project(app.layout.books[book]);
+
+        // The name itself: it names its book, and no chapter — a title belongs
+        // to no cell.
+        let (tx, ty) = (ink.x + ink.w / 2.0, ink.y + ink.h / 2.0);
+        if on_screen_point(&app, tx, ty) {
+            let path = under(&mut app, tx, ty).expect("le titre nomme son livre");
+            assert_eq!(path.book, Some(corpus::book_name(book)), "le titre du livre {book}");
+            assert_eq!(path.chapter, None, "le titre du livre {book} nomme un chapitre");
+            named += 1;
+        }
+
+        // The void: at the left of the box, below the band where the title
+        // sits. No ink of any level is there.
+        let (vx, vy) = (rect.x + rect.w * 0.03, ink.y + ink.h * 1.5);
+        if !on_screen_point(&app, vx, vy) || vy > rect.y + rect.h {
+            continue;
+        }
+        assert!(
+            under(&mut app, vx, vy).is_none(),
+            "le vide du livre {book} nomme quelque chose"
+        );
+        voids += 1;
+    }
+    assert!(named > 5, "seulement {named} titres testes");
+    assert!(voids > 5, "seulement {voids} vides testes");
 }

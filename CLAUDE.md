@@ -10,7 +10,7 @@ its volume, and zooming reveals its contents inside it.
 
 **Rules here, numbers in tests.** This file states invariants, intent and
 rejected alternatives — the things a test cannot express. Every measurement,
-ratio, count and threshold lives in `cargo test` (205 tests, 2 s), which is the
+ratio, count and threshold lives in `cargo test` (206 tests, 2 s), which is the
 only place they stay true. Do not restate a measured value here; if a rule can
 be asserted, assert it and leave only the *why* in prose.
 
@@ -72,7 +72,7 @@ and two theme tokens (`--font-sans`, `--font-hebrew`).
 ## Build
 
 ```sh
-cargo test         # 205 tests, 2 s — before any commit
+cargo test         # 206 tests, 2 s — before any commit
 cd web
 npm install
 npm run wasm       # cargo build --release, then copy into static/
@@ -313,11 +313,17 @@ what is on screen. Everything follows:
   otherwise: one reads the breadcrumb to know what is under the cursor. The
   level stays the zoom's — hovering a book in overview gives portion and book,
   not a chapter.
-- A **portion title band** names the portion and stops there: it belongs to no
-  book. Elsewhere the click rule applies as is — **tolerance stops at the
-  book**: in the black around the map, or in the air between portions, the
-  pointer names nothing, `focus_at` returns 0 and the view centre speaks again.
-  So the breadcrumb never flickers.
+- A **portion's name** names the portion and stops there: it belongs to no
+  book.
+- **The pointer on nothing clears the breadcrumb.** In the black around the
+  map, in the air between portions, in the void of a box — `focus_at` returns 0
+  and the row empties. Falling back to the centre of the view was tried: it
+  kept the last position on screen, which read as a place the pointer had
+  already left. Price: the breadcrumb blinks out between two letters. Accepted
+  — naming somewhere one is not is worse than naming nowhere.
+- With **no pointer at all** — a touch screen, the cursor gone from the canvas
+  — the page asks `focus` instead and the centre of the view speaks: there is
+  no hover for it to contradict.
 - The verse is given by its **number**, not its text: it is a position and must
   fit one navbar row. Text comes from a click (`select`).
 - Each title is clipped **in width only**. A small book's band is lower than the
@@ -481,15 +487,30 @@ Without it, aiming between two boxes never descended.
 nothing. `hover` follows the same rule, so the pointer announces what a click
 will do.
 
-**That tolerance is the zoom's, not the pointer's.** A cell is far wider than
-its number — the stride is the densest book's — so most of a cell is void, and
-naming a chapter from anywhere in its box made the breadcrumb and the index
-answer for a letter the pointer was several cells away from. So a chapter
-showing a number is named only when the pointer is **on that number**
-(`names_chapter`, on the geometry `draw_book` draws it with). Where the text is
-drawn the rule stays the click's, which the cursor must not contradict — and
-there the lines fill the column anyway. The view centre keeps the tolerance: it
-is not a pointer, and the breadcrumb must answer for it wherever it falls.
+**That tolerance is the zoom's, not the pointer's.** A box is mostly void: a
+cell is far wider than its number — the stride is the densest book's — and a
+book's title falls back into its band as soon as the numbers are out. Naming
+from anywhere in a box made the breadcrumb answer for letters the pointer was
+an inch away from.
+
+So **the pointer names what it is drawn on, level by level, and nothing else**.
+Each level has its own ink, taken from the very geometry the drawing uses — a
+portion's name (`section_ink`, two geometries: the cards of the opening, the
+band above the books), a book's name (`book_ink`), a chapter's number
+(`names_chapter`), a line of verse. Deepest first, and they never overlap,
+since a band is reserved for its title. **On nothing, nothing**: the pointer
+answers 0 and the centre of the view takes over, the rule the air between
+portions already followed.
+
+It follows that **a level that is not drawn cannot be named**. At the opening
+the map is three words, so no book can appear in the breadcrumb — not even from
+the view centre, which is gated on `books_drawn` for the same reason. A
+portion's name still names its portion alone: it belongs to no book.
+
+Where the text is drawn the rule stays the click's, which the cursor must not
+contradict — and there the lines fill the column anyway. The view centre keeps
+the tolerance of `locate`: it is not a pointer, and the breadcrumb must answer
+for it wherever it falls.
 
 ## Interface
 
@@ -563,7 +584,7 @@ units.
 
 **Nothing is added to the computation without a test.** That is the counterpart
 of the guiding principle: if everything is computed here, everything is verified
-here. `cargo test` holds 205 tests and answers in 2 s, so there is no reason not
+here. `cargo test` holds 206 tests and answers in 2 s, so there is no reason not
 to run it at every step.
 
 ```sh

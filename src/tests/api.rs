@@ -184,14 +184,22 @@ fn the_breadcrumb_is_filled_from_the_centre_of_the_view() {
             .then(|| &corpus::text()[view[slot] as usize..(view[slot] + view[slot + 1]) as usize])
     };
 
-    // At the framing: a portion and a book, and nothing below.
+    // At the opening the map is three portions: the breadcrumb says a portion
+    // and stops there, since no book is drawn to be named.
+    focus();
+    assert!(read(0).is_some(), "aucune portion a l'ouverture");
+    assert_eq!(read(2), None, "un livre annonce a l'ouverture");
+
+    // One notch in, at the framing: a portion and a book, nothing below.
+    let step = zoom_step();
+    zoom(REFERENCE.0 / 2.0, REFERENCE.1 / 2.0, step);
+    build_frame();
     focus();
     assert!(read(0).is_some() && read(2).is_some(), "le fil d'Ariane est vide au cadrage");
     assert_eq!(read(4), None, "un chapitre annonce au cadrage");
     assert_eq!(read(6), None, "un verset annonce au cadrage");
 
     // Deep in a chapter: the four levels, and they hold together.
-    let step = zoom_step();
     let mut dived = 0;
     for notch in 1..=20 {
         zoom(REFERENCE.0 / 2.0, REFERENCE.1 / 2.0, step);
@@ -235,12 +243,18 @@ fn the_breadcrumb_follows_the_pointer() {
             .then(|| &corpus::text()[view[slot] as usize..(view[slot] + view[slot + 1]) as usize])
     };
 
-    // Two different books under the pointer, two different breadcrumbs.
+    // One notch in: the books are drawn, hence nameable.
+    zoom(REFERENCE.0 / 2.0, REFERENCE.1 / 2.0, zoom_step());
+    build_frame();
+
+    // Two different titles under the pointer, two different breadcrumbs. On
+    // the letters, which alone name their book.
     let mut named: Vec<&str> = Vec::new();
     for book in [0usize, 7, 26, 38] {
         let r = {
             let app = app();
-            app.camera.project(app.layout.books[book])
+            let camera = app.camera;
+            app.book_ink(book, camera).expect("le titre du livre est dessine")
         };
         let (px, py) = (r.x + r.w / 2.0, r.y + r.h / 2.0);
         assert_eq!(focus_at(px, py), 1, "le livre {book} ne nomme rien");
@@ -249,9 +263,16 @@ fn the_breadcrumb_follows_the_pointer() {
     }
     assert!(named.contains(&corpus::section_name(0)) && named.contains(&corpus::section_name(2)));
 
-    // The black at the left edge names nothing, and the centre takes over.
+    // The black at the left edge names nothing, and the breadcrumb empties:
+    // keeping the last position would name a place the pointer has left.
     assert_eq!(focus_at(1.0, REFERENCE.1 / 2.0), 0, "le bord de l'ecran nomme un livre");
-    assert!(read(0).is_some(), "le fil d'Ariane s'est vide");
+    assert_eq!(read(0), None, "le fil d'Ariane a garde la derniere position");
+    assert_eq!(read(2), None, "un livre survit au pointeur dans le vide");
+
+    // Asked for itself, the centre answers again: that is the fallback when
+    // there is no pointer on the canvas at all.
+    focus();
+    assert!(read(0).is_some(), "le centre ne repond plus");
 }
 
 /// A font change forgets every measured width: a width taken on a fallback font

@@ -759,6 +759,99 @@ impl App {
         }
     }
 
+    /// Whether books are drawn at all at this zoom.
+    ///
+    /// Below the framing the map is the three portions and nothing else, so no
+    /// book can be named there — not even by the view centre, which would
+    /// otherwise announce a box that is not on screen.
+    fn books_drawn(&mut self, camera: Camera) -> bool {
+        camera.z >= self.fit_scale() * PORTIONS_UNDER
+    }
+
+    /// Ink of a fragment laid by `emit_text` in `area` at `size`.
+    ///
+    /// Flush right, as everything is here, and no taller than its line: a box
+    /// taller than the glyphs would be named where nothing is drawn.
+    fn ink_of(&mut self, content: &'static str, area: Rect, size: f32) -> Rect {
+        let w = self.width_of(content, size);
+        let line = (size * 1.35).min(area.h);
+        Rect { x: area.x + area.w - w, y: area.y + area.h / 2.0 - line / 2.0, w, h: line }
+    }
+
+    /// Where the name of a portion really sits on screen, or `None` when it is
+    /// not drawn.
+    ///
+    /// Two geometries, the drawing's own: below the framing the three names are
+    /// cards spread over the height of the projected world, sharing one right
+    /// edge; above it, each sits at the bottom of its band, clamped to the
+    /// window since a portion is several screens wide.
+    fn section_ink(&mut self, section: usize, camera: Camera) -> Option<Rect> {
+        let name = corpus::section_name(section);
+
+        if !self.books_drawn(camera) {
+            let widest = (0..3)
+                .map(|s| self.ratio(corpus::section_name(s)))
+                .fold(0.3_f32, f32::max);
+            let world = camera.project(WORLD);
+            let size = (world.h * SECTION_CARD / 3.0).min(world.w * 0.8 / widest);
+            if size < MIN_TEXT {
+                return None;
+            }
+            let line = size * 1.35;
+            let gap = world.h * CARD_GAP;
+            let middle = world.y + world.h / 2.0;
+            let right = (world.w + widest * size) / 2.0;
+            let y = middle + (section as f32 - 1.0) * gap;
+            let area = Rect { x: world.x, y: y - line / 2.0, w: right, h: line };
+            return Some(self.ink_of(name, area, size));
+        }
+
+        let band = camera.project(self.layout.sections[section]);
+        if !self.visible(band) {
+            return None;
+        }
+        let size = self.scale_of(camera).section;
+        if size < MIN_TEXT {
+            return None;
+        }
+        let strip = camera.project(self.layout.section_bands[section]);
+        let pinned = Rect {
+            x: band.x.max(0.0),
+            w: (band.x + band.w).min(self.width) - band.x.max(0.0),
+            ..band
+        };
+        let line = size * 1.35;
+        let area = Rect { x: pinned.x, y: strip.y + strip.h - line, w: pinned.w, h: line };
+        Some(self.ink_of(name, area, size))
+    }
+
+    /// Where the name of a book really sits on screen, or `None` when it is not
+    /// drawn.
+    ///
+    /// The drawing's geometry again: it fills its box while the numbers are
+    /// hidden, and falls back to the bottom of its band once they are out.
+    fn book_ink(&mut self, book: usize, camera: Camera) -> Option<Rect> {
+        if !self.books_drawn(camera) {
+            return None;
+        }
+        let rect = camera.project(self.layout.books[book]);
+        if !self.visible(rect) || rect.w < 0.7 {
+            return None;
+        }
+        let scale = self.scale_of(camera);
+        if scale.book < MIN_TEXT {
+            return None;
+        }
+        let area = if scale.show_chapters {
+            let strip = camera.project(self.layout.book_bands[book]);
+            let line = scale.book * 1.35;
+            Rect { x: rect.x, y: strip.y + strip.h - line, w: rect.w, h: line }
+        } else {
+            rect
+        };
+        Some(self.ink_of(corpus::book_name(book), area, scale.book))
+    }
+
     /// Whether the pointer is really **on** a chapter, and not merely in its
     /// box.
     ///
@@ -815,14 +908,6 @@ impl App {
         (0..corpus::book_count()).find(|&b| self.layout.books[b].contains(x, y))
     }
 
-    /// Portion whose **title band** holds a point.
-    ///
-    /// The band is the only part of a section that belongs to no book: it is
-    /// where its name is written, and pointing at it names the portion and
-    /// nothing below it.
-    fn section_at(&self, x: f32, y: f32) -> Option<usize> {
-        (0..3).find(|&s| self.layout.section_bands[s].contains(x, y))
-    }
 
     /// Height of a line of this chapter, on screen, without laying the chapter
     /// out: 929 chapters per frame would be as many vectors thrown away.
@@ -848,45 +933,78 @@ impl App {
     /// as a click there selects nothing. At the centre of the view, the nearest
     /// chapter is taken, so that the breadcrumb never goes blank while panning.
     fn path_at(&mut self, x: f32, y: f32, strict: bool) -> Option<[u32; 8]> {
+        let camera = self.camera;
         let mut out = [0u32; 8];
         let put = |slot: &mut [u32], text: &'static str| {
             let (offset, len) = key_of(text);
             slot[0] = offset;
             slot[1] = len;
         };
-
-        let chapter = if strict {
-            match self.locate(x, y) {
-                Some((_, chapter, _, _)) => chapter,
-                None => {
-                    // A portion title names its portion, and stops there.
-                    let section = self.section_at(x, y)?;
-                    put(&mut out[0..2], corpus::section_name(section));
-                    return Some(out);
-                }
-            }
-        } else {
-            self.chapter_at(x, y).or_else(|| self.nearest_chapter(x, y))?
+        let section_of = |book: usize| {
+            treemap::SECTIONS
+                .iter()
+                .position(|&(_, first, last)| book >= first && book < last)
+                .unwrap_or(0)
+        };
+        let book_of = |chapter: usize| {
+            (0..corpus::book_count()).find(|&b| corpus::chapters_of(b).contains(&chapter))
         };
 
-        let book = (0..corpus::book_count()).find(|&b| corpus::chapters_of(b).contains(&chapter))?;
-        let section = treemap::SECTIONS
-            .iter()
-            .position(|&(_, first, last)| book >= first && book < last)
-            .unwrap_or(0);
+        // **The pointer names what it is on, level by level, and only what is
+        // drawn.** Deepest first: a number or a line of text, then a book's
+        // name, then a portion's. Two names never overlap — a band is reserved
+        // for its title — so the order settles it. On nothing, nothing: the
+        // caller then falls back to the centre of the view.
+        if strict {
+            if let Some((_, chapter, _, _)) = self.locate(x, y)
+                && self.chapters_ready(camera)
+                && self.names_chapter(chapter, x, y)
+                && let Some(book) = book_of(chapter)
+            {
+                put(&mut out[0..2], corpus::section_name(section_of(book)));
+                put(&mut out[2..4], corpus::book_name(book));
+                put(&mut out[4..6], corpus::chapter_label(chapter));
+                if self.readable(chapter)
+                    && let Some((_, _, verse, _)) = self.locate_in(chapter, x, y)
+                    && verse != usize::MAX
+                {
+                    put(&mut out[6..8], corpus::verse_label(verse));
+                }
+                return Some(out);
+            }
 
-        put(&mut out[0..2], corpus::section_name(section));
-        put(&mut out[2..4], corpus::book_name(book));
+            let (px, py) = (x * camera.z + camera.x, y * camera.z + camera.y);
 
-        let camera = self.camera;
-        if !self.chapters_ready(camera) {
+            if let Some(book) = (0..corpus::book_count())
+                .find(|&b| self.book_ink(b, camera).is_some_and(|ink| holds(ink, px, py)))
+            {
+                put(&mut out[0..2], corpus::section_name(section_of(book)));
+                put(&mut out[2..4], corpus::book_name(book));
+                return Some(out);
+            }
+
+            // A portion's name names its portion, and stops there: it belongs
+            // to no book.
+            let section = (0..3)
+                .find(|&s| self.section_ink(s, camera).is_some_and(|ink| holds(ink, px, py)))?;
+            put(&mut out[0..2], corpus::section_name(section));
             return Some(out);
         }
-        // The pointer names what it is on, not what it is near: in the void of
-        // a cell it goes no deeper than the book. The view centre keeps the
-        // tolerance — it is not a pointer, and the breadcrumb must answer for
-        // it whatever it falls on.
-        if strict && !self.names_chapter(chapter, x, y) {
+
+        // The centre of the view is not a pointer: it keeps the tolerance of
+        // `locate` and answers wherever it falls. But it never goes deeper than
+        // what the map draws, or it would name a book at a zoom where the map
+        // is three words.
+        let chapter = self.chapter_at(x, y).or_else(|| self.nearest_chapter(x, y))?;
+        let book = book_of(chapter)?;
+        put(&mut out[0..2], corpus::section_name(section_of(book)));
+
+        if !self.books_drawn(camera) {
+            return Some(out);
+        }
+        put(&mut out[2..4], corpus::book_name(book));
+
+        if !self.chapters_ready(camera) {
             return Some(out);
         }
         put(&mut out[4..6], corpus::chapter_label(chapter));
@@ -1564,6 +1682,11 @@ fn drawn(verse: usize) -> &'static str {
     variant::display(verse).unwrap_or_else(|| corpus::verse_text(verse))
 }
 
+/// Whether a box holds a point.
+fn holds(r: Rect, x: f32, y: f32) -> bool {
+    x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h
+}
+
 /// Text column of a cell: the cell minus its margin.
 fn column(cell: Rect) -> Rect {
     cell.inset(cell.w * CELL_PAD)
@@ -1721,8 +1844,16 @@ pub extern "C" fn focus_at(x: f32, y: f32) -> u32 {
             1
         }
         None => {
-            let (cx, cy) = app.camera.to_world(app.width / 2.0, app.height / 2.0);
-            app.focus = app.path_at(cx, cy, false).unwrap_or([0; 8]);
+            // **The pointer on nothing clears the breadcrumb.** Falling back
+            // to the centre of the view kept the last position on screen,
+            // which read as a place the pointer had already left. The price is
+            // a breadcrumb that blinks out between two letters; naming
+            // somewhere one is not is worse than naming nowhere.
+            //
+            // With no pointer at all — a touch screen, the cursor gone from
+            // the canvas — the page asks `focus` instead, and the centre
+            // speaks: there is no hover to contradict.
+            app.focus = [0; 8];
             0
         }
     }
