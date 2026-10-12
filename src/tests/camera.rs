@@ -143,23 +143,41 @@ fn a_landscape_window_keeps_the_nominal_notch() {
     assert_close(app.zoom_step(), ZOOM_STEP, 0.01, "le cran de la fenetre de reference");
 }
 
-/// **The chapter numbers appear from the first notch**, on all nine windows —
-/// and not at the framing, where the map shows only the sections and the
-/// books.
+/// **The three levels are one notch apart, and the map opens on the first.**
+///
+/// The portions alone, then the thirty-nine books, then the chapters: the
+/// Tanakh is read in three parts before being read in books, and the opening
+/// image says so instead of showing everything at once. The framing has a
+/// floor (`base_scale`) precisely so that the ladder falls on the same notches
+/// whatever the window — a phone and a wide desktop climb it alike.
 #[test]
-fn the_numbers_appear_at_the_first_notch_on_every_window() {
+fn the_three_levels_are_one_notch_apart_on_every_window() {
+    // What `draw_world` asks to show the portions alone.
+    let portions = |app: &App| app.camera.z < app.fit_scale() * PORTIONS_UNDER;
+
     for (w, h) in WINDOWS {
         let mut app = app_at(w, h);
         measure_all(&mut app);
-        let camera = app.camera;
-        assert!(!app.chapters_ready(camera), "{w}x{h}: les numeros paraissent au cadrage");
 
+        // The opening: the three portions, and nothing else.
+        assert!(portions(&app), "{w}x{h}: l'ouverture ne montre pas les portions seules");
+        let camera = app.camera;
+        assert!(!app.chapters_ready(camera), "{w}x{h}: des numeros a l'ouverture");
+
+        // One notch: the books.
         let step = app.zoom_step();
         app.zoom_at(w / 2.0, h / 2.0, step);
+        app.build_frame();
+        assert!(!portions(&app), "{w}x{h}: encore les portions au premier cran");
         let camera = app.camera;
-        assert!(app.chapters_ready(camera), "{w}x{h}: pas de numeros au premier cran");
+        assert!(!app.chapters_ready(camera), "{w}x{h}: des numeros des le premier cran");
 
-        // And they are legible: the floor no longer decides anything.
+        // Two notches: the chapters — and legible, the floor deciding nothing.
+        let step = app.zoom_step();
+        app.zoom_at(w / 2.0, h / 2.0, step);
+        app.build_frame();
+        let camera = app.camera;
+        assert!(app.chapters_ready(camera), "{w}x{h}: pas de numeros au second cran");
         let widest = app.widest_numeral();
         let detail = if app.detail { &app.layout } else { &app.spare };
         let size = number_in(detail, widest) * camera.z;

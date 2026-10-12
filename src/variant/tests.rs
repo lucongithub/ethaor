@@ -89,8 +89,12 @@ fn every_range_is_a_slice_of_the_display() {
             assert!(shown.is_char_boundary(from), "verset {verse} : autre lecture sur une lettre");
             assert!(insert.mark > 0, "verset {verse} : marque vide");
             // The other reading opens on the space that sets it apart from
-            // ours, and the mark closes it.
-            assert!(shown[from..from + other].starts_with(' '), "verset {verse} : pas d'air avant l'autre lecture");
+            // ours, stands between brackets as both editions print an
+            // alternative reading, and the mark closes it.
+            let run = &shown[from..from + other];
+            assert!(run.starts_with(" ["), "verset {verse} : l'autre lecture n'est pas ouverte");
+            assert!(run.ends_with("]\u{00B2}"), "verset {verse} : l'autre lecture n'est pas fermee");
+            assert!(run.len() > 5, "verset {verse} : l'autre lecture est vide");
         }
     }
 }

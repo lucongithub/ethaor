@@ -390,8 +390,35 @@ impl App {
         self.set_detail(detail);
     }
 
+    /// Scale the map opens on: **one notch below the framing**.
+    ///
+    /// The three levels are one notch apart, and the map starts at the top of
+    /// them: the three portions alone, then the books, then the chapters. One
+    /// reads the Tanakh in three parts before reading it in thirty-nine books,
+    /// and the opening image says so rather than showing everything at once.
+    /// Price: the dive to the text takes one notch more than `DIVE_NOTCHES`.
+    /// Accepted — it buys the first thing the map has to say.
+    ///
+    /// It is the framing divided by the notch, never a scale of its own: the
+    /// thresholds of the three levels all hang off `fit_scale`, and a second
+    /// reference would let them drift apart.
+    fn overview_scale(&mut self) -> f32 {
+        self.fit_scale() / self.zoom_step()
+    }
+
+    /// Whether the camera still sits on the scale the map opens on.
+    ///
+    /// Two places ask it — a resize, and a numeral that rebuilds the layout —
+    /// and they must ask it the same way: a view believed to be at the opening
+    /// in one and not in the other would be refitted by one and left behind by
+    /// the other.
+    fn at_opening(&mut self) -> bool {
+        let opening = self.overview_scale();
+        (self.camera.z - opening).abs() < opening * 1e-3
+    }
+
     fn fit(&mut self) {
-        self.camera.z = self.fit_scale();
+        self.camera.z = self.overview_scale();
         self.camera.x = (self.width - WORLD.w * self.camera.z) / 2.0;
         self.camera.y = (self.height - WORLD.h * self.camera.z) / 2.0;
     }
@@ -710,6 +737,68 @@ impl App {
         Some(out)
     }
 
+    /// Box the number of a chapter really occupies, in the world.
+    ///
+    /// The same geometry `draw_book` uses: centred in its cell, as wide as its
+    /// digits and as tall as its body. A cell is far wider than its number —
+    /// the stride is the one of the densest book — so the rest of the box is
+    /// void.
+    fn numeral_box(&mut self, chapter: usize) -> Rect {
+        let cell = self.layout.chapters[chapter];
+        let size = {
+            let widest = self.widest_numeral();
+            let detail = if self.detail { &self.layout } else { &self.spare };
+            number_in(detail, widest)
+        };
+        let ink = self.ratio(corpus::chapter_label(chapter)) * size;
+        Rect {
+            x: cell.x + (cell.w - ink) / 2.0,
+            y: cell.y + (cell.h - size) / 2.0,
+            w: ink,
+            h: size,
+        }
+    }
+
+    /// Whether the pointer is really **on** a chapter, and not merely in its
+    /// box.
+    ///
+    /// **A chapter showing a number is named only when the pointer is on that
+    /// number.** The number takes a fraction of its cell and the rest is void:
+    /// answering for the whole box made the breadcrumb and the index name a
+    /// letter the pointer was nowhere near, several cells away.
+    ///
+    /// Where the text is drawn the rule stays the click's, which the cursor
+    /// must not contradict — and there the lines fill the column, so being in
+    /// the box is being on the text.
+    fn names_chapter(&mut self, chapter: usize, x: f32, y: f32) -> bool {
+        if self.readable(chapter) {
+            return true;
+        }
+        let ink = self.numeral_box(chapter);
+        x >= ink.x && x <= ink.x + ink.w && y >= ink.y && y <= ink.y + ink.h
+    }
+
+    /// Whether the chapter under the pointer holds another reading.
+    ///
+    /// **The chapter, and nothing above it.** A portion or a book would answer
+    /// yes nearly everywhere — a reading sits in almost every book — and an
+    /// index that is always lit says nothing. At the chapter, the answer tells
+    /// the reader something he can act on: there is a difference *here*. Above
+    /// that level, and outside every box, it says nothing, like the breadcrumb
+    /// and the click.
+    fn readings_at(&mut self, x: f32, y: f32) -> bool {
+        let camera = self.camera;
+        if !self.chapters_ready(camera) {
+            return false;
+        }
+        match self.locate(x, y) {
+            Some((_, chapter, _, _)) => {
+                self.names_chapter(chapter, x, y) && variant::in_verses(corpus::verses_of(chapter))
+            }
+            None => false,
+        }
+    }
+
     /// Chapter nearest to a point, even if that point falls in a gap between two
     /// boxes.
     fn nearest_chapter(&self, x: f32, y: f32) -> Option<usize> {
@@ -791,6 +880,13 @@ impl App {
 
         let camera = self.camera;
         if !self.chapters_ready(camera) {
+            return Some(out);
+        }
+        // The pointer names what it is on, not what it is near: in the void of
+        // a cell it goes no deeper than the book. The view centre keeps the
+        // tolerance — it is not a pointer, and the breadcrumb must answer for
+        // it whatever it falls on.
+        if strict && !self.names_chapter(chapter, x, y) {
             return Some(out);
         }
         put(&mut out[4..6], corpus::chapter_label(chapter));
@@ -1089,11 +1185,11 @@ impl App {
         // under the estimate.
         let numeral = self.widest_numeral();
         if (numeral - self.numeral).abs() > self.numeral * 0.005 {
-            // The framing itself depends on the layout: if it moves, a camera
-            // still sitting on it must follow. Without this, on a narrow window,
-            // the first measured frame left the camera below the new framing —
-            // hence in the three-portions state, right from startup.
-            let framed = (self.camera.z - self.fit_scale()).abs() < self.fit_scale() * 1e-3;
+            // The opening scale depends on the layout: if it moves, a camera
+            // still sitting on it must follow. Without this, on a narrow
+            // window, the first measured frame left the map a notch off the
+            // level it opens on.
+            let framed = self.at_opening();
 
             self.numeral = numeral;
             let (wide, tight) = levels(numeral);
@@ -1506,7 +1602,7 @@ pub extern "C" fn init(width: f32, height: f32) -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn resize(width: f32, height: f32) {
     let app = app();
-    let refit = (app.camera.z - app.fit_scale()).abs() < f32::EPSILON;
+    let refit = app.at_opening();
     app.width = width.max(1.0);
     app.height = height.max(1.0);
     if refit {
@@ -1758,13 +1854,27 @@ pub extern "C" fn probe_points() -> u32 {
     app().last_nests
 }
 
-/// Readings of the other edition drawn at the last frame.
+/// Diagnostic: readings of the other edition drawn at the last frame.
 ///
-/// The page shows the index under the canvas only when one is on screen: a
-/// legend explaining a mark nobody can see would be noise.
+/// The index under the canvas does not follow this count but the pointer —
+/// see `readings_at`. A reading can be on screen without the reader having
+/// anything under the cursor, and explaining a mark he is not looking at is
+/// noise.
 #[unsafe(no_mangle)]
 pub extern "C" fn variants_drawn() -> u32 {
     app().variant_runs
+}
+
+/// 1 when the chapter under the pointer holds another reading, 0 otherwise.
+///
+/// The page shows the index under the canvas on that answer alone. Only at the
+/// chapter: higher up the answer would be yes almost everywhere, and an index
+/// always lit explains nothing.
+#[unsafe(no_mangle)]
+pub extern "C" fn readings_at(x: f32, y: f32) -> u32 {
+    let app = app();
+    let (wx, wy) = app.camera.to_world(x, y);
+    u32::from(app.readings_at(wx, wy))
 }
 
 /// Diagnostic: geometry of a book in the world (0=x 1=y 2=w 3=h).

@@ -131,6 +131,27 @@ pub fn to_corpus(verse: usize, at: usize) -> Option<usize> {
     Some(at - shift)
 }
 
+/// Whether a stretch of verses holds another reading.
+///
+/// What the index under the canvas asks about the chapter, the book or the
+/// portion under the pointer. The series is sorted by verse, so the answer is
+/// a dichotomy: the first entry at or after the start, kept if it falls before
+/// the end.
+pub fn in_verses(verses: core::ops::Range<usize>) -> bool {
+    let table = displays();
+    let n = verse_count();
+    let (mut lo, mut hi) = (0usize, n);
+    while lo < hi {
+        let mid = (lo + hi) / 2;
+        if (table[mid * 3] as usize) < verses.start {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    lo < n && (table[lo * 3] as usize) < verses.end
+}
+
 /// The part of a slice of the display string that belongs to the verse, as a
 /// range inside the verse.
 ///

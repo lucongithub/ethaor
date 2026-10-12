@@ -62,8 +62,10 @@ fn the_gestures_move_the_camera_and_come_back() {
     let _hold = hold(REFERENCE.0, REFERENCE.1);
     converge();
 
+    // The map opens on the three portions alone, one notch below the framing.
     let fit = cam_fit();
-    assert_close(cam_z(), fit, fit * 1e-3, "le demarrage n'est pas cadre");
+    let opening = fit / zoom_step();
+    assert_close(cam_z(), opening, opening * 1e-3, "le demarrage n'est pas sur les portions");
 
     let step = zoom_step();
     assert!(step > 1.0 && step < 1.6, "cran de {step}");
@@ -75,7 +77,8 @@ fn the_gestures_move_the_camera_and_come_back() {
     assert!((cam_x(), cam_y()) != (x, y), "le zoom n'a pas bouge la camera");
 
     reset();
-    assert_close(cam_z(), cam_fit(), cam_fit() * 1e-3, "Echap ne recadre pas");
+    let opening = cam_fit() / zoom_step();
+    assert_close(cam_z(), opening, opening * 1e-3, "Echap ne revient pas sur les portions");
     assert_eq!(depth(), 0, "Echap doit revenir au premier monde");
 }
 
@@ -86,7 +89,8 @@ fn resizing_keeps_the_framing() {
     let _hold = hold(1280.0, 800.0);
     converge();
     resize(1920.0, 1080.0);
-    assert_close(cam_z(), cam_fit(), cam_fit() * 1e-3, "le recadrage n'a pas suivi la fenetre");
+    let opening = cam_fit() / zoom_step();
+    assert_close(cam_z(), opening, opening * 1e-3, "le recadrage n'a pas suivi la fenetre");
     let frame = read_frame();
     assert!(frame.iter().any(Command::is_text), "image vide apres redimensionnement");
 

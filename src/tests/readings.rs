@@ -197,3 +197,131 @@ fn a_click_never_names_the_other_edition() {
     }
     let _ = len;
 }
+
+// ------------------------------------------------- the index under the canvas
+
+/// Zooms on a chapter cell until the numbers are out, and gives its centre on
+/// screen.
+fn focus_chapter(app: &mut App, chapter: usize) -> (f32, f32) {
+    let step = app.zoom_step();
+    for _ in 0..30 {
+        let cell = app.camera.project(app.layout.chapters[chapter]);
+        let (cx, cy) = (cell.x + cell.w / 2.0, cell.y + cell.h / 2.0);
+        if app.chapters_ready(app.camera) {
+            return (cx, cy);
+        }
+        app.zoom_at(cx, cy, step);
+        app.build_frame();
+    }
+    panic!("les numeros n'apparaissent jamais");
+}
+
+/// Centre of a box on screen.
+fn centre(app: &App, r: Rect) -> (f32, f32) {
+    let p = app.camera.project(r);
+    (p.x + p.w / 2.0, p.y + p.h / 2.0)
+}
+
+fn asks(app: &mut App, px: f32, py: f32) -> bool {
+    let (wx, wy) = app.camera.to_world(px, py);
+    app.readings_at(wx, wy)
+}
+
+/// **The index answers for the chapter under the pointer**, once the numbers
+/// are out: that is the ensemble the reader has under his cursor.
+#[test]
+fn the_index_answers_for_the_chapter_pointed_at() {
+    let (chapter, _) = sample();
+    let empty = (0..corpus::chapter_count())
+        .find(|&c| !variant::in_verses(corpus::verses_of(c)))
+        .expect("un chapitre sans autre lecture");
+
+    let mut app = reference_app();
+    measure_all(&mut app);
+    let (cx, cy) = focus_chapter(&mut app, chapter);
+    assert!(asks(&mut app, cx, cy), "le chapitre porteur ne repond pas");
+
+    let mut app = reference_app();
+    measure_all(&mut app);
+    let (cx, cy) = focus_chapter(&mut app, empty);
+    assert!(!asks(&mut app, cx, cy), "un chapitre sans ecart repond");
+}
+
+/// Verses of a stretch of books, as one range. Only the tests need it: the
+/// index itself never asks above the chapter.
+fn verses_of_books(books: core::ops::Range<usize>) -> core::ops::Range<usize> {
+    let chapters = corpus::chapters_of(books.start).start..corpus::chapters_of(books.end - 1).end;
+    corpus::verses_of(chapters.start).start..corpus::verses_of(chapters.end - 1).end
+}
+
+/// **Above the chapter, nothing.** At the framing the numbers are not out, so
+/// there is no chapter under the pointer — and a book holds a reading almost
+/// always, so answering for it would light the index everywhere and say
+/// nothing.
+#[test]
+fn at_the_framing_the_index_says_nothing() {
+    let full = (0..corpus::book_count())
+        .find(|&b| variant::in_verses(verses_of_books(b..b + 1)))
+        .expect("un livre porteur");
+
+    let mut app = reference_app();
+    measure_all(&mut app);
+    assert!(!app.chapters_ready(app.camera), "les numeros sont deja sortis au cadrage");
+
+    let (cx, cy) = centre(&app, app.layout.books[full]);
+    assert!(!asks(&mut app, cx, cy), "le cadrage repond pour un livre");
+}
+
+/// **Outside every box, nothing is promised.** The black around the map and
+/// the air between portions name no passage, so they can name no reading —
+/// the same rule the breadcrumb and the click follow.
+#[test]
+fn the_black_around_the_map_promises_nothing() {
+    let mut app = reference_app();
+    measure_all(&mut app);
+
+    let far = app.camera.project(WORLD);
+    assert!(!asks(&mut app, far.x - 200.0, far.y + far.h / 2.0), "le noir a gauche repond");
+    assert!(!asks(&mut app, far.x + far.w + 200.0, far.y + far.h / 2.0), "le noir a droite repond");
+}
+
+/// A portion band names its portion and stops there, so the index stays shut:
+/// each of the three holds readings, and saying so would be an index lit from
+/// the first frame to the last.
+#[test]
+fn a_portion_band_says_nothing() {
+    let mut app = reference_app();
+    measure_all(&mut app);
+
+    for (section, &(_, first, last)) in treemap::SECTIONS.iter().enumerate() {
+        assert!(
+            variant::in_verses(verses_of_books(first..last)),
+            "la portion {section} ne porte aucune lecture, le test ne prouve rien"
+        );
+        let band = app.layout.section_bands[section];
+        let (cx, cy) = centre(&app, Rect { x: band.x, y: band.y, w: band.w, h: band.h * 0.5 });
+        assert!(!asks(&mut app, cx, cy), "la bande de la portion {section} repond");
+    }
+}
+
+/// The index obeys the breadcrumb's rule: **the void of a cell names nothing**,
+/// so it promises nothing either. Pointing a few letters away from the number
+/// used to light the row.
+#[test]
+fn the_void_of_a_cell_lights_no_index() {
+    let (chapter, _) = sample();
+    let mut app = reference_app();
+    measure_all(&mut app);
+    let (cx, cy) = focus_chapter(&mut app, chapter);
+    assert!(asks(&mut app, cx, cy), "le numero du chapitre porteur ne repond pas");
+
+    // In the world, where the geometry does not depend on the zoom: a cell is
+    // far wider than its number, the stride being the densest book's.
+    let cell = app.layout.chapters[chapter];
+    let ink = app.numeral_box(chapter);
+    assert!(ink.x - cell.x > cell.w * 0.1, "la case n'a pas de vide a gauche de son numero");
+
+    let (vx, vy) = ((cell.x + ink.x) / 2.0, cell.y + cell.h / 2.0);
+    assert!(!app.readings_at(vx, vy), "le vide de la case allume l'index");
+    let _ = cy;
+}

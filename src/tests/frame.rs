@@ -128,7 +128,7 @@ fn every_text_command_is_drawable() {
 /// portion titles and 39 book titles, and not a single chapter number.
 #[test]
 fn the_framing_shows_the_three_portions_and_the_thirty_nine_books() {
-    let mut app = reference_app();
+    let mut app = reference_framed();
     measure_all(&mut app);
     let texts = texts(&mut app);
     assert_eq!(texts.len(), 3 + corpus::book_count(), "42 titres au cadrage");
@@ -150,7 +150,7 @@ fn the_framing_shows_the_three_portions_and_the_thirty_nine_books() {
 /// numbers being hidden, the box belongs to it.
 #[test]
 fn an_overview_title_fills_its_box() {
-    let mut app = reference_app();
+    let mut app = reference_framed();
     measure_all(&mut app);
     let box_ = app.camera.project(app.layout.books[0]);
     let band = app.camera.project(app.layout.book_bands[0]);
@@ -166,7 +166,7 @@ fn an_overview_title_fills_its_box() {
 /// numbers, the books, the sections.
 #[test]
 fn the_chapter_level_shows_three_sizes_and_three_only() {
-    let mut app = reference_app();
+    let mut app = reference_framed();
     measure_all(&mut app);
     let step = app.zoom_step();
     app.zoom_at(app.width * 0.5, app.height * 0.5, step);
@@ -191,7 +191,7 @@ fn the_chapter_level_shows_three_sizes_and_three_only() {
 /// book one tone below, a number a touch lower still.
 #[test]
 fn the_rank_reads_in_the_intensity_of_the_white() {
-    let mut app = reference_app();
+    let mut app = reference_framed();
     measure_all(&mut app);
     let step = app.zoom_step();
     app.zoom_at(app.width * 0.5, app.height * 0.5, step);
@@ -385,7 +385,10 @@ fn a_measured_numeral_rebuilds_the_layout_once_and_keeps_the_framing() {
         let before = app.numeral;
         measure_all(&mut app);
         assert!(app.numeral != before, "{w}x{h}: la mesure n'a pas remplace l'estimation");
-        assert_close(app.camera.z, app.fit_scale(), app.fit_scale() * 1e-3, "le cadrage a saute");
+        // The map opens one notch below the framing, and a measured numeral
+        // must leave it there.
+        let opening = app.fit_scale() / app.zoom_step();
+        assert_close(app.camera.z, opening, opening * 1e-3, "l'ouverture a saute");
 
         // Once converged, a frame no longer rebuilds anything.
         let numeral = app.numeral;
@@ -513,7 +516,7 @@ fn a_book_title_keeps_the_right_edge_of_its_box() {
 /// legible as long as one is inside its portion.
 #[test]
 fn a_portion_title_is_pinned_to_the_screen() {
-    let mut app = reference_app();
+    let mut app = reference_framed();
     measure_all(&mut app);
     let step = app.zoom_step();
     app.zoom_at(app.width * 0.5, app.height * 0.5, step);
@@ -544,7 +547,7 @@ fn a_portion_title_is_pinned_to_the_screen() {
 /// show.
 #[test]
 fn the_command_list_stays_short() {
-    let mut app = reference_app();
+    let mut app = reference_framed();
     measure_all(&mut app);
     let commands = frame(&mut app);
     assert_eq!(commands.len(), 3 * (3 + corpus::book_count()), "126 commandes au cadrage");
@@ -592,7 +595,7 @@ fn a_record_keeps_the_layout_the_page_reads() {
     assert_eq!(STRIDE, 10, "le pas du enregistrement a change : prevenir ethaor.ts");
     assert_eq!((KIND_TEXT, KIND_CLIP, KIND_UNCLIP), (1.0, 2.0, 3.0));
 
-    let mut app = reference_app();
+    let mut app = reference_framed();
     measure_all(&mut app);
     let words = app.commands.clone();
 

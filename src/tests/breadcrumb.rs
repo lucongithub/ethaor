@@ -75,7 +75,7 @@ fn the_framing_names_a_portion_and_a_book() {
 #[test]
 fn the_chapter_arrives_with_the_numbers() {
     for (w, h) in WINDOWS {
-        let mut app = app_at(w, h);
+        let mut app = framed_app(w, h);
         measure_all(&mut app);
         let step = app.zoom_step();
         app.zoom_at(w * 0.5, h * 0.5, step);
@@ -255,7 +255,7 @@ fn the_pointer_in_the_air_names_nothing() {
 /// cell next to it names the next chapter.
 #[test]
 fn the_pointer_names_the_cell_it_is_on() {
-    let mut app = reference_app();
+    let mut app = reference_framed();
     measure_all(&mut app);
     let step = app.zoom_step();
     app.zoom_at(app.width * 0.5, app.height * 0.5, step);
@@ -339,4 +339,56 @@ fn reading_the_breadcrumb_does_not_touch_the_drawing() {
     }
     let after = frame(&mut app);
     assert_eq!(before, after, "lire le fil d'Ariane a change le dessin");
+}
+
+/// **The pointer names what it is on, not what it is near.**
+///
+/// A cell is far wider than its number — the stride is the densest book's — so
+/// most of a cell is void. Aiming in that void used to name the chapter all
+/// the same, several letters away from the pointer: the breadcrumb announced a
+/// position the reader had no way to check.
+#[test]
+fn the_void_of_a_cell_names_no_chapter() {
+    let mut app = reference_framed();
+    let step = app.zoom_step();
+    app.zoom_at(app.width * 0.5, app.height * 0.5, step);
+    app.build_frame();
+
+    let camera = app.camera;
+    assert!(app.chapters_ready(camera), "les numeros ne sont pas sortis");
+
+    let mut tested = 0usize;
+    for chapter in 0..corpus::chapter_count() {
+        assert!(!app.readable(chapter), "le chapitre {chapter} est deja lisible");
+        let cell = app.layout.chapters[chapter];
+        let ink = app.numeral_box(chapter);
+
+        // The number itself, which must still be named.
+        let (px, py) = on_screen(&app, ink);
+        if px < 0.0 || py < 0.0 || px > app.width || py > app.height {
+            continue;
+        }
+        let on = under(&mut app, px, py).expect("le numero nomme son chapitre");
+        assert_eq!(
+            on.chapter,
+            Some(corpus::chapter_label(chapter)),
+            "le numero du chapitre {chapter} en nomme un autre"
+        );
+
+        // The void at the left of the same cell, where no ink is: the book,
+        // and no further.
+        let void = app.camera.project(cell);
+        let (vx, vy) = (void.x + void.w * 0.02, void.y + void.h / 2.0);
+        if vx < 0.0 || vy < 0.0 || vx > app.width || vy > app.height {
+            continue;
+        }
+        if vx >= on_screen(&app, ink).0 - app.camera.project(ink).w {
+            continue; // a narrow cell: the void and the ink overlap
+        }
+        let off = under(&mut app, vx, vy).expect("le vide reste dans le livre");
+        assert_eq!(off.chapter, None, "le vide de la case {chapter} nomme un chapitre");
+        assert_eq!(off.book, Some(corpus::book_name(book_of(chapter))), "le vide a perdu le livre");
+        tested += 1;
+    }
+    assert!(tested > 50, "seulement {tested} cases testees");
 }

@@ -48,6 +48,35 @@ pub fn reference_app() -> App {
     app_at(REFERENCE.0, REFERENCE.1)
 }
 
+/// Brings the camera to the **framing**: the three portions and the
+/// thirty-nine books.
+///
+/// The map opens one notch above that, on the portions alone, so every test
+/// that speaks of the framing comes here first. Set rather than zoomed:
+/// `zoom_at` pulls towards a cell, and the framing has to be exact.
+pub fn at_framing(app: &mut App) {
+    app.camera.z = app.fit_scale();
+    app.camera.x = (app.width - WORLD.w * app.camera.z) / 2.0;
+    app.camera.y = (app.height - WORLD.h * app.camera.z) / 2.0;
+}
+
+/// A measured state at the framing.
+///
+/// Measured first, then framed: the framing has a floor that depends on the
+/// width of a real numeral, so a camera placed before the measurement would be
+/// left a notch off once it arrives.
+pub fn framed_app(width: f32, height: f32) -> App {
+    let mut app = app_at(width, height);
+    measure_all(&mut app);
+    at_framing(&mut app);
+    app.build_frame();
+    app
+}
+
+pub fn reference_framed() -> App {
+    framed_app(REFERENCE.0, REFERENCE.1)
+}
+
 /// Feeds the state the widths a real Hebrew serif gives, so that the tests run
 /// on measured numbers and not on the estimate.
 ///

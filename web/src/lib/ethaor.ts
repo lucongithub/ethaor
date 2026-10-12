@@ -73,8 +73,8 @@ interface Wasm {
 	clear_ratios(): void;
 	text_ptr(): number;
 	text_len(): number;
-	/** Readings of the other edition drawn at the last frame. */
-	variants_drawn(): number;
+	/** 1 when what the pointer names holds another reading. */
+	readings_at(x: number, y: number): number;
 }
 
 /**
@@ -133,9 +133,10 @@ export interface MapOptions {
 	 */
 	onFocus?: (focus: Focus | null) => void;
 	/**
-	 * Called when the number of readings of the other edition on screen
-	 * changes. The page shows the index under the canvas only while there is
-	 * one to explain.
+	 * Called when the answer changes for what the pointer names: 1 when the
+	 * chapter, the book or the portion under the cursor holds a reading of the
+	 * other edition, 0 otherwise. The page shows the index under the canvas on
+	 * that alone.
 	 */
 	onReadings?: (count: number) => void;
 	/** Path to the module, prefixed by `base` in case of a subdirectory. */
@@ -279,10 +280,16 @@ export async function createTanakhMap(
 	let lastReadings = -1;
 	function reportReadings() {
 		if (!onReadings) return;
-		const count = wasm.variants_drawn();
-		if (count === lastReadings) return;
-		lastReadings = count;
-		onReadings(count);
+
+		// The index follows the pointer, not the frame: it explains the
+		// ensemble the reader has under the cursor — a chapter, a book, a
+		// portion — and not whatever happens to be on screen. With no pointer
+		// on the canvas, a touch screen or the cursor gone, there is nothing to
+		// explain.
+		const here = pointer === null ? 0 : wasm.readings_at(pointer.x, pointer.y);
+		if (here === lastReadings) return;
+		lastReadings = here;
+		onReadings(here);
 	}
 
 	let lastFocus = '';

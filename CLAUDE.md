@@ -10,7 +10,7 @@ its volume, and zooming reveals its contents inside it.
 
 **Rules here, numbers in tests.** This file states invariants, intent and
 rejected alternatives — the things a test cannot express. Every measurement,
-ratio, count and threshold lives in `cargo test` (199 tests, 2 s), which is the
+ratio, count and threshold lives in `cargo test` (205 tests, 2 s), which is the
 only place they stay true. Do not restate a measured value here; if a rule can
 be asserted, assert it and leave only the *why* in prose.
 
@@ -72,7 +72,7 @@ and two theme tokens (`--font-sans`, `--font-hebrew`).
 ## Build
 
 ```sh
-cargo test         # 199 tests, 2 s — before any commit
+cargo test         # 205 tests, 2 s — before any commit
 cd web
 npm install
 npm run wasm       # cargo build --release, then copy into static/
@@ -254,11 +254,20 @@ what is on screen. Everything follows:
   words of the verse; the brackets say they are one place in two versions,
   which no colour says.
 - Each form carries its index, `¹` ours and `²` theirs, and the page names the
-  two editions in a row under the canvas — shown only while one is on screen,
-  and taking its own row, so no pixel of map is lost. Each entry gives the
-  edition, then who publishes it in parentheses, and **wears the colour of the
-  form it names** — so the index is read twice over, by the number and by the
-  ink. The row reads right to left, like the map it explains.
+  two editions in a row under the canvas, taking its own row so no pixel of map
+  is lost. Each entry gives the edition, then who publishes it in parentheses,
+  and **wears the colour of the form it names** — so the index is read twice
+  over, by the number and by the ink. The row reads right to left, like the map
+  it explains.
+- **The index follows the pointer, not the frame** (`readings_at`), and it
+  lives **at the chapter and nowhere above**: it appears when the chapter under
+  the cursor holds another reading. A book or a portion would answer yes nearly
+  everywhere — a reading sits in almost every book — and an index always lit
+  says nothing; at the chapter the answer is actionable, there is a difference
+  *here*. Above that level, and outside every box, it says nothing, as the
+  breadcrumb and the click say nothing there. A reading can also be on screen
+  while the reader looks elsewhere: explaining a mark he is not looking at is
+  noise.
 - **The ink is the last slot of a text record**, and it is all the page is
   told: a run is ours or theirs, and which colour stands for which is the
   page's business. Both are drawn at the same strength — the colour alone sets
@@ -412,15 +421,28 @@ zoom-out floor on the other.
 - **The descent is one-way.** Once the new Tanakh fills the screen the old one
   ceases to exist: no return path is kept, and zooming out does not come back.
 
-**One notch out, and the map is just the three portions, large, evenly spaced**
-(`PORTIONS_UNDER`). The three levels are one notch apart, either side of the
-framing:
+**The map opens on the three portions alone, large, evenly spaced**
+(`PORTIONS_UNDER`, `overview_scale`). The three levels are one notch apart, and
+the opening sits on the first of them — the Tanakh is read in three parts
+before being read in thirty-nine books, and the first image says so instead of
+showing everything at once:
 
-| zoom | what is shown |
+| notch from the opening | what is shown |
 |---|---|
-| one notch below framing | the three portions alone, large |
-| framing | the portions and the 39 books |
-| one notch above | the chapters |
+| the opening, one notch under the framing | the three portions alone, large |
+| one notch in — the framing | the portions and the 39 books |
+| two notches in | the chapters |
+
+Price: the dive to the text takes one notch more than `DIVE_NOTCHES`. Accepted
+— it buys the first thing the map has to say. The opening is **the framing
+divided by the notch**, never a scale of its own: every threshold hangs off
+`fit_scale`, and a second reference would let them drift apart. Esc comes back
+here, since this is the overview.
+
+Two places ask whether the camera is still there — a resize, and a measured
+numeral that rebuilds the layout — and they ask it through one function
+(`at_opening`): a view believed to be at the opening by one and not by the
+other would be refitted by one and left behind by the other.
 
 The threshold sits just under 1, not at 1: the framing itself must stay on the
 books' side, rounding included. Waiting for book titles to fall under the text
@@ -458,6 +480,16 @@ Without it, aiming between two boxes never descended.
 **Tolerance stops at the book**: a point outside every book box designates
 nothing. `hover` follows the same rule, so the pointer announces what a click
 will do.
+
+**That tolerance is the zoom's, not the pointer's.** A cell is far wider than
+its number — the stride is the densest book's — so most of a cell is void, and
+naming a chapter from anywhere in its box made the breadcrumb and the index
+answer for a letter the pointer was several cells away from. So a chapter
+showing a number is named only when the pointer is **on that number**
+(`names_chapter`, on the geometry `draw_book` draws it with). Where the text is
+drawn the rule stays the click's, which the cursor must not contradict — and
+there the lines fill the column anyway. The view centre keeps the tolerance: it
+is not a pointer, and the breadcrumb must answer for it wherever it falls.
 
 ## Interface
 
@@ -531,7 +563,7 @@ units.
 
 **Nothing is added to the computation without a test.** That is the counterpart
 of the guiding principle: if everything is computed here, everything is verified
-here. `cargo test` holds 199 tests and answers in 2 s, so there is no reason not
+here. `cargo test` holds 205 tests and answers in 2 s, so there is no reason not
 to run it at every step.
 
 ```sh
