@@ -1,4 +1,5 @@
-// L'application est entierement client : le canevas et le module WebAssembly
-// n'ont rien a faire sur le serveur. On evite ainsi un rendu jete aussitot.
+// The application is entirely client-side: the canvas and the WebAssembly
+// module have no business on the server. This avoids a render thrown away at
+// once.
 export const ssr = false;
 export const prerender = true;

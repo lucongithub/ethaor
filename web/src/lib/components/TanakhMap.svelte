@@ -38,29 +38,29 @@
 <svelte:window on:keydown={onKeydown} />
 
 <div class="flex h-full flex-col bg-black">
-	<!-- Fil d'Ariane. Les bandes de titre restent dans la carte et ne recouvrent
-	     donc jamais rien ; quand elles sortent de l'écran, c'est lui qui dit où
-	     l'on se trouve. Il occupe sa propre rangée : aucun pixel de carte perdu. -->
+	<!-- Breadcrumb. The title bands stay inside the map and therefore never
+	     cover anything; when they leave the screen, it is this that says where
+	     one is. It takes its own row: not one pixel of map lost. -->
 	<header
 		class="flex h-[calc(var(--nav)+env(safe-area-inset-top))] shrink-0 items-center gap-2
 		       border-b border-white/10 px-3 pt-[env(safe-area-inset-top)]
 		       text-sm sm:px-4 sm:text-base 2xl:text-lg"
 	>
 		{#if focus}
-			<span class="font-hebrew text-white/50">{focus.section}</span>
+			<span class="font-hebrew text-white">{focus.section}</span>
 			{#if focus.book}
 				<span class="text-white/25">›</span>
 				<span class="font-hebrew text-white/90">{focus.book}</span>
 			{/if}
 			{#if focus.chapter}
 				<span class="text-white/25">›</span>
-				<span class="font-hebrew text-white/60">{focus.chapter}</span>
+				<span class="font-hebrew text-white">{focus.chapter}</span>
 			{/if}
 		{/if}
 	</header>
 
-	<!-- `touch-action: none` est indispensable : sans lui le navigateur mobile
-	     intercepte le pincement et le glisser avant nous. -->
+	<!-- `touch-action: none` is indispensable: without it the mobile browser
+	     intercepts the pinch and the drag before we do. -->
 	<canvas bind:this={canvas} class="min-h-0 w-full flex-1 touch-none bg-black"></canvas>
 </div>
 

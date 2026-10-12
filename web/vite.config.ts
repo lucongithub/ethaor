@@ -9,8 +9,8 @@ export default defineConfig({
 		port: 8095,
 		strictPort: false
 	},
-	// `vite preview` n'herite pas de `server` : sans cela il repartirait sur
-	// son port par defaut, 4173.
+	// `vite preview` does not inherit `server`: without this it would fall back
+	// to its default port, 4173.
 	preview: {
 		host: '127.0.0.1',
 		port: 8095,

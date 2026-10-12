@@ -701,3 +701,6 @@ d'accroche pour afficher demain des informations sur un mot ou une lettre.
 - Parsing du HTML a l'execution : c'est le travail de `build.rs`.
 - Allocation par lettre, par mot ou par verset dans la boucle d'image.
 - Recalcul de la disposition au zoom.
+- Commentaire en francais : **tout commentaire de code s'ecrit en anglais** —
+  Rust, TypeScript, Svelte, scripts de construction. La documentation en prose,
+  ce fichier compris, reste en francais ; le code, lui, se lit en anglais.

@@ -1,14 +1,14 @@
-//! ethaor — le Tanakh en carte zoomable, sans fond.
+//! ethaor — the Tanakh as a zoomable map, with no background.
 //!
-//! Tout le calcul vit ici, compile en WebAssembly : corpus, disposition,
-//! camera, repli du zoom, elagage, detection de clic. La page ne fait que
-//! peindre la liste de commandes produite a chaque image. Rien ne transite par
-//! le reseau pendant l'interaction.
+//! All the computation lives here, compiled to WebAssembly: corpus, layout,
+//! camera, zoom folding, pruning, click detection. The page only paints the
+//! command list produced for each frame. Nothing travels over the network
+//! during interaction.
 //!
-//! Une seule chose reste au navigateur : **mesurer et tracer le texte**. C'est
-//! la que vit le faconnage de l'hebreu pointe — bidi, marques combinantes — et
-//! aucune implementation maison ne le ferait aussi bien. Rust demande les
-//! largeurs qui lui manquent, les met en cache, et n'y revient plus.
+//! One single thing stays with the browser: **measuring and drawing text**.
+//! That is where the shaping of pointed Hebrew lives — bidi, combining marks —
+//! and no in-house implementation would do it as well. Rust asks for the
+//! widths it lacks, caches them, and never comes back to them.
 
 mod corpus;
 mod hier;
@@ -18,125 +18,123 @@ use std::collections::HashMap;
 
 use treemap::{Layout, Rect, WORLD};
 
-// ---------------------------------------------------------------- reglages
+// ---------------------------------------------------------------- settings
 
-/// Part de la cellule d'une lettre qu'occupe le monde qu'elle contient.
+/// Share of a letter's cell taken by the world it contains.
 ///
-/// **Grande, et c'est ce qui supprime le carre blanc.** A 0,004, le Tanakh
-/// suivant ne mesurait que six pixels a l'instant du repli : rien n'y etait
-/// lisible, et il fallait un aplat blanc pour que l'ecran ne soit pas noir
-/// pendant la quinzaine de crans qu'il mettait a grandir.
+/// **Large, and that is what removes the white square.** At 0.004, the next
+/// Tanakh measured only six pixels at the moment of folding: nothing was
+/// legible in it, and a white fill was needed so the screen would not be black
+/// during the fifteen or so notches it took to grow.
 ///
-/// A 0,9, il nait large de neuf dixiemes de l'ecran, donc ses titres de livres
-/// passent `MIN_TEXT` immediatement : le rendu passe d'un texte a l'autre sans
-/// jamais rien peindre entre les deux. Mesure : 1 382 px sur une fenetre de
-/// 1 536, 351 px sur un telephone de 390 — et dans les deux cas zero image
-/// sans texte. A 0,7, le telephone avait une image noire au repli.
+/// At 0.9, it is born nine tenths of the screen wide, so its book titles pass
+/// `MIN_TEXT` immediately: the rendering goes from one text to the next without
+/// ever painting anything in between. Measured: 1 382 px on a 1 536 window,
+/// 351 px on a 390 phone — and in both cases zero frame without text. At 0.7,
+/// the phone had a black frame at the fold.
 const NEST: f32 = 0.9;
 
-/// Le repli n'a lieu qu'une fois la lettre plus large que l'ecran : on peut
-/// donc zoomer pleinement une lettre sans rien voir arriver. Rien n'est dessine
-/// du monde qu'elle contient avant ce moment-la, et a ce moment-la il est deja
-/// large de mille pixels : on passe d'un texte a l'autre sans intermediaire.
+/// Folding only happens once the letter is wider than the screen: one can
+/// therefore zoom fully into a letter without seeing anything arrive. Nothing
+/// of the world it contains is drawn before that moment, and by then it is
+/// already a thousand pixels wide: we go from one text to the next with no
+/// intermediate state.
 const NEST_AFTER: f32 = 1.0;
 
-/// En deca, le texte ne serait qu'une bavure grise.
+/// Below this, text would be no more than a grey smear.
 const MIN_TEXT: f32 = 4.0;
 
-/// Part de son tiers de monde qu'occupe un titre de portion, quand la carte
-/// n'est plus que trois mots, et ecart entre deux de ces mots en part de la
-/// hauteur du monde.
+/// Share of its third of the world taken by a portion title, when the map is
+/// nothing but three words, and the gap between two of those words as a share
+/// of the world height.
 ///
-/// Les deux sont pris sur le monde **projete** : les trois noms naissent grands
-/// au premier cran de de-zoom, puis rapetissent et se rapprochent a chaque cran
-/// suivant, sans fin. Mesure, fenetre de 1 536 x 730 : 61 px et 130 px d'ecart
-/// au premier cran, puis 43 et 93, 31 et 66, 22 et 48.
+/// Both are taken on the **projected** world: the three names are born large at
+/// the first zoom-out notch, then shrink and draw closer at every following
+/// notch, endlessly. Measured, 1 536 x 730 window: 61 px and a 130 px gap at
+/// the first notch, then 43 and 93, 31 and 66, 22 and 48.
 ///
-/// L'ecart a ete essaye a un tiers de la hauteur du monde — les trois mots
-/// tenaient alors les coins de l'ecran et ne se lisaient plus comme un groupe —
-/// puis a un sixieme, trop serre. A un quart, il vaut 2,1 fois la taille des
-/// mots.
+/// The gap was tried at a third of the world height — the three words then held
+/// the corners of the screen and no longer read as a group — then at a sixth,
+/// too tight. At a quarter, it is worth 2.1 times the size of the words.
 const SECTION_CARD: f32 = 0.35;
 const CARD_GAP: f32 = 1.0 / 4.0;
 
-/// Plancher propre aux numeros de chapitre, plus bas que celui du texte
-/// courant : un numero compte une a trois lettres, connues d'avance et lues
-/// comme une forme, la ou une ligne de verset doit se dechiffrer.
+/// Floor specific to chapter numbers, lower than the one for running text: a
+/// number has one to three letters, known in advance and read as a shape, where
+/// a line of verse has to be deciphered.
 ///
-/// C'est ce qui garantit la promesse « les chapitres des le premier cran » : au
-/// cran suivant le cadrage, un numero mesure 4,7 px sur une fenetre de 730 px
-/// de haut et 4,0 px sur une de 620. Depuis que l'air des portions se resserre
-/// au niveau des chapitres, le plancher ne decide plus de rien : il n'est la
-/// que comme garde-fou.
+/// That is what guarantees the promise "chapters from the first notch": at the
+/// notch above the framing, a number measures 4.7 px on a window 730 px tall
+/// and 4.0 px on one of 620. Since the portions' air tightens at chapter level,
+/// the floor no longer decides anything: it is only there as a guard rail.
 const MIN_NUMBER: f32 = 3.5;
 
-/// Hierarchie des blancs : une section est en blanc pur, un livre un ton
-/// en dessous, un numero de chapitre un rien plus bas encore. Le rang se lit
-/// donc a l'intensite, sans qu'aucun cadre ne soit necessaire.
+/// Hierarchy of whites: a section is pure white, a book one tone below, a
+/// chapter number a shade lower still. Rank therefore reads by intensity,
+/// without any frame being needed.
 const BOOK_INK: f32 = 0.78;
 const CHAPTER_INK: f32 = 0.58;
 
-/// Part de la bande de titre occupee par le texte.
+/// Share of the title band taken by the text.
 ///
-/// Le titre est dimensionne par **la bande**, qui est en unites monde : il
-/// grandit donc avec le zoom, exactement comme la boite et les chapitres, et
-/// l'espace entre le haut du cadre et le premier chapitre garde la meme allure.
-/// La bande etant de hauteur constante, tous les livres portent la meme taille
-/// de titre a un zoom donne.
+/// The title is sized by **the band**, which is in world units: it therefore
+/// grows with the zoom, exactly like the box and the chapters, and the space
+/// between the top of the frame and the first chapter keeps the same look. The
+/// band being of constant height, every book carries the same title size at a
+/// given zoom.
 const TITLE_FILL: f32 = 1.0;
 
-/// Plafond, en part de la hauteur de fenetre. Passe ce point la bande a quitte
-/// l'ecran — on est entre dans le livre — et le titre n'a plus a grandir : il
-/// n'est la que pour rappeler ou l'on se trouve.
+/// Ceiling, as a share of the window height. Past that point the band has left
+/// the screen — we have entered the book — and the title has no need to grow
+/// further: it is only there to recall where one is.
 const TITLE_CEILING: f32 = 0.085;
 
-/// Hauteur de ligne minimale pour qu'un chapitre montre ses versets.
+/// Minimum line height for a chapter to show its verses.
 ///
-/// Juste au-dessus du plancher du texte : a l'interligne de 1,30, une ligne de
-/// 5,5 px porte des caracteres de 4,2 px, soit `MIN_TEXT`. Exiger davantage ne
-/// gagnait rien en lisibilite et repoussait les versets de deux crans de zoom.
+/// Just above the text floor: at a leading of 1.30, a 5.5 px line carries
+/// characters of 4.2 px, i.e. `MIN_TEXT`. Demanding more gained nothing in
+/// legibility and pushed the verses two zoom notches further away.
 const READABLE_LINE: f32 = 5.5;
 
-/// Marge interieure d'une case, en **part de son cote**.
+/// Inner margin of a cell, as a **share of its side**.
 ///
-/// Fixe a 2 unites monde, elle ne laissait que 5,9 unites de texte dans une
-/// case de 9,9 — 40 % de l'encre jetee, en largeur comme en hauteur, et des
-/// versets qui n'apparaissaient que six crans de zoom plus tard. La marge d'une
-/// case doit suivre la case, comme tout le reste du rendu.
+/// Fixed at 2 world units, it left only 5.9 units of text in a cell of 9.9 —
+/// 40 % of the ink thrown away, in width as in height, and verses that only
+/// appeared six zoom notches later. A cell's margin must follow the cell, like
+/// all the rest of the rendering.
 const CELL_PAD: f32 = 0.06;
 
-/// Facteur nominal d'un cran de molette, et longueur de la plongee en crans :
-/// du cadrage a un chapitre plein ecran. `zoom_step` en deduit le vrai facteur,
-/// pour que cette longueur soit la meme sur toutes les fenetres.
+/// Nominal factor of one wheel notch, and length of the dive in notches: from
+/// the framing to a full-screen chapter. `zoom_step` deduces the real factor
+/// from it, so that this length is the same on every window.
 const ZOOM_STEP: f32 = 1.4;
 const DIVE_NOTCHES: f32 = 14.0;
 
-/// Au-dela de ce multiple du cadrage initial, les numeros de chapitre
-/// apparaissent.
+/// Beyond this multiple of the initial framing, chapter numbers appear.
 ///
-/// Au lancement la carte n'affiche donc que les sections et les livres, en
-/// grand ; les numeros arrivent des le premier cran de zoom. Le seuil est
-/// relatif au cadrage et non a une taille de case : il tombe ainsi au meme
-/// endroit quelle que soit la fenetre, et apres un repli comme avant.
+/// At launch the map therefore shows only the sections and the books, large;
+/// the numbers arrive from the first zoom notch. The threshold is relative to
+/// the framing and not to a cell size: it thus falls in the same place whatever
+/// the window, and after a fold as before.
 const CHAPTER_FROM: f32 = 1.1;
 
-/// En deca de ce multiple du cadrage initial, la carte n'est plus que les trois
-/// noms de portion.
+/// Below this multiple of the initial framing, the map is nothing but the three
+/// portion names.
 ///
-/// Les trois niveaux sont donc a **un cran l'un de l'autre**, de part et
-/// d'autre du cadrage : un cran de de-zoom donne les trois portions, le cadrage
-/// donne les portions et les livres, un cran de zoom donne les chapitres. Comme
-/// `CHAPTER_FROM`, le seuil est relatif au cadrage, pas a une taille : il tombe
-/// au meme endroit quelle que soit la fenetre.
+/// The three levels are therefore **one notch from each other**, on either side
+/// of the framing: one zoom-out notch gives the three portions, the framing
+/// gives the portions and the books, one zoom-in notch gives the chapters. Like
+/// `CHAPTER_FROM`, the threshold is relative to the framing, not to a size: it
+/// falls in the same place whatever the window.
 ///
-/// Il est juste en dessous de 1 et non a 1 : le cadrage lui-meme doit rester du
-/// cote des livres, y compris aux arrondis pres.
+/// It is just below 1 and not at 1: the framing itself must stay on the books'
+/// side, rounding included.
 const PORTIONS_UNDER: f32 = 0.95;
 
-/// Les titres de section sont deux tiers plus grands que ceux des livres.
+/// Section titles are two thirds bigger than book titles.
 const SECTION_OVER_BOOK: f32 = 1.25;
 
-/// Tailles d'un niveau. Chaque monde dessine a les siennes.
+/// Sizes of one level. Every drawn world has its own.
 #[derive(Clone, Copy)]
 struct Scale {
     show_chapters: bool,
@@ -145,24 +143,25 @@ struct Scale {
     section: f32,
 }
 
-/// Largeur estimee d'une lettre, le temps que le navigateur mesure vraiment.
+/// Estimated width of a letter, until the browser really measures.
 const GUESS: f32 = 0.42;
 
-/// Largeur estimee du numero le plus large — trois lettres — dont part la
-/// disposition. `build_frame` la refait des que la page a mesure la vraie.
+/// Estimated width of the widest number — three letters — that the layout
+/// starts from. `build_frame` rebuilds it as soon as the page has measured the
+/// real one.
 const ESTIMATED_NUMERAL: f32 = 3.0 * GUESS;
 
-// ------------------------------------------------------------------ sortie
+// ------------------------------------------------------------------ output
 
-/// Un enregistrement de la liste de commandes, en mots de 4 octets.
+/// One record of the command list, in 4-byte words.
 const STRIDE: usize = 10;
 
-/// Il n'y a **plus d'aplat** dans le rendu : seules des commandes de texte et
-/// de decoupage sortent d'ici. Le monde reduit a un carre blanc a disparu avec
-/// le plancher de de-zoom et le repli precoce.
+/// There is **no fill left** in the rendering: only text and clipping commands
+/// come out of here. The world reduced to a white square went away with the
+/// zoom-out floor and the early fold.
 const KIND_TEXT: f32 = 1.0;
-/// Ouvre puis referme un decoupage. Le texte d'un chapitre ne doit jamais
-/// mordre sur ses voisins, meme si une largeur mal mesuree le fait deborder.
+/// Opens then closes a clip. A chapter's text must never bite into its
+/// neighbours, even if a badly measured width makes it overflow.
 const KIND_CLIP: f32 = 2.0;
 const KIND_UNCLIP: f32 = 3.0;
 
@@ -184,9 +183,9 @@ impl Camera {
         ((px - self.x) / self.z, (py - self.y) / self.z)
     }
 
-    /// Re-enracine la camera dans `cell`, qui contient une copie du monde.
-    /// L'image ne bouge pas ; seule l'echelle redescend, ce qui empeche les
-    /// flottants de perdre leur precision.
+    /// Re-roots the camera in `cell`, which contains a copy of the world.
+    /// The image does not move; only the scale comes back down, which keeps the
+    /// floats from losing their precision.
     fn wrap_in(&mut self, cell: Rect) {
         let z = self.z;
         let z2 = cell.w * z / WORLD.w;
@@ -196,11 +195,11 @@ impl Camera {
     }
 }
 
-// ------------------------------------------------------------------- etat
+// ------------------------------------------------------------------- state
 
-/// Une ligne mise en page : une tranche de verset, sa boite et sa taille de
-/// caractere. L'unite du rendu n'est pas le verset mais la ligne — un verset
-/// long en occupe plusieurs.
+/// One laid-out line: a slice of verse, its box and its character size. The
+/// unit of rendering is not the verse but the line — a long verse takes
+/// several.
 #[derive(Clone, Copy)]
 struct Line {
     rect: Rect,
@@ -214,32 +213,32 @@ struct App {
     camera: Camera,
     width: f32,
     height: f32,
-    /// Nombre de Tanakhs traverses. La descente est a sens unique : une fois
-    /// le nouveau monde apparu, l'ancien n'existe plus.
+    /// Number of Tanakhs crossed. The descent is one-way: once the new world
+    /// has appeared, the old one no longer exists.
     level: u32,
-    /// Largeur d'un fragment pour une police de taille 1, mesuree par la page.
+    /// Width of a fragment for a font of size 1, measured by the page.
     ratios: HashMap<(u32, u32), f32>,
-    /// Fragments dont la page doit encore donner la largeur.
+    /// Fragments whose width the page has yet to give.
     pending: Vec<u32>,
     commands: Vec<f32>,
-    /// Diagnostic : points retenus a la derniere image.
+    /// Diagnostic: nests kept at the last frame.
     last_nests: u32,
-    /// Une espace du corpus, pour en mesurer la largeur une fois pour toutes.
+    /// One space from the corpus, to measure its width once and for all.
     space: Option<&'static str>,
-    /// Mise en page des chapitres deja consultes. Invalidee des qu'une mesure
-    /// arrive de la page.
+    /// Layout of the chapters already visited. Invalidated as soon as a
+    /// measurement arrives from the page.
     lines: HashMap<usize, Vec<Line>>,
-    /// Taille des numeros de chapitre, en unites monde. Calculee une fois,
-    /// jetee des qu'une mesure arrive de la page.
+    /// Size of chapter numbers, in world units. Computed once, thrown away as
+    /// soon as a measurement arrives from the page.
     number: Option<f32>,
-    /// Largeur du numero le plus large, telle que la disposition courante l'a
-    /// supposee. Une mesure qui la dementit refait les dispositions.
+    /// Width of the widest number, as the current layout assumed it. A
+    /// measurement that contradicts it rebuilds the layouts.
     numeral: f32,
-    /// L'autre niveau de detail, pret a prendre la place du courant.
+    /// The other level of detail, ready to take the current one's place.
     spare: Layout,
-    /// Vrai quand la disposition courante est celle des chapitres.
+    /// True when the current layout is the one for chapters.
     detail: bool,
-    /// Cadrage minimal, mis en cache : voir `base_scale`.
+    /// Minimum framing, cached: see `base_scale`.
     base: f32,
     selection: [u32; 4],
     focus: [u32; 6],
@@ -253,45 +252,45 @@ fn app() -> &'static mut App {
 }
 
 impl App {
-    /// Echelle du cadrage initial.
+    /// Scale of the initial framing.
     ///
-    /// C'est le monde entier dans la fenetre — sauf si cela rendait les
-    /// chapitres illisibles au premier cran. En dessous de `base`, on prefere
-    /// **rogner la carte** que de reculer les niveaux : sur un telephone, tenir
-    /// a montrer les 1 600 unites de large d'un coup donnait un cadrage trois
-    /// fois plus petit que sur un portable, donc des numeros au quatrieme cran
-    /// au lieu du premier, et des titres de livres de 5 px.
+    /// It is the whole world in the window — unless that made the chapters
+    /// illegible at the first notch. Below `base`, we prefer to **crop the map**
+    /// rather than push the levels back: on a phone, insisting on showing all
+    /// 1 600 units of width at once gave a framing three times smaller than on a
+    /// laptop, hence numbers at the fourth notch instead of the first, and book
+    /// titles of 5 px.
     ///
-    /// Le prix est connu : sur une fenetre etroite, la vue de depart ne montre
-    /// plus toute la largeur de la carte. On la retrouve en de-zoomant d'un
-    /// cran — les trois portions — et en glissant.
+    /// The price is known: on a narrow window, the starting view no longer shows
+    /// the full width of the map. One gets it back by zooming out one notch —
+    /// the three portions — and panning.
     fn fit_scale(&self) -> f32 {
         let contain = (self.width / WORLD.w).min(self.height / WORLD.h);
         contain.max(self.base)
     }
 
-    /// Cadrage minimal : celui qui met un numero de chapitre juste au-dessus de
-    /// son plancher au premier cran de zoom.
+    /// Minimum framing: the one that puts a chapter number just above its floor
+    /// at the first zoom notch.
     ///
-    /// Mis en cache, car `fit_scale` est appele partout et ne peut pas emprunter
-    /// `self` en mutable ; recalcule quand la disposition change.
+    /// Cached, because `fit_scale` is called everywhere and cannot borrow `self`
+    /// mutably; recomputed when the layout changes.
     fn base_scale(&mut self) -> f32 {
         let widest = self.widest_numeral();
         let detail = if self.detail { &self.layout } else { &self.spare };
-        // Un pour cent de marge : sur une fenetre tres plate, le pas calcule
-        // descend sous le pas nominal, et le numero manquait son plancher de
-        // trois centiemes de pixel au premier cran.
+        // One per cent of margin: on a very flat window, the computed step drops
+        // below the nominal step, and the number missed its floor by three
+        // hundredths of a pixel at the first notch.
         MIN_NUMBER * 1.05 / (number_in(detail, widest) * ZOOM_STEP)
     }
 
-    /// Facteur d'un cran de molette.
+    /// Factor of one wheel notch.
     ///
-    /// **Calcule, et non fixe a 1,4** : il vaut ce qu'il faut pour que la
-    /// plongee du cadrage jusqu'a un chapitre plein ecran demande toujours
-    /// `DIVE_NOTCHES` crans, quelle que soit la fenetre. Sur un ecran paysage
-    /// le cadrage est deja proportionnel a la hauteur, donc le calcul rend 1,40
-    /// exactement ; c'est sur les fenetres etroites, ou le cadrage a ete
-    /// plancheise, qu'il s'ecarte un peu.
+    /// **Computed, and not fixed at 1.4**: it is worth whatever it takes for the
+    /// dive from the framing down to a full-screen chapter to always take
+    /// `DIVE_NOTCHES` notches, whatever the window. On a landscape screen the
+    /// framing is already proportional to the height, so the computation yields
+    /// exactly 1.40; it is on narrow windows, where the framing has been
+    /// floored, that it departs a little.
     fn zoom_step(&mut self) -> f32 {
         let cell = {
             let detail = if self.detail { &self.layout } else { &self.spare };
@@ -302,28 +301,28 @@ impl App {
         (target / fit).powf(1.0 / DIVE_NOTCHES)
     }
 
-    /// Zoom minimal, **technique et non visible**.
+    /// Minimum zoom, **technical and not visible**.
     ///
-    /// Le de-zoom n'a plus de borne de lisibilite : passe l'etat des trois
-    /// portions, leur taille ne depend plus du zoom mais de l'ecran, donc
-    /// continuer a de-zoomer ne les reduit pas. Il reste seulement a empecher
-    /// l'echelle de tomber a zero, ou les coordonnees monde perdraient tout
-    /// sens.
+    /// Zooming out no longer has a legibility bound: past the three-portions
+    /// state, their size no longer depends on the zoom but on the screen, so
+    /// carrying on zooming out does not shrink them. All that remains is to keep
+    /// the scale from falling to zero, where world coordinates would lose all
+    /// meaning.
     ///
-    /// Une borne a la lisibilite a ete essayee — arreter le de-zoom des que les
-    /// trois titres atteignaient `MIN_TEXT` : elle figeait la vue sur trois mots
-    /// de 4 px, illisibles, au lieu de les laisser grandir.
+    /// A legibility bound was tried — stopping the zoom-out as soon as the three
+    /// titles reached `MIN_TEXT`: it froze the view on three words of 4 px,
+    /// illegible, instead of letting them grow.
     fn floor_scale(&self) -> f32 {
         1.0 / WORLD.w
     }
 
-    /// Niveau de detail courant : les chapitres sont-ils a l'ecran ?
+    /// Current level of detail: are the chapters on screen?
     ///
-    /// Les deux niveaux n'ont pas la meme disposition — l'air des portions y
-    /// est de moitie — donc pas les memes boites ni le meme pas. On garde les
-    /// deux cotes a cote et on les echange au passage du seuil ; rien n'est
-    /// recalcule, et la mise en page des versets, qui depend des cases, est
-    /// jetee.
+    /// The two levels do not have the same layout — the portions' air is halved
+    /// there — hence neither the same boxes nor the same pitch. We keep both side
+    /// by side and swap them when the threshold is crossed; nothing is
+    /// recomputed, and the verse layout, which depends on the cells, is thrown
+    /// away.
     fn set_detail(&mut self, detail: bool) {
         if detail == self.detail {
             return;
@@ -346,10 +345,10 @@ impl App {
         self.camera.y = (self.height - WORLD.h * self.camera.z) / 2.0;
     }
 
-    /// Largeur du fragment pour une police de taille 1.
+    /// Width of the fragment for a font of size 1.
     ///
-    /// Tant que la page ne l'a pas mesure, on repond une estimation et on
-    /// inscrit le fragment dans `pending` : l'image suivante sera juste.
+    /// As long as the page has not measured it, we answer an estimate and record
+    /// the fragment in `pending`: the next frame will be right.
     fn ratio(&mut self, fragment: &'static str) -> f32 {
         let key = key_of(fragment);
         if let Some(&ratio) = self.ratios.get(&key) {
@@ -362,7 +361,7 @@ impl App {
         hier::letter_count(fragment).max(1) as f32 * GUESS
     }
 
-    /// Largeur d'une espace, mesuree une fois sur une vraie espace du corpus.
+    /// Width of a space, measured once on a real space from the corpus.
     fn space_ratio(&mut self) -> f32 {
         let space = *self.space.get_or_insert_with(|| {
             let text = corpus::text();
@@ -372,14 +371,14 @@ impl App {
         self.ratio(space)
     }
 
-    /// Largeur d'un fragment, **deduite de ses mots** et non mesuree telle
-    /// quelle.
+    /// Width of a fragment, **deduced from its words** and not measured as
+    /// such.
     ///
-    /// C'est ce qui rend la mise en page stable : mesurer la ligne entiere
-    /// ferait dependre les fragments a mesurer du decoupage, lequel depend des
-    /// mesures. Chaque nouvelle mise en page reclamerait de nouvelles mesures,
-    /// qui invalideraient la mise en page — sans fin. Les mots, eux, ne
-    /// changent jamais.
+    /// That is what makes the layout stable: measuring the whole line would make
+    /// the fragments to measure depend on the wrapping, which depends on the
+    /// measurements. Every new layout would call for new measurements, which
+    /// would invalidate the layout — endlessly. Words, for their part, never
+    /// change.
     fn width_of(&mut self, text: &'static str, size: f32) -> f32 {
         let space = self.space_ratio();
         let mut total = 0.0;
@@ -397,15 +396,15 @@ impl App {
         self.layout.chapters.iter().position(|r| r.contains(x, y))
     }
 
-    /// Mise en page d'un chapitre, en coordonnees monde.
+    /// Layout of a chapter, in world coordinates.
     ///
-    /// **Tous les versets ont la meme taille de caractere.** Un verset trop
-    /// long passe sur plusieurs lignes au lieu d'etre comprime : seul le
-    /// nombre de lignes varie, jamais la taille. Une respiration separe les
-    /// versets, de sorte qu'on voie ou l'un finit et ou l'autre commence.
+    /// **All verses have the same character size.** A verse that is too long
+    /// goes over several lines instead of being compressed: only the number of
+    /// lines varies, never the size. A breathing space separates the verses, so
+    /// that one sees where one ends and the next begins.
     ///
-    /// Calcule une fois par chapitre, puis mis en cache : la disposition ne
-    /// depend que du monde, pas du zoom.
+    /// Computed once per chapter, then cached: the layout depends only on the
+    /// world, not on the zoom.
     fn chapter_lines(&mut self, chapter: usize) -> Vec<Line> {
         if let Some(lines) = self.lines.get(&chapter) {
             return lines.clone();
@@ -420,14 +419,14 @@ impl App {
         let verses = corpus::verses_of(chapter);
         let count = verses.len().max(1);
 
-        // Hauteur d'une ligne et respiration entre versets, en multiples de la
-        // taille de caractere.
+        // Line height and breathing space between verses, as multiples of the
+        // character size.
         let line_k = 1.30;
         let gap_k = 0.55;
 
-        // On part d'une ligne par verset, puis on resserre tant que la colonne
-        // deborde. Le nombre de lignes ne peut que croitre quand la taille
-        // croit, donc quelques passes suffisent.
+        // We start from one line per verse, then tighten as long as the column
+        // overflows. The number of lines can only grow as the size grows, so a
+        // few passes are enough.
         let mut size = cell.h / (count as f32 * line_k + (count - 1) as f32 * gap_k);
         for _ in 0..5 {
             let total = self.column_height(chapter, cell.w, size, line_k, gap_k);
@@ -457,7 +456,7 @@ impl App {
         out
     }
 
-    /// Hauteur qu'occuperait le chapitre a cette taille de caractere.
+    /// Height the chapter would take at this character size.
     fn column_height(&mut self, chapter: usize, width: f32, size: f32, line_k: f32, gap_k: f32) -> f32 {
         let verses = corpus::verses_of(chapter);
         let count = verses.len().max(1);
@@ -472,10 +471,10 @@ impl App {
         lines as f32 * size * line_k + (count - 1) as f32 * size * gap_k
     }
 
-    /// Decoupe un verset en lignes qui tiennent dans `width`, aux mots.
+    /// Splits a verse into lines that fit in `width`, at word boundaries.
     ///
-    /// Chaque ligne reste une tranche du corpus : seuls un decalage et une
-    /// longueur traversent la frontiere avec la page.
+    /// Every line stays a slice of the corpus: only an offset and a length cross
+    /// the boundary with the page.
     fn wrap(&mut self, verse: &'static str, width: f32, size: f32) -> Vec<&'static str> {
         if width <= 0.0 || size <= 0.0 || self.width_of(verse, size) <= width {
             return vec![verse];
@@ -485,8 +484,8 @@ impl App {
         let space = self.space_ratio();
 
         let mut out = Vec::new();
-        let mut start = 0usize; // debut de la ligne courante, en octets
-        let mut at = 0usize; // debut du mot courant
+        let mut start = 0usize; // start of the current line, in bytes
+        let mut at = 0usize; // start of the current word
         let mut run = 0.0f32;
 
         for word in &words {
@@ -495,7 +494,7 @@ impl App {
             let advance = if first { w } else { w + space * size };
 
             if !first && run + advance > width {
-                out.push(&verse[start..at - 1]); // sans l'espace de fin
+                out.push(&verse[start..at - 1]); // without the trailing space
                 start = at;
                 run = w;
             } else {
@@ -508,10 +507,10 @@ impl App {
         out
     }
 
-    /// Cellules des lettres d'une ligne, de droite a gauche.
+    /// Cells of a line's letters, right to left.
     ///
-    /// Le texte est dessine d'un seul tenant ; ce decoupage ne sert qu'a situer
-    /// une lettre — pour le point qu'elle contient, et pour le clic.
+    /// The text is drawn in one piece; this split only serves to locate a letter
+    /// — for the nest it contains, and for clicks.
     fn letter_cells(&mut self, text: &'static str, row: Rect, size: f32) -> Vec<Rect> {
         let drawn = self.width_of(text, size);
         if drawn <= 0.0 {
@@ -535,8 +534,8 @@ impl App {
             .collect()
     }
 
-    /// Chapitre le plus proche d'un point, meme si celui-ci tombe dans un
-    /// interstice entre deux boites.
+    /// Chapter nearest to a point, even if that point falls in a gap between two
+    /// boxes.
     fn nearest_chapter(&self, x: f32, y: f32) -> Option<usize> {
         self.layout
             .chapters
@@ -546,19 +545,18 @@ impl App {
             .map(|(i, _)| i)
     }
 
-    /// Livre dont la boite contient un point.
+    /// Book whose box contains a point.
     fn book_at(&self, x: f32, y: f32) -> Option<usize> {
         (0..corpus::book_count()).find(|&b| self.layout.books[b].contains(x, y))
     }
 
-    /// Chemin complet sous un point du monde.
+    /// Full path under a point of the world.
     ///
-    /// Si le point tombe entre deux cases, on retient **la plus proche du meme
-    /// livre**. Les cases sont espacees pour occuper toute la largeur de leur
-    /// boite : chez un livre de trois chapitres, l'intervalle depasse cent
-    /// unites monde, et une recherche stricte ne rendait rien la plupart du
-    /// temps. La tolerance s'arrete au livre — cliquer dans l'air qui separe
-    /// deux portions ne selectionne rien.
+    /// If the point falls between two cells, we keep **the nearest one in the
+    /// same book**. Cells are spaced out to take the full width of their box: in
+    /// a book of three chapters, the gap exceeds a hundred world units, and a
+    /// strict search returned nothing most of the time. Tolerance stops at the
+    /// book — clicking in the air that separates two portions selects nothing.
     fn locate(&mut self, x: f32, y: f32) -> Option<(usize, usize, usize, Option<Rect>)> {
         let chapter = match self.chapter_at(x, y) {
             Some(chapter) => chapter,
@@ -585,9 +583,9 @@ impl App {
             chapter >= r.start && chapter < r.end
         })?;
 
-        // Ligne la plus proche verticalement, et non celle qui contient le
-        // point : les respirations entre versets laissent des interstices ou le
-        // curseur tombe souvent, et une recherche stricte n'y trouverait rien.
+        // Nearest line vertically, and not the one containing the point: the
+        // breathing spaces between verses leave gaps where the cursor often
+        // falls, and a strict search would find nothing there.
         let lines = self.chapter_lines(chapter);
         let hit = lines.into_iter().min_by(|a, b| {
             vertical_gap(a.rect, y).total_cmp(&vertical_gap(b.rect, y))
@@ -595,8 +593,8 @@ impl App {
 
         let Some(line) = hit else { return Some((book, chapter, usize::MAX, None)) };
 
-        // Meme tolerance horizontalement : le texte est cale a droite, donc la
-        // gauche de la bande est souvent vide.
+        // Same tolerance horizontally: the text is set to the right, so the left
+        // of the strip is often empty.
         let cell = self
             .letter_cells(line.text, line.rect, line.size)
             .into_iter()
@@ -609,9 +607,8 @@ impl App {
         self.locate(x, y)?.3.map(|cell| cell.shrink(NEST))
     }
 
-    /// Point vise par le zoom, avec la lettre qui le contient. Tolere les
-    /// interstices entre boites : viser entre deux livres doit rester
-    /// productif.
+    /// Point aimed at by the zoom, with the letter containing it. Tolerates the
+    /// gaps between boxes: aiming between two books must stay productive.
     fn target_near(&mut self, x: f32, y: f32) -> Option<(Rect, Rect)> {
         let chapter = self.chapter_at(x, y).or_else(|| self.nearest_chapter(x, y))?;
         let cell = self.locate_in(chapter, x, y)?.3?;
@@ -625,18 +622,18 @@ impl App {
         self.camera.x += (ax - bx) * self.camera.z;
         self.camera.y += (ay - by) * self.camera.z;
 
-        // Descente. Le point se trouve au centre de la lettre, alors que le
-        // zoom garde le curseur immobile : sans aide, le point derive hors de
-        // l'ecran et devient impossible a atteindre. On attire donc doucement
-        // la vue vers lui des qu'on a depasse la lettre. Le geste reste libre —
-        // la correction est faible et ne s'applique qu'en approche.
+        // Descent. The nest sits at the centre of the letter, while the zoom
+        // keeps the cursor still: without help, the nest drifts off screen and
+        // becomes impossible to reach. So we gently pull the view towards it as
+        // soon as the letter has been passed. The gesture stays free — the
+        // correction is weak and only applies on approach.
         if factor > 1.0 {
             let (wx, wy) = self.camera.to_world(px, py);
 
-            // Tant qu'un chapitre ne remplit pas l'ecran, c'est **lui** que la
-            // vue suit. Les fonds etant noirs, le vide entre les cases ne se
-            // distingue en rien du reste : sans cette attraction, zoomer a cote
-            // menait a un ecran noir dont on ne savait pas sortir.
+            // As long as a chapter does not fill the screen, it is **it** that
+            // the view follows. The backgrounds being black, the void between
+            // cells is in no way distinguishable from the rest: without this
+            // pull, zooming off-target led to a black screen with no way out.
             let aimed = self
                 .chapter_at(wx, wy)
                 .or_else(|| self.nearest_chapter(wx, wy))
@@ -656,22 +653,22 @@ impl App {
                 let screen = self.camera.project(nest);
 
                 if cell.w > self.width * NEST_AFTER {
-                    // La lettre est depassee : le nouveau Tanakh apparait, et
-                    // l'ancien disparait au meme instant.
+                    // The letter has been passed: the new Tanakh appears, and
+                    // the old one disappears at the same instant.
                     //
-                    // On re-enracine **ici**, et non quand le point recouvre
-                    // l'ecran. Attendre coutait une trentaine de crans passes
-                    // a manipuler des coordonnees de l'ordre de 1e8 en f32 :
-                    // le point, large de quelques pixels, derivait alors de
-                    // plus en plus loin du centre (jusqu'a 800 px mesures).
-                    // Une fois la camera rendue au monde du point, tous les
-                    // nombres redeviennent petits et le cadrage exact.
+                    // We re-root **here**, and not when the nest covers the
+                    // screen. Waiting cost some thirty notches spent handling
+                    // coordinates of the order of 1e8 in f32: the nest, a few
+                    // pixels wide, then drifted further and further from the
+                    // centre (up to 800 px measured). Once the camera is
+                    // returned to the nest's world, every number becomes small
+                    // again and the framing exact.
                     self.camera.wrap_in(nest);
                     self.level += 1;
                 } else if screen.w > 2.0 {
-                    // Avant cela, une attraction douce vers le curseur : le
-                    // point est au centre de sa lettre et deriverait sinon hors
-                    // de l'ecran.
+                    // Before that, a gentle pull towards the cursor: the nest is
+                    // at the centre of its letter and would otherwise drift off
+                    // screen.
                     let closeness = (cell.w / self.width).clamp(0.0, 1.0);
                     let k = (0.14 + 0.62 * closeness).max(pull(factor));
                     self.camera.x += (px - (screen.x + screen.w / 2.0)) * k;
@@ -680,25 +677,25 @@ impl App {
             }
         }
 
-        // Plancher : on s'arrete au dernier zoom ou les trois titres de
-        // portion se lisent encore.
+        // Floor: we stop at the last zoom where the three portion titles are
+        // still legible.
         self.camera.z = self.camera.z.max(self.floor_scale());
 
-        // En dessous du cadrage, on recentre : la vue converge vers un point
-        // unique plutot que de deriver hors champ.
+        // Below the framing, we re-centre: the view converges towards a single
+        // point instead of drifting out of frame.
         if self.camera.z < self.fit_scale() {
             self.camera.x = (self.width - WORLD.w * self.camera.z) / 2.0;
             self.camera.y = (self.height - WORLD.h * self.camera.z) / 2.0;
         }
     }
 
-    // ---------------------------------------------------------------- rendu
+    // --------------------------------------------------------------- drawing
 
     fn visible(&self, r: Rect) -> bool {
         r.x < self.width && r.y < self.height && r.x + r.w > 0.0 && r.y + r.h > 0.0
     }
 
-    /// Restreint le dessin a un rectangle, jusqu'a `unclip`.
+    /// Restricts drawing to a rectangle, until `unclip`.
     fn clip(&mut self, r: Rect) {
         self.commands
             .extend_from_slice(&[KIND_CLIP, r.x, r.y, r.w, r.h, 0.0, 0.0, 0.0, 0.0, 0.0]);
@@ -709,15 +706,14 @@ impl App {
             .extend_from_slice(&[KIND_UNCLIP, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
     }
 
-    /// Titre d'un livre ou d'une section, pose **dans sa bande**.
+    /// Title of a book or a section, laid **inside its band**.
     ///
-    /// Il n'est jamais epingle par-dessus le contenu : la bande lui est
-    /// reservee, donc il ne recouvre rien. Quand elle sort de l'ecran, le fil
-    /// d'Ariane prend le relais — l'information n'est jamais perdue, et jamais
-    /// superposee.
+    /// It is never pinned over the content: the band is reserved for it, so it
+    /// covers nothing. When the band leaves the screen, the breadcrumb takes
+    /// over — the information is never lost, and never superimposed.
     ///
-    /// Il reste decoupe a sa boite : trop long pour un petit livre, il est
-    /// rogne plutot que d'aller mordre sur son voisin.
+    /// It stays clipped to its box: too long for a small book, it is trimmed
+    /// rather than biting into its neighbour.
     fn title(
         &mut self,
         content: &'static str,
@@ -731,16 +727,15 @@ impl App {
             return;
         }
 
-        // **Le bord droit est celui de la boite, pas celui de l'ecran.** Un
-        // titre de livre se lit juste apres la derniere case de sa rangee de
-        // chapitres : c'est sa place, et elle ne doit pas dependre du cadrage.
-        // Le rabattre sur l'ecran faisait glisser le titre a l'interieur de sa
-        // boite pendant un deplacement — on tirait un livre vers la droite et
-        // son nom partait vers la gauche.
+        // **The right edge is the box's, not the screen's.** A book title reads
+        // just after the last cell of its chapter row: that is its place, and it
+        // must not depend on the framing. Clamping it to the screen made the
+        // title slide inside its box during a pan — one dragged a book to the
+        // right and its name went off to the left.
         //
-        // Les titres de portion, eux, sont epingles a l'ecran par leur
-        // appelant : une portion mesure plusieurs ecrans de large, et son nom
-        // doit rester lisible tant qu'on est dedans.
+        // Portion titles, for their part, are pinned to the screen by their
+        // caller: a portion measures several screens in width, and its name must
+        // stay legible as long as one is inside it.
         let line = size * 1.35;
         let left = box_.x;
         let right = box_.x + box_.w;
@@ -748,35 +743,33 @@ impl App {
             return;
         }
 
-        // Cale en bas de la bande, donc juste au-dessus du premier chapitre :
-        // l'espace qui les separe garde la meme allure a tous les zooms.
+        // Set at the bottom of the band, hence just above the first chapter: the
+        // space between them keeps the same look at every zoom.
         //
-        // Sauf quand la boite est libre — numeros de chapitre encore masques :
-        // le titre s'y centre alors, au lieu de deborder de sa bande vers le
-        // haut et d'aller mordre sur le titre de section.
+        // Except when the box is free — chapter numbers still hidden: the title
+        // then centres in it, instead of overflowing its band upwards and biting
+        // into the section title.
         let area = if full {
             Rect { x: left, y: box_.y, w: right - left, h: box_.h }
         } else {
             Rect { x: left, y: band.y + band.h - line, w: right - left, h: line }
         };
 
-        // Decoupe **en largeur seulement**. La bande d'un petit livre est plus
-        // basse que la ligne de texte ; decouper aussi en hauteur coupait la
-        // tete des lettres et donnait l'illusion de tailles differentes, alors
-        // que tous les titres partagent la meme. Le debordement se fait vers le
-        // haut, dans la gouttiere entre livres, jamais sur les chapitres : le
-        // titre est ancre au bas de sa bande.
+        // Clipped **in width only**. A small book's band is lower than the text
+        // line; clipping in height as well cut the tops off the letters and gave
+        // the illusion of different sizes, when all titles share the same one.
+        // The overflow goes upwards, into the gutter between books, never onto
+        // the chapters: the title is anchored at the bottom of its band.
         self.clip(Rect { x: box_.x, y: 0.0, w: box_.w, h: self.height });
         self.emit_text(content, area, size, alpha);
         self.unclip();
     }
 
-    /// Pose un fragment, cale sur le bord droit de sa boite, a une taille
-    /// imposee. C'est ce qui permet a tous les versets d'un chapitre de
-    /// partager la meme taille quelle que soit leur longueur.
-    /// Le plancher de lisibilite est au choix de l'appelant : un titre et une
-    /// ligne de verset s'arretent a `MIN_TEXT`, un numero de chapitre a
-    /// `MIN_NUMBER`.
+    /// Lays a fragment, set on the right edge of its box, at an imposed size.
+    /// That is what lets all the verses of a chapter share the same size
+    /// whatever their length.
+    /// The legibility floor is the caller's choice: a title and a line of verse
+    /// stop at `MIN_TEXT`, a chapter number at `MIN_NUMBER`.
     fn emit_text(&mut self, content: &'static str, area: Rect, size: f32, alpha: f32) {
         if alpha <= 0.01 {
             return;
@@ -784,7 +777,7 @@ impl App {
         let (offset, len) = key_of(content);
         self.commands.extend_from_slice(&[
             KIND_TEXT,
-            area.x + area.w, // bord droit : le texte est pose dessus
+            area.x + area.w, // right edge: the text is laid on it
             area.y + area.h / 2.0 + size * 0.36,
             area.w,
             area.h,
@@ -796,7 +789,7 @@ impl App {
         ]);
     }
 
-    /// Largeur du numero le plus large du Tanakh, pour une police de taille 1.
+    /// Width of the widest number of the Tanakh, for a font of size 1.
     fn widest_numeral(&mut self) -> f32 {
         (0..corpus::chapter_count())
             .map(|c| self.ratio(corpus::chapter_label(c)))
@@ -807,18 +800,17 @@ impl App {
         self.commands.clear();
         self.pending.clear();
 
-        // La disposition suppose une largeur de chiffres ; si la page en a
-        // mesure une autre, on la refait avec la vraie. Une seule fois, au
-        // debut : les mesures ne changent plus ensuite. C'est a ce prix que le
-        // rapport numero/titre vaut exactement un demi dans le navigateur, et
-        // pas seulement sous l'estimation.
+        // The layout assumes a digit width; if the page has measured another
+        // one, we rebuild it with the real one. Once only, at the start:
+        // measurements do not change afterwards. That is the price of the
+        // number/title ratio being exactly a half in the browser, and not only
+        // under the estimate.
         let numeral = self.widest_numeral();
         if (numeral - self.numeral).abs() > self.numeral * 0.005 {
-            // Le cadrage lui-meme depend de la disposition : s'il bouge, une
-            // camera encore posee dessus doit suivre. Sans cela, sur une
-            // fenetre etroite, la premiere image mesuree laissait la camera
-            // sous le nouveau cadrage — donc dans l'etat des trois portions,
-            // des le demarrage.
+            // The framing itself depends on the layout: if it moves, a camera
+            // still sitting on it must follow. Without this, on a narrow window,
+            // the first measured frame left the camera below the new framing —
+            // hence in the three-portions state, right from startup.
             let framed = (self.camera.z - self.fit_scale()).abs() < self.fit_scale() * 1e-3;
 
             self.numeral = numeral;
@@ -834,18 +826,18 @@ impl App {
             }
         }
 
-        // Le niveau de detail suit la camera : l'air des portions se resserre
-        // de moitie des que les chapitres paraissent.
+        // The level of detail follows the camera: the portions' air tightens by
+        // half as soon as the chapters appear.
         self.sync_detail();
 
         let camera = self.camera;
 
-        // Un seul monde est dessine, toujours. Le relais vers le suivant ne se
-        // joue plus ici : `zoom_at` re-enracine la camera des que la lettre
-        // depasse l'ecran, de sorte que le monde courant *est* deja le nouveau.
-        // Et il n'y a plus de point de secours : le repli se fait sur un monde
-        // deja large de mille pixels, et le de-zoom s'arrete tant que ses
-        // titres se lisent. Un aplat blanc n'a jamais rien dit.
+        // A single world is drawn, always. The handover to the next one is no
+        // longer played out here: `zoom_at` re-roots the camera as soon as the
+        // letter passes the screen, so that the current world *is* already the
+        // new one. And there is no fallback nest any more: the fold happens on a
+        // world already a thousand pixels wide, and the zoom-out stops while its
+        // titles are legible. A white fill never said anything.
         self.draw_world(camera, 1.0);
         self.last_nests = u32::from(self.commands.is_empty());
     }
@@ -857,8 +849,8 @@ impl App {
         (self.overview_title() * camera.z).min(self.height * TITLE_CEILING)
     }
 
-    /// Taille d'un titre de livre en vue d'ensemble, en unites monde : la boite
-    /// entiere lui appartient tant que les chapitres sont masques.
+    /// Size of a book title in the overview, in world units: the whole box
+    /// belongs to it as long as the chapters are hidden.
     fn overview_title(&mut self) -> f32 {
         let widest = (0..corpus::book_count())
             .map(|book| self.ratio(corpus::book_name(book)))
@@ -887,20 +879,18 @@ impl App {
         (median * TITLE_FILL).min(self.height * TITLE_CEILING)
     }
 
-    /// Taille des numeros de chapitre, en unites monde.
+    /// Size of chapter numbers, in world units.
     ///
-    /// **La meme partout.** Toutes les cases du Tanakh partagent un pas unique,
-    /// donc une taille unique : un numero ne change pas de corps selon le livre
-    /// qu'on regarde. Une taille par livre avait ete essayee pour montrer les
-    /// numeros un cran plus tot ; elle donnait dix tailles differentes a
-    /// l'ecran en meme temps.
+    /// **The same everywhere.** Every cell of the Tanakh shares a single pitch,
+    /// hence a single size: a number does not change body depending on the book
+    /// one is looking at. A size per book had been tried, to show the numbers one
+    /// notch earlier; it gave ten different sizes on screen at the same time.
     ///
-    /// **Un numero se lit en entier ou pas du tout** : on prend le plus large
-    /// du Tanakh — trois lettres — et la plus grande taille qui le fait tenir
-    /// dans une case, largeur comprise. Le debordement est donc impossible par
-    /// construction.
+    /// **A number reads in full or not at all**: we take the widest of the
+    /// Tanakh — three letters — and the largest size that makes it fit in a cell,
+    /// width included. Overflow is therefore impossible by construction.
     ///
-    /// Mise en cache, jetee des qu'une mesure arrive de la page.
+    /// Cached, thrown away as soon as a measurement arrives from the page.
     fn number_size(&mut self) -> f32 {
         if let Some(size) = self.number {
             return size;
@@ -911,19 +901,18 @@ impl App {
         size
     }
 
-    /// Les chapitres sont-ils **montrables** a ce zoom ?
+    /// Are the chapters **showable** at this zoom?
     ///
-    /// Deux conditions, et la seconde a ete apprise sur petit ecran : passe le
-    /// seuil de cadrage, encore faut-il que les numeros soient lisibles. Sur un
-    /// telephone, le premier cran franchissait le seuil, le titre d'un livre
-    /// rentrait dans sa bande — trois pixels — et les numeros valaient un pixel
-    /// et demi : l'image etait **entierement noire**. On attend donc que le
-    /// numero passe son plancher, ce qui arrive au premier cran sur un
-    /// portable et au quatrieme sur un telephone.
+    /// Two conditions, and the second was learnt on a small screen: past the
+    /// framing threshold, the numbers still have to be legible. On a phone, the
+    /// first notch crossed the threshold, a book title fitted into its band —
+    /// three pixels — and the numbers were a pixel and a half: the frame was
+    /// **entirely black**. So we wait for the number to pass its floor, which
+    /// happens at the first notch on a laptop and the fourth on a phone.
     ///
-    /// La decision se prend toujours sur la disposition **des chapitres**,
-    /// celle qui sera en place si l'on bascule : la juger sur la disposition
-    /// courante ferait osciller le niveau d'une image a l'autre.
+    /// The decision is always taken on the **chapter** layout, the one that will
+    /// be in place if we switch: judging it on the current layout would make the
+    /// level oscillate from one frame to the next.
     fn chapters_ready(&mut self, camera: Camera) -> bool {
         if camera.z <= self.fit_scale() * CHAPTER_FROM {
             return false;
@@ -933,12 +922,12 @@ impl App {
         number_in(detail, widest) * camera.z >= MIN_NUMBER
     }
 
-    /// Tailles d'un niveau, deduites de **sa** camera.
+    /// Sizes of one level, deduced from **its** camera.
     ///
-    /// Elles ne peuvent pas etre calculees une fois pour l'image : un monde
-    /// imbriqué est dessine a une tout autre echelle, et reprendre les tailles
-    /// du niveau au-dessus donnait des titres absurdes des l'apparition du
-    /// Tanakh suivant, puis de pire en pire en continuant a zoomer.
+    /// They cannot be computed once for the frame: a nested world is drawn at a
+    /// completely different scale, and taking over the sizes of the level above
+    /// gave absurd titles as soon as the next Tanakh appeared, then worse and
+    /// worse as one kept zooming.
     fn scale_of(&mut self, camera: Camera) -> Scale {
         let show_chapters = self.chapters_ready(camera);
         let book = self.book_title_size(camera, show_chapters);
@@ -949,8 +938,8 @@ impl App {
             show_chapters,
             chapter: number * camera.z,
             book,
-            // Pas de plafond propre : celui des titres de livres borne deja les
-            // deux, et le rapport reste donc exact a tous les zooms.
+            // No ceiling of its own: the book titles' ceiling already bounds
+            // both, so the ratio stays exact at every zoom.
             section: book * SECTION_OVER_BOOK,
         }
     }
@@ -962,55 +951,54 @@ impl App {
 
         let scale = self.scale_of(camera);
 
-        // **Les trois portions seules, en grand, a egale distance.**
+        // **The three portions alone, large, at equal distance.**
         //
-        // **Un seul cran de de-zoom y suffit** (`PORTIONS_UNDER`). Les trois
-        // niveaux sont a un cran l'un de l'autre : trois portions, puis
-        // portions et livres au cadrage, puis les chapitres. Attendre que les
-        // titres de livres passent sous le plancher du texte demandait cinq
-        // crans, pendant lesquels la carte n'etait qu'une grille de mots de
-        // plus en plus pales : rien n'y etait lisible et il fallait pourtant
-        // continuer.
+        // **A single zoom-out notch is enough** (`PORTIONS_UNDER`). The three
+        // levels are one notch from each other: three portions, then portions
+        // and books at the framing, then the chapters. Waiting for the book
+        // titles to drop below the text floor took five notches, during which
+        // the map was nothing but a grid of ever paler words: nothing was
+        // legible in it and yet one had to carry on.
         //
-        // Deux choses changent de regle a ce niveau.
+        // Two things change rule at this level.
         //
-        // Leur place, d'abord : dans le monde, elle vient du volume des
-        // sections — une rangee de livres pour la Torah, cinq pour les
-        // Prophetes — ce qui les met a des distances tres inegales. Une fois les
-        // livres partis, cette inegalite ne dit plus rien ; on les repartit a
-        // parts egales.
+        // Their place, first: in the world, it comes from the volume of the
+        // sections — one row of books for the Torah, five for the Prophets —
+        // which puts them at very unequal distances. Once the books are gone,
+        // that inequality says nothing any more; we spread them out in equal
+        // parts.
         //
-        // Leur taille, ensuite : **elle quitte le monde pour l'ecran.** Suivre
-        // le zoom les rendait minuscules au moment meme ou ils devenaient le
-        // seul contenu de l'image — trois mots de 4 px sur une fenetre vide. Ils
-        // reprennent donc la taille que leur tiers d'ecran autorise, et la
-        // gardent : on peut continuer a de-zoomer sans qu'ils se reduisent, et
-        // sans qu'aucun aplat n'ait a prendre leur place.
+        // Their size, next: **it leaves the world for the screen.** Following
+        // the zoom made them tiny at the very moment they became the only
+        // content of the frame — three words of 4 px on an empty window. So they
+        // take back the size their third of the screen allows, and keep it: one
+        // can carry on zooming out without them shrinking, and without any fill
+        // having to take their place.
         //
-        // Le niveau se reconnait au zoom seul, et du bon cote du cadrage : tres
-        // zoome dans un livre, les bandes de titre ont aussi quitte l'ecran, et
-        // juger sur elles faisait peindre les trois portions en geant
-        // par-dessus les versets.
+        // The level is recognised by the zoom alone, and on the right side of
+        // the framing: deep inside a book, the title bands have also left the
+        // screen, and judging on them made the three portions get painted giant
+        // over the verses.
         if camera.z < self.fit_scale() * PORTIONS_UNDER {
             let widest = (0..3)
                 .map(|section| self.ratio(corpus::section_name(section)))
                 .fold(0.3_f32, f32::max);
 
-            // Tout est pris sur le monde **projete** : les trois mots naissent
-            // grands au premier cran de de-zoom, puis rapetissent et se
-            // rapprochent avec lui, sans fin. Les figer a une taille d'ecran a
-            // ete essaye : on les lisait bien, mais de-zoomer ne faisait plus
-            // rien du tout.
+            // Everything is taken on the **projected** world: the three words
+            // are born large at the first zoom-out notch, then shrink and draw
+            // closer with it, endlessly. Freezing them at a screen size was
+            // tried: they read well, but zooming out no longer did anything at
+            // all.
             let world = camera.project(WORLD);
             let size = (world.h * SECTION_CARD / 3.0).min(world.w * 0.8 / widest);
             let line = size * 1.35;
             let gap = world.h * CARD_GAP;
             let middle = world.y + world.h / 2.0;
 
-            // **Un seul bord droit pour les trois**, celui que donne le mot le
-            // plus large : c'est la lecture qui le veut, et trois mots centres
-            // chacun pour soi partaient dans trois directions. Le pave ainsi
-            // forme est, lui, centre sur le monde.
+            // **A single right edge for all three**, the one given by the widest
+            // word: reading demands it, and three words each centred for
+            // themselves went off in three directions. The block thus formed is
+            // itself centred on the world.
             let right = (world.w + widest * size) / 2.0;
 
             for section in 0..3 {
@@ -1027,14 +1015,14 @@ impl App {
                 continue;
             }
 
-            // Le titre de section d'abord : il fixe le plancher sous lequel les
-            // titres de livres viendront s'epingler, pour qu'ils ne se
-            // recouvrent jamais.
-            // **Le nom d'une portion est epingle a l'ecran**, et c'est le seul :
-            // une portion mesure plusieurs ecrans de large une fois les
-            // chapitres visibles, et son nom doit rester lisible tant qu'on est
-            // dedans. On rabat donc sa boite sur la fenetre avant de poser le
-            // titre, la ou un titre de livre garde le bord droit de sa boite.
+            // The section title first: it sets the floor below which book titles
+            // will come and pin themselves, so that they never cover each
+            // other.
+            // **A portion's name is pinned to the screen**, and it is the only
+            // one: a portion measures several screens in width once the chapters
+            // are visible, and its name must stay legible as long as one is
+            // inside it. So we clamp its box to the window before laying the
+            // title, where a book title keeps the right edge of its box.
             let strip = camera.project(self.layout.section_bands[section]);
             let pinned = Rect {
                 x: band.x.max(0.0),
@@ -1061,15 +1049,15 @@ impl App {
                 continue;
             }
 
-            // Hauteur de ligne, estimee sans materialiser la mise en page :
-            // 929 chapitres par image, ce serait autant de vecteurs jetes.
+            // Line height, estimated without materialising the layout: 929
+            // chapters per frame would be as many vectors thrown away.
             let count = corpus::verses_of(chapter).len().max(1);
             let line = column(self.layout.chapters[chapter]).h / count as f32 * camera.z;
 
-            // Une case montre **toujours quelque chose** : son texte des qu'il
-            // est lisible, son numero sinon. Sans cette garantie, une case trop
-            // petite pour son texte et trop petite pour le seuil d'etiquette
-            // restait vide, et l'on voyait des numeros apparaitre ici, pas la.
+            // A cell **always** shows something: its text as soon as that is
+            // legible, its number otherwise. Without this guarantee, a cell too
+            // small for its text and too small for the label threshold stayed
+            // empty, and one saw numbers appear here and not there.
             let mut drawn = false;
 
             if line >= READABLE_LINE {
@@ -1084,14 +1072,14 @@ impl App {
                 }
                 self.unclip();
 
-                // Le decoupage compte pour deux commandes : au-dela, du texte a
-                // bien ete pose.
+                // The clip counts as two commands: beyond that, text really has
+                // been laid.
                 drawn = self.commands.len() > before + 2 * STRIDE;
             }
 
             if !drawn && scale.show_chapters && scale.chapter >= MIN_NUMBER {
-                // Centre dans sa case : `emit_text` cale sur le bord droit, on
-                // lui donne donc une boite qui s'arrete au milieu du nombre.
+                // Centred in its cell: `emit_text` sets on the right edge, so we
+                // give it a box that stops in the middle of the number.
                 let label = corpus::chapter_label(chapter);
                 let ink = self.ratio(label) * scale.chapter;
                 let area = Rect { w: (cell.w + ink) / 2.0, ..cell };
@@ -1104,11 +1092,11 @@ impl App {
         self.title(corpus::book_name(book), rect, strip, scale.book, full, alpha * BOOK_INK);
     }
 
-    /// Une ligne de texte, calee sur le bord droit de sa boite.
+    /// One line of text, set on the right edge of its box.
     ///
-    /// La taille vient de la mise en page, pas de la boite : tous les versets
-    /// d'un chapitre partagent la meme, un verset long occupant plusieurs
-    /// lignes plutot que des caracteres plus petits.
+    /// The size comes from the layout, not from the box: all the verses of a
+    /// chapter share the same one, a long verse taking several lines rather than
+    /// smaller characters.
     fn draw_line(&mut self, line: Line, row: Rect, scale: f32, alpha: f32) {
         let size = line.size * scale;
         if size >= MIN_TEXT {
@@ -1118,8 +1106,8 @@ impl App {
 
 }
 
-/// Les deux dispositions : air large pour la vue d'ensemble, moitie moins des
-/// que les chapitres paraissent.
+/// The two layouts: wide air for the overview, half as much as soon as the
+/// chapters appear.
 fn levels(numeral: f32) -> (Layout, Layout) {
     (
         treemap::build(numeral, treemap::SECTION_LEAD_WIDE),
@@ -1127,13 +1115,12 @@ fn levels(numeral: f32) -> (Layout, Layout) {
     )
 }
 
-/// Taille d'un numero de chapitre dans une disposition donnee, en unites monde.
+/// Size of a chapter number in a given layout, in world units.
 ///
-/// **La moitie d'un titre de livre.** Le titre remplit sa bande, dont
-/// `chapters_fit` a deduit la hauteur a partir de ce rapport et de la largeur
-/// des chiffres : la case est donc taillee pour accueillir ce corps-la. Les deux
-/// bornes qui suivent ne font que tenir l'invariant — un numero se lit en entier
-/// ou pas du tout.
+/// **Half a book title.** The title fills its band, whose height `chapters_fit`
+/// deduced from that ratio and from the width of the digits: the cell is
+/// therefore cut to hold that body. The two bounds that follow only keep the
+/// invariant — a number reads in full or not at all.
 fn number_in(layout: &Layout, widest: f32) -> f32 {
     let cell = layout.chapters[0];
     (layout.book_bands[0].h * treemap::CHAPTER_OVER_BOOK)
@@ -1141,37 +1128,37 @@ fn number_in(layout: &Layout, widest: f32) -> f32 {
         .min(cell.w * treemap::NUMBER_WIDTH / widest)
 }
 
-/// Force de l'attraction vers la cible, pour un cran de zoom donne.
+/// Strength of the pull towards the target, for a given zoom notch.
 ///
-/// **Elle doit battre la derive du zoom.** Un cran multiplie par `facteur` la
-/// distance entre le curseur et la cible : une correction de `1 - 1/facteur` la
-/// compense exactement, tout ce qui est en dessous laisse la cible s'echapper.
-/// A 18 % fixes et des crans de 1,4, la case visee sortait de l'ecran et
-/// l'image devenait noire : mesure, quatre images vides sur cinquante crans
-/// quand le bloc de chapitres a ete cale en haut de sa boite, donc plus loin du
-/// centre de la vue. On ajoute une marge pour converger au lieu de suivre.
+/// **It must beat the drift of the zoom.** One notch multiplies the distance
+/// between cursor and target by `factor`: a correction of `1 - 1/factor`
+/// compensates it exactly, anything below lets the target escape. At a fixed
+/// 18 % and notches of 1.4, the aimed cell left the screen and the frame went
+/// black: measured, four empty frames over fifty notches once the chapter block
+/// was set at the top of its box, hence further from the centre of the view. We
+/// add a margin to converge instead of merely following.
 fn pull(factor: f32) -> f32 {
     ((1.0 - 1.0 / factor.max(1.0)) + 0.12).clamp(0.0, 0.75)
 }
 
-/// Colonne de texte d'une case : la case moins sa marge.
+/// Text column of a cell: the cell minus its margin.
 fn column(cell: Rect) -> Rect {
     cell.inset(cell.w * CELL_PAD)
 }
 
-/// Distance d'un point a un rectangle ; nulle s'il est dedans.
+/// Distance from a point to a rectangle; zero if it is inside.
 fn gap_to(r: Rect, x: f32, y: f32) -> f32 {
     let dx = horizontal_gap(r, x);
     let dy = vertical_gap(r, y);
     dx * dx + dy * dy
 }
 
-/// Distance verticale d'un point a un rectangle ; nulle s'il est dedans.
+/// Vertical distance from a point to a rectangle; zero if it is inside.
 fn vertical_gap(r: Rect, y: f32) -> f32 {
     (r.y - y).max(y - (r.y + r.h)).max(0.0)
 }
 
-/// Distance horizontale d'un point a un rectangle ; nulle s'il est dedans.
+/// Horizontal distance from a point to a rectangle; zero if it is inside.
 fn horizontal_gap(r: Rect, x: f32) -> f32 {
     (r.x - x).max(x - (r.x + r.w)).max(0.0)
 }
@@ -1182,7 +1169,7 @@ fn key_of(fragment: &'static str) -> (u32, u32) {
 
 // ----------------------------------------------------------------- interface
 
-/// Prepare l'etat. Renvoie le nombre de livres, qui sert de verification.
+/// Prepares the state. Returns the number of books, which serves as a check.
 #[unsafe(no_mangle)]
 pub extern "C" fn init(width: f32, height: f32) -> u32 {
     let (wide, tight) = levels(ESTIMATED_NUMERAL);
@@ -1238,8 +1225,8 @@ pub extern "C" fn pan(dx: f32, dy: f32) {
     app.camera.y += dy;
 }
 
-/// Facteur d'un cran de molette, calcule pour cette fenetre : la page l'eleve
-/// au nombre de crans du geste. Voir `App::zoom_step`.
+/// Factor of one wheel notch, computed for this window: the page raises it to
+/// the number of notches of the gesture. See `App::zoom_step`.
 #[unsafe(no_mangle)]
 pub extern "C" fn zoom_step() -> f32 {
     app().zoom_step()
@@ -1250,19 +1237,19 @@ pub extern "C" fn zoom(x: f32, y: f32, factor: f32) {
     app().zoom_at(x, y, factor);
 }
 
-/// Chapitre sous le curseur, ou -1. Ne sert qu'a la forme du pointeur : le
-/// survol ne change rien au dessin.
+/// Chapter under the cursor, or -1. Only serves the pointer shape: hovering
+/// changes nothing in the drawing.
 #[unsafe(no_mangle)]
 pub extern "C" fn hover(x: f32, y: f32) -> i32 {
     let app = app();
     let (wx, wy) = app.camera.to_world(x, y);
-    // Meme tolerance que `locate`, pour que le pointeur annonce ce qu'un clic
-    // selectionnera reellement.
+    // Same tolerance as `locate`, so that the pointer announces what a click
+    // will really select.
     app.locate(wx, wy).map_or(-1, |(_, chapter, _, _)| chapter as i32)
 }
 
-/// Remplit la selection : livre, chapitre, verset, lettre (offset/longueur
-/// lisibles via `selection_ptr`). Renvoie 1 si quelque chose a ete touche.
+/// Fills the selection: book, chapter, verse, letter (offset/length readable
+/// via `selection_ptr`). Returns 1 if something was hit.
 #[unsafe(no_mangle)]
 pub extern "C" fn select(x: f32, y: f32) -> u32 {
     let app = app();
@@ -1283,11 +1270,11 @@ pub extern "C" fn select(x: f32, y: f32) -> u32 {
     }
 }
 
-/// Remplit `focus_ptr` : section, livre et chapitre sous le centre de la vue,
-/// chacun en (decalage, longueur) dans le corpus. Longueur nulle = rien.
+/// Fills `focus_ptr`: section, book and chapter under the centre of the view,
+/// each as an (offset, length) in the corpus. Zero length = nothing.
 ///
-/// C'est ce qui alimente le fil d'Ariane : il dit toujours ou l'on se trouve,
-/// y compris quand les bandes de titre ont quitte l'ecran.
+/// That is what feeds the breadcrumb: it always says where one is, including
+/// when the title bands have left the screen.
 #[unsafe(no_mangle)]
 pub extern "C" fn focus() {
     let app = app();
@@ -1330,7 +1317,7 @@ pub extern "C" fn selection_ptr() -> *const u32 {
     app().selection.as_ptr()
 }
 
-/// Construit la liste de commandes de l'image. Renvoie son nombre de mots.
+/// Builds the frame's command list. Returns its number of words.
 #[unsafe(no_mangle)]
 pub extern "C" fn build_frame() -> u32 {
     let app = app();
@@ -1348,7 +1335,7 @@ pub extern "C" fn frame_stride() -> u32 {
     STRIDE as u32
 }
 
-/// Fragments dont la page doit mesurer la largeur : des paires (offset, taille).
+/// Fragments whose width the page must measure: (offset, size) pairs.
 #[unsafe(no_mangle)]
 pub extern "C" fn pending_ptr() -> *const u32 {
     app().pending.as_ptr()
@@ -1359,11 +1346,10 @@ pub extern "C" fn pending_len() -> u32 {
     app().pending.len() as u32
 }
 
-/// Oublie toutes les largeurs mesurees.
+/// Forgets every measured width.
 ///
-/// A appeler quand la police change — au chargement de la police definitive,
-/// par exemple : des largeurs relevees sur une police de repli seraient fausses
-/// pour de bon.
+/// To be called when the font changes — when the final font loads, for
+/// instance: widths taken on a fallback font would be wrong for good.
 #[unsafe(no_mangle)]
 pub extern "C" fn clear_ratios() {
     let app = app();
@@ -1372,20 +1358,20 @@ pub extern "C" fn clear_ratios() {
     app.number = None;
 }
 
-/// Enregistre une largeur mesuree, pour une police de taille 1.
+/// Records a measured width, for a font of size 1.
 #[unsafe(no_mangle)]
 pub extern "C" fn set_ratio(offset: u32, len: u32, ratio: f32) {
     let app = app();
     app.ratios.insert((offset, len), ratio);
-    // La mise en page depend des largeurs : elle doit etre refaite.
+    // The layout depends on the widths: it must be rebuilt.
     app.lines.clear();
     app.number = None;
 }
 
-/// Le corpus, en UTF-8, directement dans la memoire du module.
-/// Diagnostic : etat de la camera et profondeur de descente.
-/// Position de la camera, en pixels. Sert aux sondes : sans elle, un releve
-/// doit deviner le cadrage et se trompe des qu'on a zoome.
+/// The corpus, in UTF-8, straight from the module's memory.
+/// Diagnostic: camera state and depth of descent.
+/// Camera position, in pixels. Serves the probes: without it, a reading has to
+/// guess the framing and gets it wrong as soon as one has zoomed.
 #[unsafe(no_mangle)]
 pub extern "C" fn cam_x() -> f32 {
     app().camera.x
@@ -1411,7 +1397,7 @@ pub extern "C" fn depth() -> u32 {
     app().level
 }
 
-/// Diagnostic : largeur a l'ecran du point vise, ou -1 s'il n'y en a pas.
+/// Diagnostic: on-screen width of the aimed nest, or -1 if there is none.
 #[unsafe(no_mangle)]
 pub extern "C" fn probe_nest(x: f32, y: f32) -> f32 {
     let app = app();
@@ -1422,7 +1408,7 @@ pub extern "C" fn probe_nest(x: f32, y: f32) -> f32 {
     }
 }
 
-/// Diagnostic : largeur a l'ecran de la cellule de lettre visee.
+/// Diagnostic: on-screen width of the aimed letter cell.
 #[unsafe(no_mangle)]
 pub extern "C" fn probe_letter(x: f32, y: f32) -> f32 {
     let app = app();
@@ -1433,7 +1419,7 @@ pub extern "C" fn probe_letter(x: f32, y: f32) -> f32 {
     }
 }
 
-/// Diagnostic : 1 si l'ancien monde a cede la place au suivant.
+/// Diagnostic: 1 if the old world has given way to the next.
 #[unsafe(no_mangle)]
 pub extern "C" fn probe_fade() -> f32 {
     let app = app();
@@ -1447,7 +1433,7 @@ pub extern "C" fn probe_points() -> u32 {
     app().last_nests
 }
 
-/// Diagnostic : geometrie d'un livre dans le monde (0=x 1=y 2=w 3=h).
+/// Diagnostic: geometry of a book in the world (0=x 1=y 2=w 3=h).
 #[unsafe(no_mangle)]
 pub extern "C" fn probe_book(book: u32, field: u32) -> f32 {
     let r = app().layout.books[book as usize];
@@ -1459,7 +1445,7 @@ pub extern "C" fn probe_book(book: u32, field: u32) -> f32 {
     }
 }
 
-/// Diagnostic : geometrie d'un chapitre dans le monde (0=x 1=y 2=w 3=h).
+/// Diagnostic: geometry of a chapter in the world (0=x 1=y 2=w 3=h).
 #[unsafe(no_mangle)]
 pub extern "C" fn probe_chapter(chapter: u32, field: u32) -> f32 {
     let r = app().layout.chapters[chapter as usize];

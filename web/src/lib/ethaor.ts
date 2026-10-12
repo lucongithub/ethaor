@@ -1,23 +1,23 @@
 /**
- * Pont vers le module WebAssembly.
+ * Bridge to the WebAssembly module.
  *
- * Tout le calcul vit en Rust : corpus, disposition, camera, repli du zoom,
- * elagage, detection de clic. Ce fichier ne fait que transmettre les gestes et
- * peindre la liste de commandes produite.
+ * All the computation lives in Rust: corpus, layout, camera, zoom folding,
+ * pruning, click detection. This file only forwards the gestures and paints
+ * the command list it is given.
  *
- * Deux choses lui reviennent en propre, et une seule raison a cela : le
- * faconnage de l'hebreu pointe — bidi et marques combinantes — vit dans le
- * navigateur, et rien d'autre ne le fait aussi bien.
+ * Two things are its own, and there is a single reason for that: the shaping
+ * of pointed Hebrew — bidi and combining marks — lives in the browser, and
+ * nothing else does it as well.
  *
- *   1. mesurer la largeur des fragments que Rust reclame ;
- *   2. tracer le texte.
+ *   1. measure the width of the fragments Rust asks for;
+ *   2. draw the text.
  */
 
-/** Doit couvrir l'hebreu avec niqqud. Noto Serif Hebrew est charge par app.css. */
+/** Must cover Hebrew with niqqud. Noto Serif Hebrew is loaded by app.css. */
 export const HEBREW_FONT =
 	'"Noto Serif Hebrew Variable", "Taamey Frank CLM", "SBL Hebrew", "David", serif';
 
-/** Taille de reference pour la mesure : la largeur est proportionnelle. */
+/** Reference size for measuring: width is proportional. */
 const REFERENCE = 100;
 
 const KIND_RECT = 0;
@@ -25,7 +25,7 @@ const KIND_TEXT = 1;
 const KIND_CLIP = 2;
 const KIND_UNCLIP = 3;
 
-/** Signature des exports du module. Tous les flottants sont des pixels CSS. */
+/** Signature of the module's exports. Every float is CSS pixels. */
 interface Wasm {
 	memory: WebAssembly.Memory;
 	init(width: number, height: number): number;
@@ -33,7 +33,7 @@ interface Wasm {
 	reset(): void;
 	pan(dx: number, dy: number): void;
 	zoom(x: number, y: number, factor: number): void;
-	/** Facteur d'un cran de molette, calcule par le module pour cette fenetre. */
+	/** Factor of one wheel notch, computed by the module for this window. */
 	zoom_step(): number;
 	hover(x: number, y: number): number;
 	select(x: number, y: number): number;
@@ -57,7 +57,7 @@ export interface Selection {
 	verse: string;
 }
 
-/** Ou se trouve le centre de la vue. Alimente le fil d'Ariane. */
+/** Where the centre of the view is. Feeds the breadcrumb. */
 export interface Focus {
 	section: string;
 	book: string;
@@ -65,25 +65,25 @@ export interface Focus {
 }
 
 export interface TanakhMap {
-	/** Redemande une image. Sans effet si une est deja programmee. */
+	/** Asks for a frame again. No effect if one is already scheduled. */
 	draw(): void;
-	/** Revient a la vue d'ensemble. */
+	/** Back to the overview. */
 	reset(): void;
-	/** Detache les ecouteurs et libere l'observateur de taille. */
+	/** Detaches the listeners and releases the resize observer. */
 	destroy(): void;
 	readonly books: number;
 }
 
 export interface MapOptions {
-	/** Appele au clic : le verset touche, ou `null` si le clic tombe a vide. */
+	/** Called on click: the verse hit, or `null` if the click falls on nothing. */
 	onSelect?: (selection: Selection | null) => void;
 	/**
-	 * Appele a chaque image : ou l'on se trouve. Les bandes de titre restent
-	 * dans la carte et ne recouvrent donc jamais rien ; quand elles sortent de
-	 * l'ecran, c'est le fil d'Ariane qui dit ou l'on est.
+	 * Called on every frame: where one is. The title bands stay inside the map
+	 * and therefore never cover anything; when they leave the screen, it is the
+	 * breadcrumb that says where one is.
 	 */
 	onFocus?: (focus: Focus | null) => void;
-	/** Chemin du module, prefixe par `base` en cas de sous-repertoire. */
+	/** Path to the module, prefixed by `base` in case of a subdirectory. */
 	wasmUrl?: string;
 }
 
@@ -97,23 +97,23 @@ export async function createTanakhMap(
 	if (!context) throw new Error('canvas 2d indisponible');
 	const ctx = context;
 
-	// La police doit etre chargee **avant** la premiere mesure : une largeur
-	// relevee sur une police de repli serait mise en cache et fausse pour de bon.
+	// The font must be loaded **before** the first measurement: a width taken on
+	// a fallback font would be cached and wrong for good.
 	if (document.fonts) {
 		try {
 			await document.fonts.load(`16px ${HEBREW_FONT}`, 'א');
 			await document.fonts.ready;
 		} catch {
-			// Police indisponible : le repli systeme fera l'affaire.
+			// Font unavailable: the system fallback will do.
 		}
 	}
 
 	const { instance } = await WebAssembly.instantiateStreaming(fetch(wasmUrl), {});
 	const wasm = instance.exports as unknown as Wasm;
 
-	// Si la police definitive arrive apres les premieres mesures, celles-ci ont
-	// ete relevees sur une police de repli : il faut les oublier, sinon le texte
-	// reste mal cadre pour toute la session.
+	// If the final font arrives after the first measurements, those were taken on
+	// a fallback font: they must be forgotten, otherwise the text stays badly
+	// framed for the whole session.
 	document.fonts?.ready.then(() => {
 		wasm.clear_ratios();
 		draw();
@@ -122,7 +122,7 @@ export async function createTanakhMap(
 	const decoder = new TextDecoder();
 	const decoded = new Map<number, string>();
 
-	/** Fragment du corpus, lu directement dans la memoire du module. */
+	/** Corpus fragment, read straight from the module's memory. */
 	function fragment(offset: number, length: number): string {
 		const key = offset * 1024 + length;
 		let text = decoded.get(key);
@@ -134,7 +134,7 @@ export async function createTanakhMap(
 		return text;
 	}
 
-	// ----------------------------------------------------------------- rendu
+	// --------------------------------------------------------------- drawing
 
 	let width = 0;
 	let height = 0;
@@ -158,13 +158,13 @@ export async function createTanakhMap(
 		ctx.fillStyle = '#000';
 		ctx.fillRect(0, 0, width, height);
 
-		// Le navigateur pose le texte sur son bord droit et applique le bidi.
+		// The browser lays the text on its right edge and applies bidi.
 		ctx.textAlign = 'right';
 		ctx.textBaseline = 'alphabetic';
 		ctx.direction = 'rtl';
 
-		// Profondeur de decoupage ouverte, pour la refermer proprement en fin
-		// d'image si une commande manquait.
+		// Open clip depth, so it can be closed cleanly at the end of the frame if
+		// a command were missing.
 		let clips = 0;
 
 		for (let i = 0; i < words; i += stride) {
@@ -174,8 +174,8 @@ export async function createTanakhMap(
 			const w = commands[i + 3];
 			const h = commands[i + 4];
 
-			// Le texte d'un chapitre est enferme dans sa boite : une largeur mal
-			// mesuree le ferait sinon mordre sur ses voisins.
+			// A chapter's text is locked inside its box: a badly measured width
+			// would otherwise make it bite into its neighbours.
 			if (kind === KIND_CLIP) {
 				ctx.save();
 				ctx.beginPath();
@@ -193,8 +193,7 @@ export async function createTanakhMap(
 				continue;
 			}
 
-			// Aplat sans cadre : les boites ne sont dessinees que par leur
-			// teinte.
+			// Fill without a frame: boxes are drawn by their tint alone.
 			if (kind === KIND_RECT) {
 				const fill = commands[i + 5];
 				if (fill > 0.003) {
@@ -244,16 +243,15 @@ export async function createTanakhMap(
 	}
 
 	/**
-	 * Rust dessine d'abord avec une estimation, puis inscrit les fragments dont
-	 * il ignore la largeur. On les mesure et on redemande une image : elle sera
-	 * juste. Chaque fragment n'est mesure qu'une fois.
+	 * Rust first draws with an estimate, then records the fragments whose width
+	 * it does not know. We measure them and ask for a frame again: it will be
+	 * right. Each fragment is measured only once.
 	 */
 	function measurePending() {
 		const count = wasm.pending_len();
 		if (count === 0) return;
 
-		// Copie : `set_ratio` peut faire croitre la memoire du module et
-		// invalider la vue.
+		// Copy: `set_ratio` may grow the module's memory and invalidate the view.
 		const pairs = Array.from(new Uint32Array(wasm.memory.buffer, wasm.pending_ptr(), count));
 
 		ctx.font = `${REFERENCE}px ${HEBREW_FONT}`;
@@ -275,7 +273,7 @@ export async function createTanakhMap(
 		});
 	}
 
-	// ---------------------------------------------------------------- gestes
+	// --------------------------------------------------------------- gestures
 
 	const pointers = new Map<number, { x: number; y: number }>();
 	let pinch = 0;
@@ -350,11 +348,11 @@ export async function createTanakhMap(
 	function onWheel(event: WheelEvent) {
 		event.preventDefault();
 		const rect = canvas.getBoundingClientRect();
-		// Le facteur d'un cran vient du module : il vaut ce qu'il faut pour que
-		// la plongee du cadrage jusqu'au texte d'un chapitre demande toujours le
-		// meme nombre de crans, quelle que soit la fenetre. Autour de 1,4 sur un
-		// ecran paysage. Le pave tactile envoie des fractions de cran, donc le
-		// reglage fin reste possible.
+		// The factor of one notch comes from the module: it is worth whatever it
+		// takes for the dive from the framing down to a chapter's text to always
+		// need the same number of notches, whatever the window. Around 1.4 on a
+		// landscape screen. The trackpad sends fractions of a notch, so fine
+		// tuning stays possible.
 		const steps = event.deltaMode === 1 ? -event.deltaY : -event.deltaY / 100;
 		wasm.zoom(
 			event.clientX - rect.left,
@@ -365,8 +363,8 @@ export async function createTanakhMap(
 	}
 
 	/**
-	 * Point d'accroche pour la suite : Rust renvoie le chemin complet, de quoi
-	 * afficher demain ce que l'on sait d'un mot ou d'une lettre.
+	 * Hook for what comes next: Rust returns the full path, enough to show
+	 * tomorrow what is known about a word or a letter.
 	 */
 	function selectionAt(x: number, y: number): Selection | null {
 		if (wasm.select(x, y) === 0) return null;
@@ -384,7 +382,7 @@ export async function createTanakhMap(
 		draw();
 	}
 
-	// ---------------------------------------------------------------- depart
+	// ----------------------------------------------------------------- start
 
 	measure();
 	const books = wasm.init(width, height);

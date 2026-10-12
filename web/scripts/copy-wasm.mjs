@@ -1,4 +1,4 @@
-// Copie le module compile dans static/, d'ou SvelteKit le sert tel quel.
+// Copies the compiled module into static/, from where SvelteKit serves it as is.
 import { copyFileSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';

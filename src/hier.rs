@@ -1,16 +1,16 @@
-//! Decoupage du texte sous le chapitre : versets, mots, lettres.
+//! Splitting the text below the chapter: verses, words, letters.
 //!
-//! Tout est calcule a la demande, uniquement pour ce qui est visible, et
-//! toujours **de droite a gauche**. L'alignement hebreu est donc exact par
-//! construction : on ne demande jamais son avis au moteur de texte.
-/// Une lettre = une consonne et les marques qui la suivent (niqqud,
-/// cantillation). Les marques sont des caracteres combinants : les detacher de
-/// leur consonne casserait le rendu.
+//! Everything is computed on demand, only for what is visible, and always
+//! **right to left**. Hebrew alignment is therefore exact by construction: we
+//! never ask the text engine for its opinion.
+/// A letter = one consonant and the marks that follow it (niqqud,
+/// cantillation). Marks are combining characters: detaching them from their
+/// consonant would break the rendering.
 pub fn letters(word: &str) -> Letters<'_> {
     Letters { rest: word }
 }
-/// `Clone` est necessaire : on parcourt deux fois, une fois pour la somme des
-/// largeurs, une fois pour poser les cellules.
+/// `Clone` is required: we walk twice, once for the sum of the widths, once to
+/// place the cells.
 #[derive(Clone)]
 pub struct Letters<'a> {
     rest: &'a str,
@@ -32,7 +32,7 @@ impl<'a> Iterator for Letters<'a> {
         Some(head)
     }
 }
-/// Consonne hebraique, formes finales comprises.
+/// Hebrew consonant, final forms included.
 fn is_base(c: char) -> bool {
     ('\u{05D0}'..='\u{05EA}').contains(&c)
 }

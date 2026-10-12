@@ -1,14 +1,14 @@
-//! Acces au corpus, sans copie ni allocation.
+//! Corpus access, with no copying and no allocation.
 //!
-//! Le texte et l'index sont produits par `build.rs` et soudes au binaire. Ils
-//! vivent dans le segment en lecture seule de l'executable, que le systeme
-//! mappe directement depuis le fichier : rien n'est lu, parse ou alloue au
-//! demarrage. Toutes les fonctions ci-dessous sont des indexations `O(1)`.
+//! Text and index are produced by `build.rs` and welded into the binary. They
+//! live in the read-only segment of the executable, which the system maps
+//! straight from the file: nothing is read, parsed or allocated at startup.
+//! Every function below is an `O(1)` lookup.
 
-/// Enveloppe garantissant l'alignement sur 4 octets.
+/// Wrapper guaranteeing 4-byte alignment.
 ///
-/// `include_bytes!` ne promet aucun alignement ; sans cela, reinterpreter les
-/// octets en `u32` serait un comportement indefini.
+/// `include_bytes!` promises no alignment; without this, reinterpreting the
+/// bytes as `u32` would be undefined behaviour.
 #[repr(C)]
 struct Align4<T: ?Sized> {
     _align: [u32; 0],
@@ -26,16 +26,16 @@ static INDEX: &Align4<[u8]> = &Align4 {
 compile_error!("index.bin est ecrit en little-endian");
 
 fn index() -> &'static [u32] {
-    // SAFETY: `Align4` impose l'alignement sur 4 ; `index.bin` est un multiple
-    // de 4 octets ecrit en little-endian par build.rs, et l'on a verifie
-    // ci-dessus que la cible est little-endian.
+    // SAFETY: `Align4` forces 4-byte alignment; `index.bin` is a multiple of
+    // 4 bytes written little-endian by build.rs, and we checked above that the
+    // target is little-endian.
     unsafe {
         core::slice::from_raw_parts(INDEX.bytes.as_ptr().cast::<u32>(), INDEX.bytes.len() / 4)
     }
 }
 
-/// Decoupage de l'index en six series de decalages. Voir `write_output` dans
-/// `build.rs` pour la disposition.
+/// Split of the index into six series of offsets. See `write_output` in
+/// `build.rs` for the layout.
 #[allow(dead_code)]
 struct Layout {
     section_name: &'static [u32],
@@ -68,30 +68,29 @@ fn slice(offsets: &[u32], i: usize) -> &'static str {
     &TEXT[offsets[i] as usize..offsets[i + 1] as usize]
 }
 
-/// Le corpus complet, en UTF-8. La page y lit directement les fragments a
-/// tracer, sans copie : seuls un decalage et une longueur traversent la
-/// frontiere.
+/// The whole corpus, in UTF-8. The page reads the fragments to draw straight
+/// from it, with no copying: only an offset and a length cross the boundary.
 pub fn text() -> &'static str {
     TEXT
 }
 
-/// Decalage d'un fragment dans `text()`. Tous les fragments rendus sont des
-/// tranches de cette chaine, donc la difference de pointeurs suffit.
+/// Offset of a fragment inside `text()`. Every rendered fragment is a slice of
+/// that string, so the pointer difference is enough.
 pub fn offset_of(fragment: &str) -> usize {
     fragment.as_ptr() as usize - TEXT.as_ptr() as usize
 }
 
-/// Nombre de livres (35 pour le Tanakh Mechon-Mamre, Ezra et Nehemie separes).
+/// Number of books (35 for the Mechon-Mamre Tanakh, Ezra and Nehemiah apart).
 pub fn book_count() -> usize {
     index()[0] as usize
 }
 
-/// Nombre total de chapitres, tous livres confondus.
+/// Total number of chapters, across all books.
 pub fn chapter_count() -> usize {
     index()[1] as usize
 }
 
-/// Nombre total de versets.
+/// Total number of verses.
 #[allow(dead_code)]
 pub fn verse_count() -> usize {
     index()[2] as usize
@@ -105,7 +104,7 @@ pub fn book_name(book: usize) -> &'static str {
     slice(layout().book_name, book)
 }
 
-/// Indices globaux des chapitres d'un livre.
+/// Global indices of a book's chapters.
 pub fn chapters_of(book: usize) -> core::ops::Range<usize> {
     let l = layout();
     l.book_chap[book] as usize..l.book_chap[book + 1] as usize
@@ -115,7 +114,7 @@ pub fn chapter_label(chapter: usize) -> &'static str {
     slice(layout().chap_label, chapter)
 }
 
-/// Indices globaux des versets d'un chapitre.
+/// Global indices of a chapter's verses.
 pub fn verses_of(chapter: usize) -> core::ops::Range<usize> {
     let l = layout();
     l.chap_verse[chapter] as usize..l.chap_verse[chapter + 1] as usize

@@ -1,13 +1,13 @@
-//! Construit le corpus a la compilation.
+//! Builds the corpus at compile time.
 //!
-//! Lit les sources HTML Mechon-Mamre (cp1255), en extrait livres / chapitres /
-//! versets, nettoie la ponctuation et les marqueurs massoretiques, puis ecrit
-//! deux fichiers dans OUT_DIR :
+//! Reads the Mechon-Mamre HTML sources (cp1255), extracts books / chapters /
+//! verses from them, cleans up the punctuation and the masoretic markers, then
+//! writes two files into OUT_DIR:
 //!
-//!   text.bin   tout le texte UTF-8 concatene
-//!   index.bin  tableau plat de u32 : en-tete + decalages
+//!   text.bin   all the UTF-8 text, concatenated
+//!   index.bin  flat array of u32: header + offsets
 //!
-//! A l'execution le programme ne parse rien : il decoupe ces deux blocs.
+//! At run time the program parses nothing: it slices those two blocks.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -28,7 +28,7 @@ fn main() {
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| {
             let n = p.file_name().unwrap().to_string_lossy().to_string();
-            // t01.htm .. t35.htm : un fichier par livre (t0101.htm = chapitre, ignore)
+            // t01.htm .. t35.htm: one file per book (t0101.htm = chapter, ignored)
             n.len() == 7 && n.starts_with('t') && n.ends_with(".htm") && n[1..3].chars().all(|c| c.is_ascii_digit())
         })
         .collect();
@@ -47,13 +47,13 @@ fn main() {
     write_output(&corpus, &out);
 }
 
-// ---------------------------------------------------------------- decodage
+// ---------------------------------------------------------------- decoding
 
 /// cp1255 -> UTF-8.
 ///
-/// Mechon-Mamre utilise l'octet 0xCA, non attribue dans cp1255 standard, pour
-/// U+05BA HOLAM HASER FOR VAV (p.ex. עֲוֺן). Sans ce correctif, 414 signes sont
-/// perdus dans le Tanakh.
+/// Mechon-Mamre uses byte 0xCA, unassigned in standard cp1255, for
+/// U+05BA HOLAM HASER FOR VAV (e.g. עֲוֺן). Without this fix, 414 signs are lost
+/// in the Tanakh.
 fn decode_cp1255(bytes: &[u8]) -> String {
     let mut s = String::with_capacity(bytes.len() * 2);
     for &b in bytes {
@@ -61,18 +61,18 @@ fn decode_cp1255(bytes: &[u8]) -> String {
             0x00..=0x7F => b as char,
             0xA0 => ' ',                                    // NBSP
             0xC0..=0xC9 => char::from_u32(0x05B0 + (b - 0xC0) as u32).unwrap(),
-            0xCA => '\u{05BA}',                             // correctif Mechon-Mamre
+            0xCA => '\u{05BA}',                             // Mechon-Mamre fix
             0xCB..=0xCF => char::from_u32(0x05B0 + (b - 0xC0) as u32).unwrap(),
             0xD0..=0xD8 => char::from_u32(0x05C0 + (b - 0xD0) as u32).unwrap(),
             0xE0..=0xFA => char::from_u32(0x05D0 + (b - 0xE0) as u32).unwrap(),
-            _ => ' ',                                       // reste : hors sujet
+            _ => ' ',                                       // the rest: irrelevant
         };
         s.push(c);
     }
     s
 }
 
-// ------------------------------------------------------------------ modele
+// ------------------------------------------------------------------- model
 
 #[derive(Default)]
 struct Corpus {
@@ -94,10 +94,10 @@ struct Verse {
     text: String,
 }
 
-// ------------------------------------------------------- ordre canonique
+// ------------------------------------------------------- canonical order
 
-/// Les 39 livres, dans l'ordre : 5 de la Torah, 21 des Prophetes, 13 des
-/// Ecrits. C'est cet ordre qui est affiche, pas celui des fichiers sources.
+/// The 39 books, in order: 5 of the Torah, 21 of the Prophets, 13 of the
+/// Writings. That is the order displayed, not the one of the source files.
 const ORDER: [&str; 39] = [
     // תורה
     "בראשית", "שמות", "ויקרא", "במדבר", "דברים",
@@ -110,12 +110,12 @@ const ORDER: [&str; 39] = [
     "דנייאל", "עזרא", "נחמיה", "דברי הימים א", "דברי הימים ב",
 ];
 
-/// Livres que la source presente d'un seul tenant, avec une numerotation
-/// continue, et que l'usage separe en deux.
+/// Books that the source presents as one piece, with continuous numbering, and
+/// that usage separates in two.
 ///
-/// Mechon-Mamre numerote Samuel de 1 a 55, Rois de 1 a 47, Chroniques de 1 a 65
-/// et Ezra/Nehemie de 1 a 23 : aucun redemarrage a `א` ne marque la coupure.
-/// On coupe donc au rang traditionnel, et les totaux concordent exactement.
+/// Mechon-Mamre numbers Samuel from 1 to 55, Kings from 1 to 47, Chronicles
+/// from 1 to 65 and Ezra/Nehemiah from 1 to 23: no restart at `א` marks the
+/// break. So we cut at the traditional rank, and the totals match exactly.
 const SPLITS: [(&str, usize, &str, &str); 4] = [
     ("שמואל", 31, "שמואל א", "שמואל ב"),
     ("מלכים", 22, "מלכים א", "מלכים ב"),
@@ -146,8 +146,8 @@ fn split_books(corpus: &mut Corpus) {
     corpus.books = out;
 }
 
-/// Renumerote les chapitres a partir de 1 : apres une coupure, la seconde
-/// moitie heriterait sinon des numeros de la premiere.
+/// Renumbers the chapters from 1: after a cut, the second half would otherwise
+/// inherit the numbers of the first.
 fn renumber(mut chapters: Vec<Chapter>) -> Vec<Chapter> {
     for (i, chapter) in chapters.iter_mut().enumerate() {
         chapter.label = hebrew_numeral(i + 1);
@@ -155,8 +155,8 @@ fn renumber(mut chapters: Vec<Chapter>) -> Vec<Chapter> {
     chapters
 }
 
-/// Nombre en lettres hebraiques. `15` et `16` s'ecrivent `טו` et `טז`, et non
-/// `יה` / `יו`, qui formeraient un nom divin.
+/// Number in Hebrew letters. `15` and `16` are written `טו` and `טז`, and not
+/// `יה` / `יו`, which would form a divine name.
 fn hebrew_numeral(n: usize) -> String {
     const HUNDREDS: [&str; 4] = ["ק", "ר", "ש", "ת"];
     const TENS: [&str; 9] = ["י", "כ", "ל", "מ", "נ", "ס", "ע", "פ", "צ"];
@@ -203,11 +203,11 @@ fn reorder(corpus: &mut Corpus) {
     corpus.books = out;
 }
 
-// ------------------------------------------------------------------ parsing
+// ----------------------------------------------------------------- parsing
 
-/// Un fichier contient un ou plusieurs `<H1>` ; chacun ouvre un livre
-/// (t35 = Ezra + Nehemie). Le `<H1>` de page de garde de t01 n'a aucun verset
-/// et se trouve donc elimine.
+/// A file holds one or more `<H1>`; each one opens a book
+/// (t35 = Ezra + Nehemiah). The cover-page `<H1>` of t01 has no verse at all
+/// and is therefore dropped.
 fn parse_book_file(html: &str, corpus: &mut Corpus) {
     let body = html.split("<BODY>").last().unwrap_or(html);
 
@@ -215,7 +215,7 @@ fn parse_book_file(html: &str, corpus: &mut Corpus) {
         let Some((name, rest)) = raw_book.split_once("</H1>") else { continue };
         let name = strip_tags(name).trim().to_string();
 
-        // <B>chapitre,verset</B> texte ... jusqu'au <B> suivant
+        // <B>chapter,verse</B> text ... up to the next <B>
         let mut chapters: BTreeMap<String, Chapter> = BTreeMap::new();
         let mut order: Vec<String> = Vec::new();
 
@@ -238,10 +238,10 @@ fn parse_book_file(html: &str, corpus: &mut Corpus) {
         }
 
         if order.is_empty() {
-            continue; // page de garde
+            continue; // cover page
         }
-        // `order` preserve l'ordre du document ; un tri alphabetique sur des
-        // chiffres hebraiques donnerait un ordre faux.
+        // `order` preserves the document order; an alphabetical sort on Hebrew
+        // digits would give a wrong order.
         let chapters = order.into_iter().map(|k| chapters.remove(&k).unwrap()).collect();
         corpus.books.push(Book { name, chapters });
     }
@@ -261,9 +261,9 @@ fn strip_tags(s: &str) -> String {
     out
 }
 
-/// Retire balises, marqueurs massoretiques `{פ} {ס} {ר} {ש}` et toute
-/// ponctuation. Le maqaf `-` joint deux mots distincts : il devient une espace,
-/// pas une suppression. Resultat : des mots separes par une seule espace.
+/// Strips tags, masoretic markers `{פ} {ס} {ר} {ש}` and all punctuation. The
+/// maqaf `-` joins two distinct words: it becomes a space, not a deletion.
+/// Result: words separated by a single space.
 fn clean(s: &str) -> String {
     let no_tags = strip_tags(s);
 
@@ -274,14 +274,14 @@ fn clean(s: &str) -> String {
             '{' => in_brace = true,
             '}' => in_brace = false,
             _ if in_brace => {}
-            // hebreu : lettres, niqqud, cantillation
+            // Hebrew: letters, niqqud, cantillation
             '\u{0590}'..='\u{05F4}' => out.push(c),
-            // tout le reste (, . ; : - -- ( ) [ ] espaces) = separateur de mots
+            // everything else (, . ; : - -- ( ) [ ] spaces) = word separator
             _ => out.push(' '),
         }
     }
 
-    // normalise les espaces
+    // normalise the spaces
     let mut res = String::with_capacity(out.len());
     for w in out.split_whitespace() {
         if !res.is_empty() {
@@ -292,26 +292,26 @@ fn clean(s: &str) -> String {
     res
 }
 
-// ------------------------------------------------------------------- sortie
+// -------------------------------------------------------------------- output
 
-/// Disposition de `index.bin`, en u32 :
+/// Layout of `index.bin`, in u32:
 ///
 ///   [0]  n_books
 ///   [1]  n_chapters
 ///   [2]  n_verses
-///   puis section_name (4 entrees : trois sections et la sentinelle)
-///   puis, dans l'ordre, six tableaux de decalages (chacun avec sentinelle
-///   finale, donc `fin = suivant`) :
-///     book_name    n_books+1       -> octets dans text.bin
-///     book_chap    n_books+1       -> indices de chapitres
-///     chap_label   n_chapters+1    -> octets
-///     chap_verse   n_chapters+1    -> indices de versets
-///     verse_label  n_verses+1      -> octets
-///     verse_text   n_verses+1      -> octets
+///   then section_name (4 entries: three sections and the sentinel)
+///   then, in order, six arrays of offsets (each with a trailing sentinel, so
+///   `end = next`):
+///     book_name    n_books+1       -> bytes in text.bin
+///     book_chap    n_books+1       -> chapter indices
+///     chap_label   n_chapters+1    -> bytes
+///     chap_verse   n_chapters+1    -> verse indices
+///     verse_label  n_verses+1      -> bytes
+///     verse_text   n_verses+1      -> bytes
 ///
-/// Le texte est ecrit par regions homogenes (noms de livres, puis etiquettes de
-/// chapitres, puis etiquettes de versets, puis textes), ce qui rend chaque
-/// serie de decalages monotone.
+/// The text is written in homogeneous regions (book names, then chapter
+/// labels, then verse labels, then texts), which makes every series of offsets
+/// monotonic.
 fn write_output(corpus: &Corpus, out: &Path) {
     let n_books = corpus.books.len();
     let n_chapters: usize = corpus.books.iter().map(|b| b.chapters.len()).sum();
@@ -325,7 +325,7 @@ fn write_output(corpus: &Corpus, out: &Path) {
     let mut verse_label = Vec::with_capacity(n_verses + 1);
     let mut verse_text = Vec::with_capacity(n_verses + 1);
 
-    // region 0 : noms des trois sections
+    // region 0: names of the three sections
     let mut section_name = Vec::with_capacity(4);
     for name in ["תורה", "נביאים", "כתובים"] {
         section_name.push(text.len() as u32);
@@ -333,14 +333,14 @@ fn write_output(corpus: &Corpus, out: &Path) {
     }
     section_name.push(text.len() as u32);
 
-    // region 1 : noms de livres
+    // region 1: book names
     for b in &corpus.books {
         book_name.push(text.len() as u32);
         text.push_str(&b.name);
     }
     book_name.push(text.len() as u32);
 
-    // region 2 : etiquettes de chapitres
+    // region 2: chapter labels
     for b in &corpus.books {
         for c in &b.chapters {
             chap_label.push(text.len() as u32);
@@ -349,7 +349,7 @@ fn write_output(corpus: &Corpus, out: &Path) {
     }
     chap_label.push(text.len() as u32);
 
-    // region 3 : etiquettes de versets
+    // region 3: verse labels
     for b in &corpus.books {
         for c in &b.chapters {
             for v in &c.verses {
@@ -360,7 +360,7 @@ fn write_output(corpus: &Corpus, out: &Path) {
     }
     verse_label.push(text.len() as u32);
 
-    // region 4 : textes des versets
+    // region 4: verse texts
     for b in &corpus.books {
         for c in &b.chapters {
             for v in &c.verses {
@@ -371,7 +371,7 @@ fn write_output(corpus: &Corpus, out: &Path) {
     }
     verse_text.push(text.len() as u32);
 
-    // index hierarchiques
+    // hierarchical indices
     let (mut ci, mut vi) = (0u32, 0u32);
     for b in &corpus.books {
         book_chap.push(ci);
