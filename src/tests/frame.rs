@@ -338,6 +338,65 @@ fn a_cell_shows_its_text_or_its_number_but_not_both() {
     }
 }
 
+/// **Once the text is out, its numbers are beside it.** The chapter number is
+/// set in the top-right corner of its column, above the first verse, and each
+/// verse number at the right of its first line, on the same row — never
+/// inside the text, which the overlap test already holds.
+#[test]
+fn the_text_carries_its_chapter_in_the_corner_and_its_verses_at_their_right() {
+    let region = verse_region();
+    let mut app = reference_app();
+    measure_all(&mut app);
+    let step = app.zoom_step();
+    let mut seen = 0;
+    for _ in 0..16 {
+        app.zoom_at(app.width * 0.5, app.height * 0.5, step);
+        let texts = texts(&mut app);
+        if !texts.iter().any(|c| c.offset >= region) {
+            continue;
+        }
+        let camera = app.camera;
+        for chapter in 0..corpus::chapter_count() {
+            let column = camera.project(column(app.layout.chapters[chapter]));
+            let label = corpus::chapter_label(chapter);
+            let lines = app.chapter_lines(chapter);
+            let first = camera.project(lines[0].rect);
+            let in_column = |c: &&Command| c.x <= column.x + column.w + 0.01 && c.x >= column.x;
+            let verses: Vec<&Command> = texts
+                .iter()
+                .filter(|c| c.offset >= region && in_column(c) && c.y >= column.y && c.y <= column.y + column.h)
+                .collect();
+            let head = Rect { h: lines[0].size * CHAPTER_MARK * LINE_K * camera.z, ..column };
+            if verses.is_empty() || lines[0].size * CHAPTER_MARK * camera.z < MIN_NUMBER || !app.visible(head) {
+                continue;
+            }
+            seen += 1;
+
+            let head = texts
+                .iter()
+                .find(|c| c.text() == label && in_column(c) && c.y <= first.y + 0.01 && c.y >= column.y)
+                .unwrap_or_else(|| panic!("chapitre {chapter}: pas de numero en tete"));
+            assert_close(head.x, column.x + column.w, 0.01, "le numero n'est pas cale a droite");
+            assert_close(head.alpha, CHAPTER_INK, 1e-6, "encre du numero en tete");
+
+            for line in lines.iter().filter(|l| corpus::offset_of(l.text) == corpus::offset_of(drawn(l.verse))) {
+                let row = camera.project(line.rect);
+                let gutter = Rect { x: row.x + row.w, w: column.x + column.w - row.x - row.w, ..row };
+                if line.size * VERSE_MARK * camera.z < MIN_NUMBER || !app.visible(row) || !app.visible(gutter) {
+                    continue;
+                }
+                let mark = corpus::verse_label(line.verse);
+                let found = texts.iter().find(|c| {
+                    c.text() == mark && close(c.x, column.x + column.w, 0.01) && c.y > row.y && c.y < row.y + row.h
+                });
+                let found = found.unwrap_or_else(|| panic!("verset {}: pas de numero a droite", line.verse));
+                assert!(found.x - found.w >= row.x + row.w - 0.01, "le numero mord sur le verset");
+            }
+        }
+    }
+    assert!(seen > 0, "aucun chapitre lu dans le balayage");
+}
+
 // ------------------------------------------------------- the measurements
 
 /// Rust draws from an estimate, lists what it does not know in `pending`, the

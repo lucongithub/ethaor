@@ -136,9 +136,10 @@ fn a_chapter_lays_out_at_one_single_size() {
 
         let size = lines[0].size;
         assert!(size > 0.0);
+        let width = cell.w - app.gutter(chapter, size);
         for line in &lines {
             assert_close(line.size, size, 1e-6, "deux tailles dans le chapitre");
-            assert_close(line.rect.w, cell.w, 1e-3, "une ligne n'a pas la largeur de sa colonne");
+            assert_close(line.rect.w, width, 1e-3, "une ligne n'a pas la largeur de sa colonne");
             assert_close(line.rect.x, cell.x, 1e-3, "une ligne n'est pas calee sur sa colonne");
         }
 
@@ -155,6 +156,15 @@ fn a_chapter_lays_out_at_one_single_size() {
         let bottom = lines.last().unwrap().rect.y + lines.last().unwrap().rect.h;
         assert!(bottom <= cell.y + cell.h + 0.01, "le chapitre {chapter} deborde sa case");
         assert!(lines[0].rect.y >= cell.y - 1e-3, "le chapitre {chapter} commence trop haut");
+
+        // The marks are paid on the layout: a header row for the chapter
+        // number above the first line, a gutter for the verse numbers at the
+        // right of every line, wide enough for the widest of them.
+        assert_close(lines[0].rect.y - cell.y, CHAPTER_MARK * LINE_K * size, 1e-3, "pas de rangee pour le numero");
+        let widest = corpus::verses_of(chapter)
+            .map(|v| app.width_of(corpus::verse_label(v), size * VERSE_MARK))
+            .fold(0.0_f32, f32::max);
+        assert!(cell.w - width > widest, "chapitre {chapter}: la gouttiere ne tient pas ses numeros");
     }
 }
 
@@ -256,7 +266,7 @@ fn the_column_height_grows_with_the_size() {
     let width = column(app.layout.chapters[0]).w;
     let mut previous = 0.0;
     for size in [0.05_f32, 0.1, 0.2, 0.4, 0.8] {
-        let height = app.column_height(0, width, size, 1.3, 0.55);
+        let height = app.column_height(0, width, size);
         assert!(height > previous, "la hauteur n'a pas cru de {previous} a {height}");
         previous = height;
     }

@@ -10,7 +10,7 @@ its volume, and zooming reveals its contents inside it.
 
 **Rules here, numbers in tests.** This file states invariants, intent and
 rejected alternatives — the things a test cannot express. Every measurement,
-ratio, count and threshold lives in `cargo test` (206 tests, 2 s), which is the
+ratio, count and threshold lives in `cargo test` (207 tests, 2 s), which is the
 only place they stay true. Do not restate a measured value here; if a rule can
 be asserted, assert it and leave only the *why* in prose.
 
@@ -72,7 +72,7 @@ and two theme tokens (`--font-sans`, `--font-hebrew`).
 ## Build
 
 ```sh
-cargo test         # 206 tests, 2 s — before any commit
+cargo test         # 207 tests, 2 s — before any commit
 cd web
 npm install
 npm run wasm       # cargo build --release, then copy into static/
@@ -231,6 +231,13 @@ what is on screen. Everything follows:
   only an offset and a length cross the boundary.
 - Each line is flush right from the measured width; **alignment is never
   delegated**.
+- **Once the text is out, its numbers sit beside it, never in it.** The
+  chapter number takes the top-right corner of its column, on a header row of
+  its own (`CHAPTER_MARK`): the centred number is gone and the reader must
+  still know which chapter he reads. Each verse number sits at the right of
+  its first line, in a gutter (`VERSE_MARK`) — Hebrew reads from the right,
+  that is where a verse begins. Both are reserved by `lay_out` and paid on the
+  character size, so nothing overlaps.
 - **A cell's padding follows the cell** (`CELL_PAD`, a share of the side). Fixed
   in world units it threw away most of the ink of a small cell and delayed
   verses by several notches. All rendering is proportional, so padding must be.
@@ -584,7 +591,7 @@ units.
 
 **Nothing is added to the computation without a test.** That is the counterpart
 of the guiding principle: if everything is computed here, everything is verified
-here. `cargo test` holds 206 tests and answers in 2 s, so there is no reason not
+here. `cargo test` holds 207 tests and answers in 2 s, so there is no reason not
 to run it at every step.
 
 ```sh
@@ -607,7 +614,7 @@ anywhere must be an assertion.
 | `src/treemap/tests.rs` | book boxes all identical; **one stride for the 929 chapters**; nesting, non-overlap, reading order; block flush top-right; rows for Tehilim; portion air paid in cells; number/title ratio |
 | `src/tests/geometry.rs` | distances, proportional cell padding, attraction beating zoom drift |
 | `src/tests/camera.rs` | floored framing, dive in `DIVE_NOTCHES` notches, **numbers at the first notch on nine windows**, non-oscillating detail level, fold lowering the scale, one-way descent |
-| `src/tests/frame.rs` | **no fill, no empty frame, no overlaid text** on nine windows and sixty notches; overview title count; three sizes at chapter level; three portions on zoom-out, equal gaps, single right edge; measurements converge in one frame; record layout, a contract with `ethaor.ts`; time and command budget |
+| `src/tests/frame.rs` | **no fill, no empty frame, no overlaid text** on nine windows and sixty notches; overview title count; three sizes at chapter level; chapter number in the corner and verse numbers at their right once text is out; three portions on zoom-out, equal gaps, single right edge; measurements converge in one frame; record layout, a contract with `ethaor.ts`; time and command budget |
 | `src/tests/click.rs` | the click live **exactly** where text is drawn, cell by cell on nine windows and twelve notches; dead at framing and chapter level; the cursor never lies about the click; the passage under the point; the word under the point, from the right verse; word boxes right-to-left, non-overlapping, covering the drawn width |
 | `src/tests/breadcrumb.rs` | depth bounded by what is drawn; portion and book at framing, chapter at the first notch, verse with the text; the pointer names the book, cell or line it is on; a portion band names the portion alone; the air names nothing and the centre takes over |
 | `src/tests/locate.rs` | every point of a book box names one of its chapters, none in the air between portions; hover says what the click will do |

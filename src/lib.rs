@@ -134,6 +134,23 @@ const CHAPTER_FROM: f32 = 1.1;
 /// side, rounding included.
 const PORTIONS_UNDER: f32 = 0.95;
 
+/// Line height and breathing space between verses, as multiples of the
+/// character size of a chapter's text.
+const LINE_K: f32 = 1.30;
+const GAP_K: f32 = 0.55;
+
+/// Marks of a chapter laid out as text, as multiples of its character size.
+///
+/// **The chapter number sits in the top-right corner of its column**, where
+/// reading starts, on a row of its own above the first verse: once the text is
+/// out, the centred number has gone, and the reader still has to know which
+/// chapter he is reading. **A verse number sits at the right of its first
+/// line**, in a gutter of its own: Hebrew reads from the right, so that is
+/// where a verse begins. Both are reserved by the layout, never laid over the
+/// text — the gutter and the header row are paid on the character size.
+const CHAPTER_MARK: f32 = 2.0;
+const VERSE_MARK: f32 = 0.8;
+
 /// Section titles are two thirds bigger than book titles.
 const SECTION_OVER_BOOK: f32 = 1.25;
 
@@ -497,45 +514,53 @@ impl App {
         let verses = corpus::verses_of(chapter);
         let count = verses.len().max(1);
 
-        // Line height and breathing space between verses, as multiples of the
-        // character size.
-        let line_k = 1.30;
-        let gap_k = 0.55;
-
         // We start from one line per verse, then tighten as long as the column
         // overflows. The number of lines can only grow as the size grows, so a
-        // few passes are enough.
-        let mut size = cell.h / (count as f32 * line_k + (count - 1) as f32 * gap_k);
+        // few passes are enough. The header row and the verse-number gutter
+        // scale with the size, so they enter every pass.
+        let mut size = cell.h / (count as f32 * LINE_K + (count - 1) as f32 * GAP_K + CHAPTER_MARK * LINE_K);
         for _ in 0..5 {
-            let total = self.column_height(chapter, cell.w, size, line_k, gap_k);
+            let width = cell.w - self.gutter(chapter, size);
+            let total = CHAPTER_MARK * LINE_K * size + self.column_height(chapter, width, size);
             if total <= cell.h {
                 break;
             }
             size *= cell.h / total;
         }
 
+        let gutter = self.gutter(chapter, size);
+        let width = cell.w - gutter;
         let mut out = Vec::new();
-        let mut y = cell.y;
+        let mut y = cell.y + CHAPTER_MARK * LINE_K * size;
 
         for verse in verses {
             let text = drawn(verse);
-            for slice in self.wrap(text, cell.w, size) {
+            for slice in self.wrap(text, width, size) {
                 out.push(Line {
-                    rect: Rect { x: cell.x, y, w: cell.w, h: size * line_k },
+                    rect: Rect { x: cell.x, y, w: width, h: size * LINE_K },
                     text: slice,
                     verse,
                     size,
                 });
-                y += size * line_k;
+                y += size * LINE_K;
             }
-            y += size * gap_k;
+            y += size * GAP_K;
         }
 
         out
     }
 
-    /// Height the chapter would take at this character size.
-    fn column_height(&mut self, chapter: usize, width: f32, size: f32, line_k: f32, gap_k: f32) -> f32 {
+    /// Width of the verse-number gutter of a chapter, at a character size: its
+    /// widest number, plus one space between it and the text.
+    fn gutter(&mut self, chapter: usize, size: f32) -> f32 {
+        let widest = corpus::verses_of(chapter)
+            .map(|v| self.ratio(corpus::verse_label(v)))
+            .fold(0.0_f32, f32::max);
+        (widest * VERSE_MARK + self.space_ratio()) * size
+    }
+
+    /// Height the chapter's verses would take at this character size.
+    fn column_height(&mut self, chapter: usize, width: f32, size: f32) -> f32 {
         let verses = corpus::verses_of(chapter);
         let count = verses.len().max(1);
         let mut lines = 0usize;
@@ -546,7 +571,7 @@ impl App {
             lines += needed.max(1);
         }
 
-        lines as f32 * size * line_k + (count - 1) as f32 * size * gap_k
+        lines as f32 * size * LINE_K + (count - 1) as f32 * size * GAP_K
     }
 
     /// Splits a verse into lines that fit in `width`, at word boundaries.
@@ -1557,20 +1582,33 @@ impl App {
             let mut drawn = false;
 
             if line >= READABLE_LINE {
-                let before = self.commands.len();
                 self.clip(cell);
-                for line in self.chapter_lines(chapter) {
+                let before = self.commands.len();
+                let lines = self.chapter_lines(chapter);
+                let column = camera.project(column(self.layout.chapters[chapter]));
+                for line in &lines {
                     let row = camera.project(line.rect);
                     if !self.visible(row) {
                         continue;
                     }
-                    self.draw_line(line, row, camera.z, alpha);
+                    self.draw_line(*line, row, camera.z, alpha);
+                    // The verse number, on its first line only, in the gutter
+                    // the layout left at its right.
+                    if corpus::offset_of(line.text) == corpus::offset_of(crate::drawn(line.verse)) {
+                        let gutter = Rect { x: row.x + row.w, w: column.x + column.w - row.x - row.w, ..row };
+                        self.mark(corpus::verse_label(line.verse), gutter, line.size * VERSE_MARK * camera.z, alpha);
+                    }
+                }
+
+                // Text really has been laid: only then does the chapter number
+                // take its corner — it belongs to the text, not to the cell.
+                drawn = self.commands.len() > before;
+                if drawn && let Some(first) = lines.first() {
+                    let size = first.size * CHAPTER_MARK * camera.z;
+                    let head = Rect { h: size * LINE_K, ..column };
+                    self.mark(corpus::chapter_label(chapter), head, size, alpha);
                 }
                 self.unclip();
-
-                // The clip counts as two commands: beyond that, text really has
-                // been laid.
-                drawn = self.commands.len() > before + 2 * STRIDE;
             }
 
             if !drawn && scale.show_chapters && scale.chapter >= MIN_NUMBER {
@@ -1586,6 +1624,18 @@ impl App {
         let strip = camera.project(self.layout.book_bands[book]);
         let full = !scale.show_chapters;
         self.title(corpus::book_name(book), rect, strip, scale.book, full, alpha * BOOK_INK);
+    }
+
+    /// A chapter or verse number beside the text, flush right in its area and
+    /// as wide as its ink. A number is read as a shape, so its floor is
+    /// `MIN_NUMBER`, and it wears the ink of chapter numbers.
+    fn mark(&mut self, label: &'static str, area: Rect, size: f32, alpha: f32) {
+        if size < MIN_NUMBER || !self.visible(area) {
+            return;
+        }
+        let w = self.width_of(label, size);
+        let area = Rect { x: area.x + area.w - w, w, ..area };
+        self.emit_text(label, area, size, alpha * CHAPTER_INK);
     }
 
     /// One line of text, set on the right edge of its box.
