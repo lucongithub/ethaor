@@ -328,9 +328,11 @@ what is on screen. Everything follows:
   kept the last position on screen, which read as a place the pointer had
   already left. Price: the breadcrumb blinks out between two letters. Accepted
   — naming somewhere one is not is worse than naming nowhere.
-- With **no pointer at all** — a touch screen, the cursor gone from the canvas
-  — the page asks `focus` instead and the centre of the view speaks: there is
-  no hover for it to contradict.
+- With **no pointer at all** — a touch screen — the page asks `focus` instead
+  and the centre of the view speaks: there is no hover for it to contradict.
+- **A mouse gone from the canvas empties the breadcrumb.** Falling back to the
+  centre made the row name a portion while the cursor sat on the row itself,
+  read as a selection. Only a lifted finger hands over to the centre.
 - The verse is given by its **number**, not its text: it is a position and must
   fit one navbar row. Text comes from a click (`select`).
 - Each title is clipped **in width only**. A small book's band is lower than the

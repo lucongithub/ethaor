@@ -296,10 +296,22 @@ export async function createTanakhMap(
 	function reportFocus() {
 		if (!onFocus) return;
 
+		// A mouse that left the canvas — onto the breadcrumb itself, say — names
+		// nothing: the centre of the view would answer for a place the reader
+		// is not looking at, and read as if the row under the cursor had been
+		// selected.
+		if (mouseGone) {
+			if (lastFocus) {
+				lastFocus = '';
+				onFocus(null);
+			}
+			return;
+		}
+
 		// The pointer has priority over the centre of the view: one reads the
-		// breadcrumb to know what one is pointing at. With no pointer on the
-		// canvas — a touch screen, or the cursor gone — the module answers for
-		// the centre, which is what the zoom alone says.
+		// breadcrumb to know what one is pointing at. With no pointer at all —
+		// a touch screen — the module answers for the centre, which is what the
+		// zoom alone says.
 		const hovered = pointer !== null && wasm.focus_at(pointer.x, pointer.y) === 1;
 		if (!hovered && pointer === null) wasm.focus();
 
@@ -383,6 +395,9 @@ export async function createTanakhMap(
 	 */
 	let pointer: { x: number; y: number } | null = null;
 
+	/** A mouse has left the canvas: the breadcrumb stays empty until it returns. */
+	let mouseGone = false;
+
 	const local = (event: PointerEvent) => {
 		const rect = canvas.getBoundingClientRect();
 		return { x: event.clientX - rect.left, y: event.clientY - rect.top };
@@ -407,6 +422,7 @@ export async function createTanakhMap(
 
 	function onPointerMove(event: PointerEvent) {
 		pointer = local(event);
+		mouseGone = false;
 
 		if (!pointers.has(event.pointerId)) {
 			canvas.style.cursor = wasm.hover(pointer.x, pointer.y) < 0 ? 'default' : 'pointer';
@@ -437,9 +453,13 @@ export async function createTanakhMap(
 		draw();
 	}
 
-	/** The pointer has left: the breadcrumb goes back to the centre of the view. */
-	function onPointerLeave() {
+	/**
+	 * The pointer has left. A finger lifted hands the breadcrumb back to the
+	 * centre of the view; a mouse gone elsewhere empties it.
+	 */
+	function onPointerLeave(event: PointerEvent) {
 		pointer = null;
+		mouseGone = event.pointerType === 'mouse';
 		draw();
 	}
 
