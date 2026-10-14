@@ -1,4 +1,4 @@
 node_modules
 .svelte-kit
 build
-static/ethaor.wasm
+src/lib/ethaor.wasm

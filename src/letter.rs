@@ -40,5 +40,21 @@ pub fn letter_count(s: &str) -> usize {
     s.chars().filter(|&c| is_base(c)).count()
 }
 
+/// Letters of the alphabet once final forms are folded: alef to tav.
+pub const ALPHABET: usize = 22;
+
+/// Rank of a consonant in the alphabet, 0 = alef … 21 = tav, **final forms
+/// folded onto their letter** — the code `letters.bin` is written in. `None`
+/// for a mark, a space, anything that is not a consonant.
+///
+/// Mirrors `FOLD` in `build.rs`; the search tests read every verse through it
+/// and compare with the welded stream, so the two cannot drift apart.
+pub fn code(c: char) -> Option<u8> {
+    const FOLD: [u8; 27] = [
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 11, 12, 12, 13, 13, 14, 15, 16, 16, 17, 17, 18, 19, 20, 21,
+    ];
+    is_base(c).then(|| FOLD[(c as u32 - 0x05D0) as usize])
+}
+
 #[cfg(test)]
 mod tests;

@@ -10,7 +10,7 @@ its volume, and zooming reveals its contents inside it.
 
 **Rules here, numbers in tests.** This file states invariants, intent and
 rejected alternatives — the things a test cannot express. Every measurement,
-ratio, count and threshold lives in `cargo test` (212 tests, 2 s), which is the
+ratio, count and threshold lives in `cargo test` (234 tests, 5 s), which is the
 only place they stay true. Do not restate a measured value here; if a rule can
 be asserted, assert it and leave only the *why* in prose.
 
@@ -51,19 +51,28 @@ Cargo.toml, build.rs, src/      WebAssembly module — all computation
 build/mamre.rs                  source reading, included by build.rs
 build/variants.rs               the other edition's readings, same inclusion
 build/variants.tsv              their table, measured and versioned
-src/{corpus,letter,treemap,variant}/tests.rs   module-private tests
+src/{corpus,els,letter,treemap,variant}/tests.rs   module-private tests
 src/tests/                      app tests: camera, frame, click, breadcrumb, …
 tests/builder.rs                corpus build tests
 web/                            SvelteKit 2 + Svelte 5 + Tailwind 4
   src/lib/ethaor.ts             bridge: gestures, painting, measurements
   src/lib/components/TanakhMap.svelte
   src/routes/+page.svelte
-  static/ethaor.wasm            copied by `npm run wasm`
+  src/lib/ethaor.wasm           copied by `npm run wasm`, imported by ethaor.ts
   static/fonts/Baloo2-*.ttf     UI only (see Fonts)
+  static/_headers               cache rules for the host (Cloudflare, Netlify)
   scripts/copy-wasm.mjs
+  scripts/bench-els.mjs         ELS methods timed in V8 (see ELS)
+  scripts/tune-els.mjs          ELS cost model tuned on those times
 ```
 
-`adapter-node`, like check8ge: `npm start` runs `node build`.
+**`adapter-static`**: `build/` is plain files, served by any host or CDN.
+The app has no server code — map and search both run in the visitor's
+browser — so a Node process would only have sent files, and would have had
+to be sized, kept up and patched for it; static, any number of visitors costs
+the server one download each. Rejected: `adapter-node`, check8ge's choice,
+which had nothing to run here. Server code, if the dictionary ever needs it,
+goes in a separate service.
 `ssr = false` — canvas and module have no business on the server.
 
 CSS is Tailwind everywhere. `app.css` holds only the Tailwind import, the fonts
@@ -72,19 +81,30 @@ and two theme tokens (`--font-sans`, `--font-hebrew`).
 ## Build
 
 ```sh
-cargo test         # 212 tests, 2 s — before any commit
+cargo test         # 234 tests, 5 s — before any commit
 cd web
 npm install
-npm run wasm       # cargo build --release, then copy into static/
+npm run wasm       # cargo build --release, then copy into src/lib/
 npm run dev        # 127.0.0.1:8095
-npm run build
-npm run preview    # same port as dev (vite preview ignores `server`)
-npm run host       # 0.0.0.0:8080
-npm start          # node build, 127.0.0.1:8095
+npm run build      # runs `wasm` first (prebuild), then writes build/
+npm run preview    # serves build/ on the dev port — to test, not to host
+npm run host       # same, on 0.0.0.0:8080
+npm run deploy     # build, then upload build/ to Cloudflare Pages (ethaor)
 ```
 
-The corpus is welded into the module: one download, ~1 MB gzip, no request
-afterwards.
+`build` recompiles the module itself: Vite only takes the file it finds, so a
+build after a Rust change would otherwise ship the previous module.
+
+**The module is imported, not served from `static/`** (`ethaor.wasm?url` in
+`ethaor.ts`): Vite emits it under `_app/immutable/` with a hash of its
+content in its name, like the scripts. So `_headers` can let a browser keep
+everything there for a year, and a new build is never served stale — under a
+fixed name, a browser would either ask again at every visit or keep an old
+module. **Only `build/` is deployed**; `deploy` needs `wrangler login` once.
+Elsewhere, `build/` goes behind any static server — `.wasm` must be served as
+`application/wasm`, or the page cannot stream it.
+
+The corpus is welded into the module: one download, no request afterwards.
 
 ## Fonts
 
@@ -522,6 +542,75 @@ contradict — and there the lines fill the column anyway. The view centre keeps
 the tolerance of `locate`: it is not a pointer, and the breadcrumb must answer
 for it wherever it falls.
 
+## ELS (`els.rs`, `els/`)
+
+**ELS = equidistant letter sequence**: a word read across the whole Tanakh
+with the same number of letters skipped between each of its letters —
+skip 0 is the word as written, skip 49 takes one letter in fifty — over
+**one skip or a whole range of them**. No display
+yet; the page only has the exports, all prefixed `els_` (`els_search`,
+`els_hits_ptr`, `els_hits_len`, …).
+
+- **It reads letters, not text.** `build.rs` welds `letters.bin`: every
+  consonant in reading order, one byte (its alphabet rank), no space, no mark,
+  no verse break — so an occurrence crosses verses and books freely, as asked.
+  Searching the UTF-8 text would mean decoding marks at every step, and a skip
+  counted in letters cannot be taken in bytes.
+- **Final forms are folded** (`letter::code`, mirrored by `FOLD` in `build.rs`):
+  a skip reads letters, not word endings, so `אדמ` finds `אדם`. Marks in the
+  query are dropped, so a pointed query is the same search.
+- **A hit is the global rank of its first letter, and its skip**; book,
+  chapter, verse, rank in the verse and verse of the last letter derive from
+  the rank through tables built once (`Engine`). That rank is also what the
+  page will highlight from: the letter's place in its verse, then
+  `letter::letters` over the drawn line.
+- **The indices are derived in memory, never welded** (`els/index.rs`):
+  postings per letter at the first query, bit planes and residue lists per
+  letter and gap on demand, cached. Welding them would add megabytes to the
+  download for milliseconds of build — the one place the guiding principle
+  yields, because the trade is download against a one-time cost.
+- **Every method walks the anchors** — occurrences of the pattern's rarest
+  letter — and differs in how it finds the steps that fit (`els/method.rs`):
+  `Direct` tries each step (a handful of skips), `Pairs` lists the second
+  rarest letter's occurrences on the anchor's residue (a very rare second
+  letter), `Planes` ANDs bit planes decimated by each letter's gap, 64 steps
+  per word (everything else). Rejected: one scan per skip — a range of
+  skips multiplied it, which is what made ranges unaffordable.
+- **A cost model picks the method per query** (`choose`), linear in what
+  each walks, its constants fitted on `bench_methods` — in V8, the real
+  target. A fixed method is several times off on part of the grid whichever
+  is picked.
+- **`Planes` ANDs three planes at most** (`LANES`): past three, a fourth
+  plane costs more than the few survivors it would remove; one lets too many
+  through to the text checks.
+- **Counting never needs listing.** Results are capped (`CAP`) in (skip,
+  start) order, the total is exact: past the cap a sink's threshold
+  (`Keep`) tells `Planes` to only popcount — a branch-free loop — and two
+  letters are counted from ranks on their plane (`count_pairs`), constant
+  work per anchor. A flood of billions of hits is counted, not walked.
+- **The model is recalibrated after any change to a method**, in three
+  steps, from the repository root:
+
+  ```sh
+  cargo test --release bench_methods -- --ignored --nocapture 2> native.csv
+  cd web && npm run wasm
+  node scripts/bench-els.mjs ../target/wasm32-unknown-unknown/release/ethaor.wasm ../native.csv > ../v8.csv
+  node scripts/tune-els.mjs ../v8.csv ../native.csv
+  ```
+
+  `bench_methods` times each method natively on the grid (12 words, 17
+  ranges) and writes what the model reads beside each time; `bench-els.mjs`
+  times the same grid in V8, through the page's exports; `tune-els.mjs`
+  tunes the constants on V8 and checks them natively. The new constants go
+  into `choose` — its doc and `the_cost_model_picks_the_winner` say which
+  cases decide. The tables are output, not sources: not versioned.
+- **Repeated queries answer from memory** (`Engine::memo`): a redraw or a
+  step back costs nothing.
+- **No SIMD**: `simd128` gained little on the one loop it vectorises, and a
+  browser without it would refuse the whole module — the map with it.
+- Price: the stream adds to the download (one byte per letter), the indices
+  to the memory. Accepted: speed is the criterion.
+
 ## Interface
 
 Monochrome: black background, structures in shades of white — with **one
@@ -594,7 +683,7 @@ units.
 
 **Nothing is added to the computation without a test.** That is the counterpart
 of the guiding principle: if everything is computed here, everything is verified
-here. `cargo test` holds 212 tests and answers in 2 s, so there is no reason not
+here. `cargo test` holds 234 tests and answers in 5 s, so there is no reason not
 to run it at every step.
 
 ```sh
@@ -622,7 +711,8 @@ anywhere must be an assertion.
 | `src/tests/breadcrumb.rs` | depth bounded by what is drawn; portion and book at framing, chapter at the first notch, verse with the text; the pointer names the book, cell or line it is on; a portion band names the portion alone; the air names nothing and the centre takes over |
 | `src/tests/locate.rs` | every point of a book box names one of its chapters, none in the air between portions; hover says what the click will do |
 | `src/tests/text.rs` | one size per chapter; lines recompose the verse **byte for byte**; every line stays a corpus slice; letters right-to-left |
-| `src/tests/api.rs` | the interface the page really calls, global state under a lock: gestures, selection, breadcrumb at centre and under pointer, a mouse gone names nothing, forgetting measurements, probes |
+| `src/tests/api.rs` | the interface the page really calls, global state under a lock: gestures, selection, breadcrumb at centre and under pointer, a mouse gone names nothing, forgetting measurements, probes; the search through the query buffer |
+| `src/els/tests.rs` | the stream is every verse read letter by letter; postings, residue lists and planes say what the stream says; **every method equals trying every start and every skip**, on random streams of every size and range; the cap keeps the first hits in (skip, start) order with the exact total; two letters counted without listing; the cost model picks the measured winner; radix sort; placement tables; memo; finals and pointing fold; an occurrence across two verses; every record placed where its hit is; `תורה` every fiftieth letter from the first tav; time budget |
 | `src/variant/tests.rs` | the welded table: taking the insertions out gives the verse back byte for byte, every range is a slice on a letter boundary, an offset is mapped back to the verse or refused |
 | `src/tests/readings.rs` | the other reading **in the flow, never over it**: the runs of a line tile it from the right and recompose it, the ink marks theirs and only theirs, a verse without a variant stays one command, a click never names the other edition |
 | `tests/builder.rs` | `build/mamre.rs` and `build/variants.rs` included, not copied: cp1255 and byte 0xCA, Hebrew numerals, cover page, document order, the four cuts, canonical order; a reading anchored by rank, the display string that gives the verse back |

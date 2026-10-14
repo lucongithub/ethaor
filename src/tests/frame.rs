@@ -222,7 +222,7 @@ fn the_rank_reads_in_the_intensity_of_the_white() {
     assert_close(alpha_of(section), 1.0, 1e-6, "une portion est en blanc pur");
     assert_close(alpha_of(corpus::book_name(book)), BOOK_INK, 1e-6, "encre du livre");
     assert_close(alpha_of(number), CHAPTER_INK, 1e-6, "encre du numero");
-    assert!(CHAPTER_INK < BOOK_INK && BOOK_INK < 1.0, "la hierarchie des encres est inversee");
+    const { assert!(CHAPTER_INK < BOOK_INK && BOOK_INK < 1.0, "la hierarchie des encres est inversee") };
 }
 
 /// **One zoom-out notch, and the map is nothing but the three portions, large,

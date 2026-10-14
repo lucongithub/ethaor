@@ -13,6 +13,11 @@
  *   2. draw the text.
  */
 
+// The module is imported, not served from `static/`: Vite then emits it under
+// `_app/immutable/` with a hash of its content in the name, like the scripts,
+// so a browser may keep it for good and a new build is never served stale.
+import moduleUrl from './ethaor.wasm?url';
+
 /** Must cover Hebrew with niqqud. Noto Serif Hebrew is loaded by app.css. */
 export const HEBREW_FONT =
 	'"Noto Serif Hebrew Variable", "Taamey Frank CLM", "SBL Hebrew", "David", serif';
@@ -27,7 +32,6 @@ const REFERENCE = 100;
  * canvas.
  */
 const OTHER_READING = '254,240,138';
-
 
 /**
  * What the module welds into the text around the other reading: the two index
@@ -140,15 +144,13 @@ export interface MapOptions {
 	 * that alone.
 	 */
 	onReadings?: (count: number) => void;
-	/** Path to the module, prefixed by `base` in case of a subdirectory. */
-	wasmUrl?: string;
 }
 
 export async function createTanakhMap(
 	canvas: HTMLCanvasElement,
 	options: MapOptions = {}
 ): Promise<TanakhMap> {
-	const { onSelect, onFocus, onReadings, wasmUrl = '/ethaor.wasm' } = options;
+	const { onSelect, onFocus, onReadings } = options;
 
 	const context = canvas.getContext('2d', { alpha: false });
 	if (!context) throw new Error('canvas 2d indisponible');
@@ -165,7 +167,7 @@ export async function createTanakhMap(
 		}
 	}
 
-	const { instance } = await WebAssembly.instantiateStreaming(fetch(wasmUrl), {});
+	const { instance } = await WebAssembly.instantiateStreaming(fetch(moduleUrl), {});
 	const wasm = instance.exports as unknown as Wasm;
 
 	// If the final font arrives after the first measurements, those were taken on
@@ -458,8 +460,7 @@ export async function createTanakhMap(
 			const { x, y } = local(event);
 			const now = event.timeStamp;
 			const again =
-				now - lastClick.at < DOUBLE_MS &&
-				Math.hypot(x - lastClick.x, y - lastClick.y) < DOUBLE_PX;
+				now - lastClick.at < DOUBLE_MS && Math.hypot(x - lastClick.x, y - lastClick.y) < DOUBLE_PX;
 
 			const hit = selectionAt(x, y, again);
 			onSelect?.(hit);

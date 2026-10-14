@@ -4,8 +4,9 @@
 //! verses from them, cleans up the punctuation and the masoretic markers, then
 //! writes two files into OUT_DIR:
 //!
-//!   text.bin   all the UTF-8 text, concatenated
-//!   index.bin  flat array of u32: header + offsets
+//!   text.bin     all the UTF-8 text, concatenated
+//!   index.bin    flat array of u32: header + offsets
+//!   letters.bin  the consonants alone, one byte each, for the search
 //!
 //! At run time the program parses nothing: it slices those two blocks.
 
@@ -176,6 +177,7 @@ fn write_output(corpus: &Corpus, out: &Path) {
     fs::write(out.join("text.bin"), text.as_bytes()).unwrap();
     fs::write(out.join("index.bin"), &bytes).unwrap();
     fs::write(out.join("variants.bin"), &variant_bytes).unwrap();
+    fs::write(out.join("letters.bin"), letter_stream(corpus)).unwrap();
 
     let mut report = String::new();
     let _ = writeln!(
@@ -251,4 +253,49 @@ fn weld_variants(corpus: &Corpus, text: &mut String) -> (Vec<u32>, String) {
 
     let report = format!("{} ecarts sur {} versets", inserts.len() / 4, display.len() / 3);
     (out, report)
+}
+
+/// Alphabet rank of each consonant U+05D0..=U+05EA, final forms folded onto
+/// their letter: a skip search reads letters, not word endings, so `אדמ`
+/// must find `אדם`. Mirrored by `letter::code`, and the search tests check
+/// the two agree on every verse.
+const FOLD: [u8; 27] = [
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, // א..י
+    10, 10, 11, 12, 12, 13, 13, 14, 15, 16, 16, 17, 17, // ך כ ל ם מ ן נ ס ע ף פ ץ צ
+    18, 19, 20, 21, // ק ר ש ת
+];
+
+/// Builds `letters.bin`: every consonant of the Tanakh, in reading order, as
+/// one byte — its rank in the alphabet — with no space, mark or verse break.
+///
+/// Layout, little-endian:
+///
+///   u32 n_letters
+///   u32 n_verses
+///   u32 x n_verses+1  index of each verse's first letter, with a sentinel
+///   u8  x n_letters   the stream
+///
+/// The u32 part comes first so it stays 4-byte aligned behind `Align4`.
+fn letter_stream(corpus: &Corpus) -> Vec<u8> {
+    let mut stream: Vec<u8> = Vec::new();
+    let mut starts: Vec<u32> = Vec::new();
+    for v in corpus.books.iter().flat_map(|b| &b.chapters).flat_map(|c| &c.verses) {
+        starts.push(stream.len() as u32);
+        for c in v.text.chars() {
+            if ('\u{05D0}'..='\u{05EA}').contains(&c) {
+                stream.push(FOLD[(c as u32 - 0x05D0) as usize]);
+            }
+        }
+    }
+    starts.push(stream.len() as u32);
+
+    let mut words = vec![stream.len() as u32, (starts.len() - 1) as u32];
+    words.extend_from_slice(&starts);
+
+    let mut bytes = Vec::with_capacity(words.len() * 4 + stream.len());
+    for w in &words {
+        bytes.extend_from_slice(&w.to_le_bytes());
+    }
+    bytes.extend_from_slice(&stream);
+    bytes
 }

@@ -11,6 +11,7 @@
 //! widths it lacks, caches them, and never comes back to them.
 
 mod corpus;
+mod els;
 mod letter;
 #[cfg(test)]
 mod tests;
@@ -210,7 +211,7 @@ impl Camera {
         Rect { x: r.x * self.z + self.x, y: r.y * self.z + self.y, w: r.w * self.z, h: r.h * self.z }
     }
 
-    fn to_world(&self, px: f32, py: f32) -> (f32, f32) {
+    fn to_world(self, px: f32, py: f32) -> (f32, f32) {
         ((px - self.x) / self.z, (py - self.y) / self.z)
     }
 
@@ -220,7 +221,7 @@ impl Camera {
     fn wrap_in(&mut self, cell: Rect) {
         let z = self.z;
         let z2 = cell.w * z / WORLD.w;
-        self.x = cell.x * z + self.x;
+        self.x += cell.x * z;
         self.y = cell.y * z + self.y + (cell.h * z - WORLD.h * z2) / 2.0;
         self.z = z2;
     }
@@ -2113,4 +2114,102 @@ pub extern "C" fn text_ptr() -> *const u8 {
 #[unsafe(no_mangle)]
 pub extern "C" fn text_len() -> u32 {
     corpus::text().len() as u32
+}
+
+// ----------------------------------------------------------------------- els
+
+/// Room for a query, in UTF-8 bytes: a pointed letter takes up to a dozen, so
+/// this holds a few hundred letters.
+const ELS_QUERY_CAP: usize = 4096;
+
+/// The ELS search lives apart from `App`: it needs no window, so the page can
+/// search before `init` and a search never touches the map's state.
+static mut ELS_QUERY: [u8; ELS_QUERY_CAP] = [0; ELS_QUERY_CAP];
+static mut ELS_HITS: Vec<u32> = Vec::new();
+static mut ELS_ENGINE: Option<els::Engine> = None;
+
+#[allow(static_mut_refs)]
+fn els_engine() -> &'static mut els::Engine {
+    unsafe { ELS_ENGINE.get_or_insert_with(els::Engine::new) }
+}
+
+/// Builds the search index now rather than at the first query: the page may
+/// call it once idle, so the first search answers at full speed.
+#[unsafe(no_mangle)]
+pub extern "C" fn els_prepare() {
+    els_engine();
+}
+
+/// Where the page writes its query, as UTF-8, before calling `els_search`.
+#[unsafe(no_mangle)]
+#[allow(static_mut_refs)]
+pub extern "C" fn els_query_ptr() -> *mut u8 {
+    unsafe { ELS_QUERY.as_mut_ptr() }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn els_query_cap() -> u32 {
+    ELS_QUERY_CAP as u32
+}
+
+/// Searches the `len` bytes written at `els_query_ptr` across the whole Tanakh,
+/// with any skip from `skip0` to `skip1` letters jumped between two letters
+/// of the query (0 = contiguous). Marks are ignored and final forms folded.
+///
+/// Returns the exact number of hits — an f64, since a wide range of common
+/// letters exceeds a u32. The records, `els_stride` words each and at most
+/// `els_cap` of them, sit at `els_hits_ptr`; `els_hits_len` says how many.
+///
+#[unsafe(no_mangle)]
+#[allow(static_mut_refs)]
+pub extern "C" fn els_search(len: u32, skip0: u32, skip1: u32) -> f64 {
+    let bytes = unsafe { &ELS_QUERY[..(len as usize).min(ELS_QUERY_CAP)] };
+    let hits = unsafe { &mut ELS_HITS };
+    match core::str::from_utf8(bytes) {
+        Ok(query) => els_engine().search(query, skip0, skip1, hits) as f64,
+        Err(_) => {
+            hits.clear();
+            0.0
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+#[allow(static_mut_refs)]
+pub extern "C" fn els_hits_ptr() -> *const u32 {
+    unsafe { ELS_HITS.as_ptr() }
+}
+
+#[unsafe(no_mangle)]
+#[allow(static_mut_refs)]
+pub extern "C" fn els_hits_len() -> u32 {
+    unsafe { (ELS_HITS.len() / els::STRIDE) as u32 }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn els_stride() -> u32 {
+    els::STRIDE as u32
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn els_cap() -> u32 {
+    els::CAP as u32
+}
+
+/// Probe: imposes a search method — 1, 2, 3 for `els::METHODS` — or gives
+/// the choice back to the cost model with 0. Only the benchmark calls it.
+#[unsafe(no_mangle)]
+pub extern "C" fn probe_els_method(method: u32) {
+    els_engine().force = els::METHODS.get((method as usize).wrapping_sub(1)).copied();
+}
+
+/// Probe: forgets the remembered answers — and with `cold`, the planes and
+/// residue lists too — so the benchmark times a search, not a recall.
+#[unsafe(no_mangle)]
+pub extern "C" fn probe_els_forget(cold: u32) {
+    let engine = els_engine();
+    engine.forget_answers();
+    if cold != 0 {
+        engine.index.forget();
+    }
 }

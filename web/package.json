@@ -4,34 +4,33 @@
 	"version": "0.0.1",
 	"type": "module",
 	"scripts": {
-		"dev": "cross-env DEPLOY_ENV=WIN NODE_ENV=dev vite dev",
-		"build": "cross-env DEPLOY_ENV=LINUX NODE_OPTIONS=--max-old-space-size=6144 NODE_ENV=production vite build",
-		"preview": "cross-env DEPLOY_ENV=WIN NODE_OPTIONS=--max-old-space-size=6144 NODE_ENV=production vite preview",
-		"host": "cross-env NODE_OPTIONS=--max-old-space-size=6144 NODE_ENV=production vite preview --host 0.0.0.0 --port 8080",
-		"start": "cross-env DEPLOY_ENV=LINUX NODE_OPTIONS=--max-old-space-size=6144 NODE_ENV=production HOST=127.0.0.1 PORT=8095 ORIGIN=http://127.0.0.1:8095 BODY_SIZE_LIMIT=20971520 node -r dotenv/config build",
-		"winstart": "cross-env DEPLOY_ENV=WIN NODE_OPTIONS=--max-old-space-size=6144 NODE_ENV=production HOST=127.0.0.1 PORT=8095 ORIGIN=http://127.0.0.1:8095 BODY_SIZE_LIMIT=20971520 node -r dotenv/config build",
+		"dev": "vite dev",
+		"prebuild": "npm run wasm",
+		"build": "vite build",
+		"preview": "vite preview",
+		"host": "vite preview --host 0.0.0.0 --port 8080",
+		"deploy": "npm run build && wrangler pages deploy build --project-name ethaor",
 		"wasm": "cargo build --manifest-path ../Cargo.toml --target wasm32-unknown-unknown --release && node scripts/copy-wasm.mjs",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"format": "prettier --write ."
 	},
 	"devDependencies": {
-		"@sveltejs/adapter-node": "^5.5.4",
+		"@sveltejs/adapter-static": "^3.0.10",
 		"@sveltejs/vite-plugin-svelte": "^6.2.1",
 		"@tailwindcss/vite": "^4.1.14",
 		"@types/node": "^25.2.3",
-		"cross-env": "^10.1.0",
 		"prettier": "^3.6.2",
 		"prettier-plugin-svelte": "^3.4.0",
 		"prettier-plugin-tailwindcss": "^0.7.1",
 		"svelte-check": "^4.3.3",
 		"tailwindcss": "^4.1.14",
 		"typescript": "^5.9.3",
-		"vite": "^7.1.10"
+		"vite": "^7.1.10",
+		"wrangler": "^4.151.0"
 	},
 	"dependencies": {
 		"@fontsource-variable/noto-serif-hebrew": "^5.3.0",
 		"@sveltejs/kit": "^2.51.0",
-		"dotenv": "^17.4.0",
 		"svelte": "^5.51.0"
 	},
 	"allowScripts": {

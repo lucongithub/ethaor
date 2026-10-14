@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$app/paths';
 	import { onMount } from 'svelte';
 	import { createTanakhMap, type Focus, type Selection, type TanakhMap } from '$lib/ethaor';
 
@@ -14,7 +13,6 @@
 		let handle: TanakhMap | null = null;
 
 		createTanakhMap(canvas, {
-			wasmUrl: `${base}/ethaor.wasm`,
 			onSelect: (hit) => (selection = hit),
 			onFocus: (where) => (focus = where),
 			onReadings: (count) => (readings = count)
@@ -143,7 +141,7 @@
 		<!-- A click gives the passage; a double click gives the word, shown in
 		     place inside its passage rather than torn out of it. -->
 		{#if selection.word}
-			<p class="font-hebrew mb-3 text-[30px] leading-tight text-white">{selection.word}</p>
+			<p class="mb-3 font-hebrew text-[30px] leading-tight text-white">{selection.word}</p>
 			<p class="font-hebrew text-[22px] leading-loose text-white/45">
 				{selection.head}<span class="text-white">{selection.word}</span>{selection.tail}
 			</p>

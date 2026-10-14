@@ -5,3 +5,7 @@ archive/
 # Added by cargo
 
 /target
+
+# ELS benchmark tables (see CLAUDE.md, ELS)
+/native.csv
+/v8.csv

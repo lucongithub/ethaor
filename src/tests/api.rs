@@ -375,3 +375,26 @@ fn a_frame_can_be_painted_from_the_module_memory_alone() {
     }
     assert!(drawn > 0, "rien a peindre");
 }
+
+/// The search as the page calls it: write the query at `els_query_ptr`, call
+/// `els_search`, read `els_stride` words per hit at `els_hits_ptr`. It needs no
+/// window, and a query that is not UTF-8 finds nothing.
+#[test]
+fn the_page_searches_through_the_query_buffer() {
+    let _hold = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    let query = "אָדָם";
+    assert!(query.len() <= els_query_cap() as usize);
+    unsafe { core::ptr::copy_nonoverlapping(query.as_ptr(), els_query_ptr(), query.len()) };
+    let n = els_search(query.len() as u32, 0, 0) as usize;
+    assert_eq!(els_hits_len() as usize, n);
+
+    let mut expected = Vec::new();
+    assert_eq!(els_engine().search("אדם", 0, 0, &mut expected) as usize, n);
+    assert!(n > 0);
+    let stride = els_stride() as usize;
+    let read = unsafe { core::slice::from_raw_parts(els_hits_ptr(), n * stride) };
+    assert_eq!(read, &expected[..], "la page ne lit pas les enregistrements ecrits");
+
+    unsafe { *els_query_ptr() = 0xFF };
+    assert_eq!(els_search(1, 0, 0), 0.0, "une requete invalide trouve quelque chose");
+}

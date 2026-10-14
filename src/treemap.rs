@@ -311,9 +311,8 @@ pub fn build(numeral: f32, lead: f32) -> Layout {
         .collect();
 
 
-    for book in 0..corpus::book_count() {
+    for (book, &body) in bodies.iter().enumerate() {
         let range = corpus::chapters_of(book);
-        let body = bodies[book];
         // Number of rows: the one that gives the block **the shape of its
         // body**.
         //

@@ -190,8 +190,7 @@ fn the_layout_covers_the_whole_corpus() {
 #[test]
 fn the_books_sit_on_a_grid_of_five_columns() {
     let l = wide();
-    for section in 0..3 {
-        let (_, first, last) = SECTIONS[section];
+    for &(_, first, last) in &SECTIONS {
         let mut per_row: Vec<usize> = Vec::new();
         let mut y: Option<f32> = None;
         for book in first..last {
@@ -247,10 +246,9 @@ fn the_hierarchy_nests_geometrically() {
         assert!(inner.y + inner.h <= outer.y + outer.h + TOL, "{what}: bord bas");
     };
 
-    for section in 0..3 {
+    for (section, &(_, first, last)) in SECTIONS.iter().enumerate() {
         inside(l.sections[section], WORLD, "une section sort du monde");
         inside(l.section_bands[section], l.sections[section], "une bande sort de sa section");
-        let (_, first, last) = SECTIONS[section];
         for book in first..last {
             inside(l.books[book], l.sections[section], &format!("le livre {book}"));
             inside(l.book_bands[book], l.books[book], &format!("la bande du livre {book}"));

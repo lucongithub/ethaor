@@ -1,0 +1,6 @@
+# Cloudflare Pages / Netlify: response headers per path.
+# Everything under _app/immutable/ carries a hash of its content in its name —
+# scripts, styles, fonts and the WebAssembly module — so a browser may keep it
+# for a year without asking again: a new build ships new names.
+/_app/immutable/*
+  Cache-Control: public, max-age=31536000, immutable
