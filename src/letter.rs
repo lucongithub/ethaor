@@ -1,4 +1,4 @@
-//! Splitting the text below the chapter: verses, words, letters.
+//! Splitting a word into letters: a consonant and the marks that follow it.
 //!
 //! Everything is computed on demand, only for what is visible, and always
 //! **right to left**. Hebrew alignment is therefore exact by construction: we

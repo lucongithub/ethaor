@@ -517,7 +517,7 @@ fn the_measurements_converge_in_one_frame() {
         let (offset, len) = (pair[0], pair[1]);
         let text = &corpus::text()[offset as usize..(offset + len) as usize];
         assert!(!text.is_empty(), "une mesure est demandee pour un fragment vide");
-        app.ratios.insert((offset, len), hier::letter_count(text).max(1) as f32 * MEASURED);
+        app.ratios.insert((offset, len), letter::letter_count(text).max(1) as f32 * MEASURED);
     }
     app.lines.clear();
     app.number = None;
@@ -529,7 +529,7 @@ fn the_measurements_converge_in_one_frame() {
     let again: Vec<u32> = app.pending.clone();
     for pair in again.chunks(2) {
         let text = &corpus::text()[pair[0] as usize..(pair[0] + pair[1]) as usize];
-        app.ratios.insert((pair[0], pair[1]), hier::letter_count(text).max(1) as f32 * MEASURED);
+        app.ratios.insert((pair[0], pair[1]), letter::letter_count(text).max(1) as f32 * MEASURED);
     }
     app.lines.clear();
     app.number = None;

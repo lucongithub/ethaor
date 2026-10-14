@@ -93,7 +93,7 @@ pub fn measure_all(app: &mut App) {
         for pair in pending.chunks(2) {
             let (offset, len) = (pair[0], pair[1]);
             let text = &corpus::text()[offset as usize..(offset + len) as usize];
-            let ratio = hier::letter_count(text).max(1) as f32 * MEASURED;
+            let ratio = letter::letter_count(text).max(1) as f32 * MEASURED;
             app.ratios.insert((offset, len), ratio);
         }
         app.lines.clear();

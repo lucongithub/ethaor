@@ -11,7 +11,7 @@
 //! widths it lacks, caches them, and never comes back to them.
 
 mod corpus;
-mod hier;
+mod letter;
 #[cfg(test)]
 mod tests;
 mod treemap;
@@ -457,7 +457,7 @@ impl App {
             self.pending.push(key.0);
             self.pending.push(key.1);
         }
-        hier::letter_count(fragment).max(1) as f32 * GUESS
+        letter::letter_count(fragment).max(1) as f32 * GUESS
     }
 
     /// Width of a space, measured once on a real space from the corpus.
@@ -624,7 +624,7 @@ impl App {
             return Vec::new();
         }
 
-        let parts: Vec<&'static str> = text.split(' ').flat_map(hier::letters).collect();
+        let parts: Vec<&'static str> = text.split(' ').flat_map(letter::letters).collect();
         let total: f32 = parts.iter().map(|p| self.ratio(p)).sum();
         if total <= 0.0 {
             return Vec::new();

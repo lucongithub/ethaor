@@ -51,7 +51,7 @@ Cargo.toml, build.rs, src/      WebAssembly module — all computation
 build/mamre.rs                  source reading, included by build.rs
 build/variants.rs               the other edition's readings, same inclusion
 build/variants.tsv              their table, measured and versioned
-src/{corpus,hier,treemap,variant}/tests.rs   module-private tests
+src/{corpus,letter,treemap,variant}/tests.rs   module-private tests
 src/tests/                      app tests: camera, frame, click, breadcrumb, …
 tests/builder.rs                corpus build tests
 web/                            SvelteKit 2 + Svelte 5 + Tailwind 4
@@ -613,7 +613,7 @@ anywhere must be an assertion.
 | file | what it holds |
 |---|---|
 | `src/corpus/tests.rs` | counts; monotone bounded index; the hierarchy partitions; traditional cut ranks; numerals avoid the divine name; cleaned text; the `U+05BA` bytes; a fragment is found back from its offset |
-| `src/hier/tests.rs` | a letter = a consonant and its marks; lossless splitting over the corpus; marks never detached |
+| `src/letter/tests.rs` | a letter = a consonant and its marks; lossless splitting over the corpus; marks never detached |
 | `src/treemap/tests.rs` | book boxes all identical; **one stride for the 929 chapters**; nesting, non-overlap, reading order; block flush top-right; rows for Tehilim; portion air paid in cells; number/title ratio |
 | `src/tests/geometry.rs` | distances, proportional cell padding, attraction beating zoom drift |
 | `src/tests/camera.rs` | floored framing, dive in `DIVE_NOTCHES` notches, **numbers at the first notch on nine windows**, non-oscillating detail level, fold lowering the scale, one-way descent |

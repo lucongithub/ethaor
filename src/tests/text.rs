@@ -46,7 +46,7 @@ fn an_unknown_width_is_estimated_then_asked_for() {
     let estimated = app.ratio(word);
     assert_close(
         estimated,
-        hier::letter_count(word).max(1) as f32 * GUESS,
+        letter::letter_count(word).max(1) as f32 * GUESS,
         1e-6,
         "l'estimation n'est pas celle de GUESS",
     );
@@ -226,7 +226,7 @@ fn the_letters_of_a_line_fill_it_right_to_left() {
         let line = app.chapter_lines(chapter)[0];
         let cells = app.letter_cells(line.text, line.rect, line.size);
         let expected: usize =
-            line.text.split(' ').map(|w| hier::letter_count(w).max(1)).sum();
+            line.text.split(' ').map(|w| letter::letter_count(w).max(1)).sum();
         assert_eq!(cells.len(), expected, "une lettre a ete perdue");
 
         let drawn = app.width_of(line.text, line.size);

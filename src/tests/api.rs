@@ -28,7 +28,7 @@ fn converge() {
         }
         for pair in pending.chunks(2) {
             let text = &corpus::text()[pair[0] as usize..(pair[0] + pair[1]) as usize];
-            set_ratio(pair[0], pair[1], hier::letter_count(text).max(1) as f32 * MEASURED);
+            set_ratio(pair[0], pair[1], letter::letter_count(text).max(1) as f32 * MEASURED);
         }
     }
     build_frame();
