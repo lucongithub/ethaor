@@ -10,7 +10,7 @@ its volume, and zooming reveals its contents inside it.
 
 **Rules here, numbers in tests.** This file states invariants, intent and
 rejected alternatives — the things a test cannot express. Every measurement,
-ratio, count and threshold lives in `cargo test` (207 tests, 2 s), which is the
+ratio, count and threshold lives in `cargo test` (212 tests, 2 s), which is the
 only place they stay true. Do not restate a measured value here; if a rule can
 be asserted, assert it and leave only the *why* in prose.
 
@@ -72,7 +72,7 @@ and two theme tokens (`--font-sans`, `--font-hebrew`).
 ## Build
 
 ```sh
-cargo test         # 207 tests, 2 s — before any commit
+cargo test         # 212 tests, 2 s — before any commit
 cd web
 npm install
 npm run wasm       # cargo build --release, then copy into static/
@@ -332,7 +332,8 @@ what is on screen. Everything follows:
   and the centre of the view speaks: there is no hover for it to contradict.
 - **A mouse gone from the canvas empties the breadcrumb.** Falling back to the
   centre made the row name a portion while the cursor sat on the row itself,
-  read as a selection. Only a lifted finger hands over to the centre.
+  read as a selection. Only a lifted finger hands over to the centre. The
+  page only reports the leave (`leave`); the decision is the module's.
 - The verse is given by its **number**, not its text: it is a position and must
   fit one navbar row. Text comes from a click (`select`).
 - Each title is clipped **in width only**. A small book's band is lower than the
@@ -593,7 +594,7 @@ units.
 
 **Nothing is added to the computation without a test.** That is the counterpart
 of the guiding principle: if everything is computed here, everything is verified
-here. `cargo test` holds 207 tests and answers in 2 s, so there is no reason not
+here. `cargo test` holds 212 tests and answers in 2 s, so there is no reason not
 to run it at every step.
 
 ```sh
@@ -616,12 +617,12 @@ anywhere must be an assertion.
 | `src/treemap/tests.rs` | book boxes all identical; **one stride for the 929 chapters**; nesting, non-overlap, reading order; block flush top-right; rows for Tehilim; portion air paid in cells; number/title ratio |
 | `src/tests/geometry.rs` | distances, proportional cell padding, attraction beating zoom drift |
 | `src/tests/camera.rs` | floored framing, dive in `DIVE_NOTCHES` notches, **numbers at the first notch on nine windows**, non-oscillating detail level, fold lowering the scale, one-way descent |
-| `src/tests/frame.rs` | **no fill, no empty frame, no overlaid text** on nine windows and sixty notches; overview title count; three sizes at chapter level; chapter number in the corner and verse numbers at their right once text is out; three portions on zoom-out, equal gaps, single right edge; measurements converge in one frame; record layout, a contract with `ethaor.ts`; time and command budget |
+| `src/tests/frame.rs` | **no fill, no empty frame, no overlaid text** on nine windows and sixty notches; overview title count; three sizes at chapter level; chapter number in the corner and verse numbers at their right once text is out; no number drawn twice; one book-title size per notch, at the bottom of its band, under its ceiling; three portions on zoom-out, equal gaps, single right edge; measurements converge in one frame; record layout, a contract with `ethaor.ts`; time and command budget |
 | `src/tests/click.rs` | the click live **exactly** where text is drawn, cell by cell on nine windows and twelve notches; dead at framing and chapter level; the cursor never lies about the click; the passage under the point; the word under the point, from the right verse; word boxes right-to-left, non-overlapping, covering the drawn width |
 | `src/tests/breadcrumb.rs` | depth bounded by what is drawn; portion and book at framing, chapter at the first notch, verse with the text; the pointer names the book, cell or line it is on; a portion band names the portion alone; the air names nothing and the centre takes over |
 | `src/tests/locate.rs` | every point of a book box names one of its chapters, none in the air between portions; hover says what the click will do |
 | `src/tests/text.rs` | one size per chapter; lines recompose the verse **byte for byte**; every line stays a corpus slice; letters right-to-left |
-| `src/tests/api.rs` | the interface the page really calls, global state under a lock: gestures, selection, breadcrumb at centre and under pointer, forgetting measurements, probes |
+| `src/tests/api.rs` | the interface the page really calls, global state under a lock: gestures, selection, breadcrumb at centre and under pointer, a mouse gone names nothing, forgetting measurements, probes |
 | `src/variant/tests.rs` | the welded table: taking the insertions out gives the verse back byte for byte, every range is a slice on a letter boundary, an offset is mapped back to the verse or refused |
 | `src/tests/readings.rs` | the other reading **in the flow, never over it**: the runs of a line tile it from the right and recompose it, the ink marks theirs and only theirs, a verse without a variant stays one command, a click never names the other edition |
 | `tests/builder.rs` | `build/mamre.rs` and `build/variants.rs` included, not copied: cp1255 and byte 0xCA, Hebrew numerals, cover page, document order, the four cuts, canonical order; a reading anchored by rank, the display string that gives the verse back |
@@ -634,6 +635,11 @@ anywhere must be an assertion.
 - **A measurement is a test, not a line of prose.** If a ratio, notch or count
   matters, assert it; prose keeps the reason, not the number.
 - **A fixed bug leaves a test behind**, written on the exact failing case.
+- **A test that walks the zoom builds the frame at every notch.** `zoom_at`
+  only moves the camera; `sweep` once read the opening frame sixty times over,
+  and the overlap, fill and empty-frame guarantees held nothing.
+- **A new test must fail on a deliberate break of the rule it holds** before it
+  counts: break the code, see it red, restore. A test green on both is prose.
 - **Private-module tests live in the module** (`src/<mod>/tests.rs`, declared by
   `#[cfg(test)] mod tests;`) — the only place its private functions are visible.
   Everything else goes in `src/tests/`.

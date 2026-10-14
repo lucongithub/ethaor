@@ -275,6 +275,38 @@ fn the_breadcrumb_follows_the_pointer() {
     assert!(read(0).is_some(), "le centre ne repond plus");
 }
 
+/// **A mouse gone from the canvas empties the breadcrumb**; a lifted finger
+/// hands it to the centre of the view. The mouse often leaves onto the
+/// breadcrumb row itself, and the centre then named a portion under the
+/// cursor, which read as a selection.
+#[test]
+fn a_mouse_gone_names_nothing_and_a_finger_lifted_hands_over_to_the_centre() {
+    let _hold = hold(REFERENCE.0, REFERENCE.1);
+    converge();
+    let section = || unsafe { std::slice::from_raw_parts(focus_ptr(), 8) }[1];
+
+    // At the opening, the centre of the view names a portion.
+    focus();
+    assert!(section() > 0, "le centre ne nomme rien a l'ouverture");
+
+    leave(1);
+    focus();
+    assert_eq!(section(), 0, "une souris partie laisse un nom dans le fil d'Ariane");
+
+    // Back on the canvas: the pointer speaks again, and once gone again
+    // without a mouse, so does the centre.
+    focus_at(REFERENCE.0 / 2.0, REFERENCE.1 / 2.0);
+    leave(0);
+    focus();
+    assert!(section() > 0, "un doigt leve doit rendre la parole au centre");
+
+    // Leaving with a mouse, then coming back, is a pointer like any other.
+    leave(1);
+    focus_at(REFERENCE.0 / 2.0, REFERENCE.1 / 2.0);
+    focus();
+    assert!(section() > 0, "le retour du pointeur ne leve pas l'absence");
+}
+
 /// A font change forgets every measured width: a width taken on a fallback font
 /// would be wrong for good.
 #[test]

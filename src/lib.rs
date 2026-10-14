@@ -278,6 +278,9 @@ struct App {
     selection: [u32; 6],
     /// Breadcrumb: section, book, chapter and verse, each an (offset, length).
     focus: [u32; 8],
+    /// A mouse has left the canvas. The centre of the view then names nothing
+    /// until the pointer comes back — see `leave`.
+    mouse_away: bool,
 }
 
 static mut APP: Option<App> = None;
@@ -314,6 +317,7 @@ impl App {
             numeral: ESTIMATED_NUMERAL,
             selection: [0; 6],
             focus: [0; 8],
+            mouse_away: false,
         };
         app.base = app.base_scale();
         app.fit();
@@ -1873,6 +1877,10 @@ fn pick_into(x: f32, y: f32, word: bool) -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn focus() {
     let app = app();
+    if app.mouse_away {
+        app.focus = [0; 8];
+        return;
+    }
     let (wx, wy) = app.camera.to_world(app.width / 2.0, app.height / 2.0);
     app.focus = app.path_at(wx, wy, false).unwrap_or([0; 8]);
 }
@@ -1887,6 +1895,8 @@ pub extern "C" fn focus() {
 #[unsafe(no_mangle)]
 pub extern "C" fn focus_at(x: f32, y: f32) -> u32 {
     let app = app();
+    // A pointer on the canvas: whatever left before is back.
+    app.mouse_away = false;
     let (wx, wy) = app.camera.to_world(x, y);
     match app.path_at(wx, wy, true) {
         Some(path) => {
@@ -1900,13 +1910,26 @@ pub extern "C" fn focus_at(x: f32, y: f32) -> u32 {
             // a breadcrumb that blinks out between two letters; naming
             // somewhere one is not is worse than naming nowhere.
             //
-            // With no pointer at all — a touch screen, the cursor gone from
-            // the canvas — the page asks `focus` instead, and the centre
-            // speaks: there is no hover to contradict.
+            // With no pointer at all — a touch screen — the page asks `focus`
+            // instead, and the centre speaks: there is no hover to contradict.
             app.focus = [0; 8];
             0
         }
     }
+}
+
+/// The pointer has left the canvas; `mouse` is 1 for a mouse, 0 for a finger
+/// or a pen lifted.
+///
+/// **A mouse gone names nothing.** It went somewhere — often onto the
+/// breadcrumb row itself — and the centre of the view would then answer for a
+/// place the reader is not looking at, which read as a selected portion. A
+/// lifted finger is different: a touch screen has no hover, and the centre is
+/// the only position there is. `focus_at` clears the state as soon as a
+/// pointer is back on the canvas.
+#[unsafe(no_mangle)]
+pub extern "C" fn leave(mouse: u32) {
+    app().mouse_away = mouse != 0;
 }
 
 #[unsafe(no_mangle)]

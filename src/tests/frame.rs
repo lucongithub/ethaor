@@ -21,7 +21,9 @@ fn distinct_sizes(texts: &[Command]) -> Vec<f32> {
 }
 
 /// Walks the zoom from well under the framing to deep inside a letter, and
-/// hands every frame to a check.
+/// hands every frame to a check — **built** at that notch: zooming only moves
+/// the camera, and a check reading the command list of an older frame would
+/// sweep nothing at all.
 fn sweep(app: &mut App, out: usize, in_: usize, mut check: impl FnMut(&mut App, i32)) {
     let step = app.zoom_step();
     let (px, py) = (app.width * 0.5, app.height * 0.5);
@@ -29,10 +31,12 @@ fn sweep(app: &mut App, out: usize, in_: usize, mut check: impl FnMut(&mut App, 
         app.zoom_at(px, py, 1.0 / step);
     }
     let mut notch = -(out as i32);
+    app.build_frame();
     check(app, notch);
     for _ in 0..(out + in_) {
         app.zoom_at(px, py, step);
         notch += 1;
+        app.build_frame();
         check(app, notch);
     }
 }
@@ -248,9 +252,13 @@ fn one_notch_out_leaves_the_three_portions_alone() {
             "cran -{notch}: les trois bords droits ne sont pas confondus"
         );
 
-        // Equal gaps.
+        // Equal gaps, a share of the projected world; a size bounded by its
+        // third of it.
         let gaps: Vec<f32> = texts.windows(2).map(|p| p[1].y - p[0].y).collect();
         assert_close(gaps[0], gaps[1], 0.1, "les ecarts ne sont pas egaux");
+        let world = app.camera.project(WORLD);
+        assert_close(gaps[0], world.h * CARD_GAP, 0.1, "l'ecart n'est pas une part du monde");
+        assert!(sizes[0] <= world.h * SECTION_CARD / 3.0 + 1e-3, "cran -{notch}: portion trop grande");
         assert!(gaps[0] > 0.0, "les portions ne descendent pas dans l'ordre");
 
         // They shrink and draw closer at every notch, without end — until the
@@ -395,6 +403,101 @@ fn the_text_carries_its_chapter_in_the_corner_and_its_verses_at_their_right() {
         }
     }
     assert!(seen > 0, "aucun chapitre lu dans le balayage");
+}
+
+/// **A number is drawn once or not at all.** The centred number of a cell and
+/// the one in the corner of its text are the same label: a frame holding both
+/// would number the chapter twice. Every chapter and verse label is a distinct
+/// slice of the corpus, so a repeated slice is a repeated number.
+#[test]
+fn no_number_is_ever_drawn_twice() {
+    let region = verse_region();
+    let mut app = reference_app();
+    measure_all(&mut app);
+    sweep(&mut app, 2, 18, |app, notch| {
+        let mut seen: Vec<(u32, u32)> = commands(app)
+            .into_iter()
+            .filter(|c| c.is_text() && c.offset < region)
+            .map(|c| (c.offset, c.len))
+            .collect();
+        let count = seen.len();
+        seen.sort();
+        seen.dedup();
+        assert_eq!(seen.len(), count, "cran {notch}: un numero ou un titre est dessine deux fois");
+    });
+}
+
+/// **All book titles share one size at a given zoom**, at every notch and not
+/// only at the first: `uniform_title` takes one band for all of them.
+#[test]
+fn every_book_title_on_screen_shares_one_size() {
+    let mut app = reference_app();
+    measure_all(&mut app);
+    sweep(&mut app, 0, 30, |app, notch| {
+        let names: Vec<&str> = (0..corpus::book_count()).map(corpus::book_name).collect();
+        let titles: Vec<Command> = commands(app)
+            .into_iter()
+            .filter(|c| c.is_text() && names.contains(&c.text()))
+            .collect();
+        let sizes = distinct_sizes(&titles);
+        assert!(sizes.len() <= 1, "cran {notch}: titres de livre en {} tailles", sizes.len());
+    });
+}
+
+/// **Titles stop growing at their ceiling**: past it the band has left the
+/// screen, one is inside the book, and the title only recalls where one is.
+/// The portion title keeps its ratio over the book title, ceiling included.
+#[test]
+fn no_title_grows_past_its_ceiling() {
+    for (w, h) in WINDOWS {
+        let mut app = app_at(w, h);
+        measure_all(&mut app);
+        let ceiling = h * TITLE_CEILING;
+        sweep(&mut app, 0, 30, |app, notch| {
+            if app.camera.z < app.fit_scale() * PORTIONS_UNDER {
+                return;
+            }
+            for c in commands(app).into_iter().filter(Command::is_text) {
+                let name = c.text();
+                let limit = if (0..3).any(|s| corpus::section_name(s) == name) {
+                    ceiling * SECTION_OVER_BOOK
+                } else if (0..corpus::book_count()).any(|b| corpus::book_name(b) == name) {
+                    ceiling
+                } else {
+                    continue;
+                };
+                assert!(c.size <= limit * 1.0001, "{w}x{h} cran {notch}: {name} a {} > {limit}", c.size);
+            }
+        });
+    }
+}
+
+/// **Once the chapters are out, a book title sits at the bottom of its band**,
+/// just above the first chapter row: that keeps the gap between them stable at
+/// every zoom.
+#[test]
+fn a_book_title_sits_at_the_bottom_of_its_band() {
+    let mut app = reference_framed();
+    measure_all(&mut app);
+    let step = app.zoom_step();
+    let mut checked = 0;
+    for notch in 1..=6 {
+        app.zoom_at(app.width * 0.5, app.height * 0.5, step);
+        let texts = texts(&mut app);
+        let camera = app.camera;
+        assert!(app.chapters_ready(camera), "cran {notch}: les chapitres ne sont pas sortis");
+        for book in 0..corpus::book_count() {
+            let Some(title) = texts.iter().find(|c| c.text() == corpus::book_name(book)) else { continue };
+            let band = camera.project(app.layout.book_bands[book]);
+            let bottom = band.y + band.h;
+            let line = title.size * 1.35;
+            // Baseline of a text centred on a line flush to the band bottom.
+            let expected = bottom - line / 2.0 + title.size * 0.36;
+            assert_close(title.y, expected, 1e-2, "le titre n'est pas cale au bas de sa bande");
+            checked += 1;
+        }
+    }
+    assert!(checked > 0, "aucun titre de livre a l'ecran");
 }
 
 // ------------------------------------------------------- the measurements
