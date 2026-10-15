@@ -5,16 +5,15 @@
 // One crate, two builds (see the features in Cargo.toml):
 //   ethaor.wasm         `map`: what the page draws with — on the path of the
 //                       first image, so as small as it can be
-//   ethaor-search.wasm  `search`: the codec and the searches, which a worker
+//   ethaor-search.wasm  `search`: the searches, which a worker
 //                       loads once the first image is drawn
 // Both builds write the same file, so each is copied as soon as it is built.
 //
-// The text part ships three times: through the codec (`ethaor-text.bin`),
-// smallest, for slow links; opened then gzipped (`ethaor-text.gzip.bin`),
-// which the browser decodes natively at once, for fast links — the page picks
-// one by the bandwidth it measured; and opened, uncompressed
-// (`ethaor-text.plain.bin`), never downloaded whole: tiles ask it for one
-// chapter's bytes at a time.
+// The text part ships twice: cut into books, each gzipped on its own
+// (`ethaor-text.books.bin`), which the page fetches in the background nearest
+// to the view first and the browser opens natively; and uncompressed
+// (`ethaor-text.plain.bin`), never downloaded whole — tiles ask it for one
+// chapter's bytes at a time, the ones a fast dive needs at once.
 import { execFileSync } from 'node:child_process';
 import {
 	copyFileSync,
@@ -38,8 +37,8 @@ mkdirSync(lib, { recursive: true });
 // search's code stays out of the map's module — a feature mixed up would
 // bring it back onto the path of the first image without a sound.
 const FORBIDDEN = {
-	'ethaor.wasm': /^(els_|codec_|probe_els_)/,
-	'ethaor-search.wasm': /^(init|build_frame|zoom|tiles_wanted|tile_load)$/
+	'ethaor.wasm': /^(els_|probe_els_)/,
+	'ethaor-search.wasm': /^(init|build_frame|zoom|tiles_wanted|next_book)$/
 };
 
 function copy(from, name) {
@@ -86,27 +85,32 @@ const out = readdirSync(builds)
 	.map((name) => join(builds, name, 'out'))
 	.filter((dir) => {
 		try {
-			return statSync(join(dir, 'text.pack')).isFile();
+			return statSync(join(dir, 'text.plain')).isFile();
 		} catch {
 			return false;
 		}
 	})
 	.sort(
-		(a, b) => statSync(join(b, 'text.pack')).mtimeMs - statSync(join(a, 'text.pack')).mtimeMs
+		(a, b) => statSync(join(b, 'text.plain')).mtimeMs - statSync(join(a, 'text.plain')).mtimeMs
 	)[0];
-if (!out) throw new Error('text.pack introuvable : le build Rust a-t-il tourne ?');
+if (!out) throw new Error('text.plain introuvable : le build Rust a-t-il tourne ?');
 
-copy(join(out, 'text.pack'), 'ethaor-text.bin');
 copy(join(out, 'text.plain'), 'ethaor-text.plain.bin');
-// Not named `.gz`: a host may take that for a precompressed sibling and send
-// it with a `Content-Encoding`, which would open it before the page does.
-const gzip = join(lib, 'ethaor-text.gzip.bin');
-writeFileSync(gzip, gzipSync(readFileSync(join(out, 'text.plain')), { level: 9, memLevel: 9 }));
-console.log(`ethaor-text.gzip.bin -> src/lib/ (${Math.round(statSync(gzip).size / 1024)} Ko)`);
-
-// The codec is only worth its decode while it stays well below gzip: a third
-// smaller at the least (measured: 38 %).
-const sealed = statSync(join(lib, 'ethaor-text.bin')).size;
-const gzipped = statSync(gzip).size;
-if (sealed > gzipped * 0.65)
-	throw new Error(`le codec (${sealed} o) ne bat plus gzip (${gzipped} o) d'un tiers`);
+// The text cut into books, each gzipped on its own, then the readings: what
+// the page fetches in the background, books nearest to the view first. One
+// file, so one hashed name; each block is a Range request. Where the blocks
+// lie goes into a small JSON the page imports with its code: no request to
+// learn it.
+const plain = readFileSync(join(out, 'text.plain'));
+const raw = readFileSync(join(out, 'text.books'));
+const cuts = Array.from({ length: raw.length / 4 }, (_, i) => raw.readUInt32LE(i * 4));
+const blocks = cuts
+	.slice(0, -1)
+	.map((from, i) => gzipSync(plain.subarray(from, cuts[i + 1]), { level: 9, memLevel: 9 }));
+const starts = [0];
+for (const block of blocks) starts.push(starts[starts.length - 1] + block.length);
+writeFileSync(join(lib, 'ethaor-text.books.bin'), Buffer.concat(blocks));
+writeFileSync(join(lib, 'ethaor-text.books.json'), JSON.stringify(starts));
+console.log(
+	`ethaor-text.books.bin -> src/lib/ (${blocks.length} blocs, ${Math.round(starts.at(-1) / 1024)} Ko)`
+);

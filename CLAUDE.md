@@ -10,7 +10,7 @@ its volume, and zooming reveals its contents inside it.
 
 **Rules here, numbers in tests.** This file states invariants, intent and
 rejected alternatives — the things a test cannot express. Every measurement,
-ratio, count and threshold lives in `cargo test` (251 tests, 5 s), which is the
+ratio, count and threshold lives in `cargo test` (247 tests, 5 s), which is the
 only place they stay true. Do not restate a measured value here; if a rule can
 be asserted, assert it and leave only the *why* in prose.
 
@@ -61,10 +61,11 @@ web/                            SvelteKit 2 + Svelte 5 + Tailwind 4
   src/routes/+page.svelte
   src/lib/ethaor.wasm           the map module, built and copied by `npm run wasm`
   src/lib/ethaor-search.wasm    the search module, likewise, loaded by the worker
-  src/lib/ethaor-text*.bin      the corpus' text part: codec, gzip, plain for tiles
+  src/lib/ethaor-text.*         the corpus' text part: books gzipped (+ where they
+                                lie, JSON), and plain for tiles
   src/lib/search-worker.ts      the search module off the frame loop
-  src/lib/search-core.ts        the search module: decode, land, search
-  src/lib/text-open.ts          the text read as it downloads, gzip, tiles
+  src/lib/search-core.ts        the search module: land the text, search
+  src/lib/text-open.ts          Range requests, and gzip opened natively
   static/fonts/Baloo2-Regular.woff   UI only, Latin subset (see Fonts)
   static/_headers               cache rules for the host (Cloudflare, Netlify)
   scripts/copy-wasm.mjs
@@ -89,7 +90,7 @@ and two theme tokens (`--font-sans`, `--font-hebrew`).
 ## Build
 
 ```sh
-cargo test         # 251 tests, 5 s — before any commit
+cargo test         # 247 tests, 5 s — before any commit
 cd web
 npm install
 npm run wasm       # both modules (map, search) built and copied into src/lib/
@@ -160,43 +161,41 @@ The corpus travels **packed**: only what cannot be recomputed.
 - **Two parts.** The **map** (names, counts, label exceptions) is embedded in
   the module and is all the overview needs. The **text** (verses, readings)
   is a file of its own, hashed like the module.
-- **The verses go through our own codec** (`pack/codec.rs`, search module): context mixing
-  over a Huffman tree per previous symbol, integer-only so the build and the
-  browser agree bit for bit, no dependency. Chosen on a measured bench
-  against brotli, zstd, LZMA and gzip — a fifth smaller than the best of
-  them. Rejected: shipping brotli or zstd ourselves (the browser cannot
-  decode them in script, so their decoder would ride in the module) and
-  leaving compression to the host (its level is not ours to set).
-- **Its efficiency is held, not only its correctness**: a tight ceiling on
-  the sealed text (`the_codec_keeps_its_measured_efficiency`), the build
-  refusing a codec that no longer beats gzip by a third (`copy-wasm.mjs`),
-  and its decode timed in release (`cargo test --release bench_codec --
-  --ignored --nocapture`). The time a visitor sees is `bench-load.mjs`'s.
 - **Two modules from one crate** (Cargo features): `ethaor.wasm` (`map`)
   is what the page draws with — gestures, frames, tiles, the landing — and
-  `ethaor-search.wasm` (`search`) the codec and the searches, ELS first and
-  the ones to come. Each build exports its own set and link-time
+  `ethaor-search.wasm` (`search`) the searches, ELS first and the ones to
+  come. Each build exports its own set and link-time
   optimisation drops the rest, so the search's code is off the path of the
   first image; native builds and the tests take both. `copy-wasm.mjs`
   refuses a module exporting what is not its own.
 - **The search module lives in a worker** (`search-worker.ts`), loaded once
-  the first image is drawn, with a corpus of its own: neither the text's
-  decode nor a search — up to a second over every skip — ever holds a
-  frame. The page's `search` is therefore asynchronous, and waits for the
-  text. Without a worker the same code (`search-core.ts`) runs in the page.
-- **It decodes as the bytes arrive** (`codec::Stream`, `pack::Opening`): a
-  symbol never reads past what has arrived, so over a link slower than the
-  decoder the decode is over when the download is. Without it a phone added
-  its whole decode after the download.
-- **The text ships in two forms and the page picks by the bandwidth it
-  measured** on the module (`SLOW_LINK`): the codec's, fewest bytes, for slow
-  links; gzipped, which the browser decodes natively at once, for fast ones —
-  where a phone's processor, not the link, held the codec back. Measured both
-  ways on throttled networks and processors.
+  the first image is drawn, with a corpus of its own the page feeds book by
+  book as the text lands: no search — up to a second over every skip — ever
+  holds a frame. The page's `search` is therefore asynchronous, and waits
+  for the text. Without a worker the same code (`search-core.ts`) runs in the page.
+- **The text arrives as a map service's world does: where the visitor
+  looks, first.** The overview — portions, books, chapter numbers — is all
+  in the module. Once the first image is drawn, the text comes **book by
+  book** (`ethaor-text.books.bin`, each book gzipped on its own, then the
+  readings), always the book nearest to the centre of the view next
+  (`next_book`), so it follows the visitor if they move; `BOOKS_IN_FLIGHT`
+  travel together — one at a time paid a full round trip per book. Where
+  the blocks lie comes with the page's code (`ethaor-text.books.json`): no
+  request to learn it. Books are opened natively by the browser.
+- **Gzip, not a codec of our own.** Rejected, after measuring: our own
+  context-mixing codec. A
+  fifth smaller than brotli, zstd or LZMA, it won seconds on slow links —
+  but once tiles bring first the chapters the visitor dives into, the first
+  readable verse came at the same time either way, and the codec only
+  hastened the *whole* text, at the price of seconds of processor on a
+  phone, a second text file and six hundred lines to keep. Rejected too:
+  shipping brotli or zstd ourselves — the browser cannot decode them in
+  script, so their decoder would ride in a module.
 - **The text is fetched once the first image is drawn**, not alongside it:
   fetched together, it took bandwidth from what the first image waits for —
   a priority hint does not stop that across connections — and measured, the
-  map came sooner and the text no later.
+  map came sooner and the text no later. Books go at low priority, tiles at
+  high: a dive is never queued behind the background.
 - **Verses land chapter by chapter, each straight into its final place**
   (`corpus::Landing`), in a buffer reserved at the corpus' full size and
   zero-filled — zeros are UTF-8, so it is a `str` at any time. Nothing
@@ -207,10 +206,9 @@ The corpus travels **packed**: only what cannot be recomputed.
   that will be read within `TILE_AHEAD` notches and are not in
   (`tiles_wanted`); neighbours make one run, and each run is one Range
   request on the opened, uncompressed text part (`ethaor-text.plain.bin`)
-  — a few kilobytes, one round trip. The whole text still travels in the
-  background, compressed: it fills everything else and the ELS needs it.
-  Rejected: tiles *instead of* the stream — the codec learns across the
-  whole corpus, and cut into hundreds of pieces each would start cold.
+  — a few kilobytes, one round trip, for a dive faster than the books. The
+  books fill everything else, and the ELS needs them all. Rejected: books
+  as chapters — each compressed apart, starting cold, and each a request.
 - **Until a chapter lands, its reading level stays closed** (through
   `line_height`, the one gate of the reading level, per chapter): it keeps
   its number, nothing draws, clicks or names its verses, and no frame is
@@ -789,7 +787,7 @@ units.
 
 **Nothing is added to the computation without a test.** That is the counterpart
 of the guiding principle: if everything is computed here, everything is verified
-here. `cargo test` holds 251 tests and answers in 5 s, so there is no reason not
+here. `cargo test` holds 247 tests and answers in 5 s, so there is no reason not
 to run it at every step.
 
 ```sh
@@ -807,7 +805,7 @@ anywhere must be an assertion.
 
 | file | what it holds |
 |---|---|
-| `src/corpus/tests.rs` | chapters land in any order, each in its place, then the whole text over them gives the corpus byte for byte; a tile's range is its chapters' stretch; counts; monotone bounded index; the hierarchy partitions; traditional cut ranks; numerals avoid the divine name; cleaned text; the `U+05BA` bytes; a fragment is found back from its offset |
+| `src/corpus/tests.rs` | chapters land in any order, each in its place, then the whole text over them gives the corpus byte for byte; books land in any order, the readings refuse to land before them and then complete the corpus; a tile's range is its chapters' stretch; counts; monotone bounded index; the hierarchy partitions; traditional cut ranks; numerals avoid the divine name; cleaned text; the `U+05BA` bytes; a fragment is found back from its offset |
 | `src/letter/tests.rs` | a letter = a consonant and its marks; lossless splitting over the corpus; marks never detached |
 | `src/treemap/tests.rs` | book boxes all identical; **one stride for the 929 chapters**; nesting, non-overlap, reading order; block flush top-right; rows for Tehilim; portion air paid in cells; number/title ratio |
 | `src/tests/geometry.rs` | distances, proportional cell padding, attraction beating zoom drift |
@@ -819,8 +817,8 @@ anywhere must be an assertion.
 | `src/tests/text.rs` | one size per chapter; lines recompose the verse **byte for byte**; every line stays a corpus slice; letters right-to-left |
 | `src/tests/api.rs` | the interface the page really calls, global state under a lock: gestures, selection, breadcrumb at centre and under pointer, a mouse gone names nothing, forgetting measurements, probes; the search through the query buffer |
 | `src/els/tests.rs` | the stream is every verse read letter by letter; postings, residue lists and planes say what the stream says; **every method equals trying every start and every skip**, on random streams of every size and range; the cap keeps the first hits in (skip, start) order with the exact total; two letters counted without listing; the cost model picks the measured winner; radix sort; placement tables; memo; finals and pointing fold; an occurrence across two verses; every record placed where its hit is; `תורה` every fiftieth letter from the first tav; time budget |
-| `src/pack/tests.rs` | the packed corpus unpacks to the working form **byte for byte**; the codec round-trips, decodes as the bytes arrive (any cut, really overlapping) and keeps its measured size; the map alone holds names, labels and counts and reserves the text's room; the packed form is a fraction of the working one; Hebrew numerals; label exceptions carry only what breaks the rule; varints |
-| `src/tests/landing.rs` | before the text lands the map stays whole — no black frame however deep, no verse drawn, clicked or named — and the verses come once it lands; the overview is identical with and without the text; a chapter's tile is asked two notches or more ahead of its reading level, once, only for chapters on screen, with its exact byte range |
+| `src/pack/tests.rs` | the packed corpus unpacks to the working form **byte for byte**; the map alone holds names, labels and counts and reserves the text's room; the packed form is a fraction of the working one; Hebrew numerals; label exceptions carry only what breaks the rule; varints |
+| `src/tests/landing.rs` | the next book fetched is the nearest to the view, follows it when it moves, each book once; before the text lands the map stays whole — no black frame however deep, no verse drawn, clicked or named — and the verses come once it lands; the overview is identical with and without the text; a chapter's tile is asked two notches or more ahead of its reading level, once, only for chapters on screen, with its exact byte range |
 | `src/variant/tests.rs` | the welded table: taking the insertions out gives the verse back byte for byte, every range is a slice on a letter boundary, an offset is mapped back to the verse or refused |
 | `src/tests/readings.rs` | the other reading **in the flow, never over it**: the runs of a line tile it from the right and recompose it, the ink marks theirs and only theirs, a verse without a variant stays one command, a click never names the other edition |
 | `tests/builder.rs` | `build/mamre.rs` and `build/variants.rs` included, not copied: cp1255 and byte 0xCA, Hebrew numerals, cover page, document order, the four cuts, canonical order; a reading anchored by rank, the display string that gives the verse back |

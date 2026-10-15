@@ -1,23 +1,19 @@
 /**
  * The search module (`ethaor-search.wasm`, the crate's `search` feature):
- * the codec that opens the corpus' text, a corpus of its own, and the
- * searches — ELS first, others to come.
+ * a corpus of its own and the searches — ELS first, others to come.
  *
- * It runs in a worker (`search-worker.ts`), so neither the decode nor a
- * search — up to a second over every skip — ever holds a frame of the map;
- * and in the page itself only should no worker be available.
+ * It runs in a worker (`search-worker.ts`), so no search — up to a second
+ * over every skip — ever holds a frame of the map; and in the page itself
+ * only should no worker be available.
  */
 
 import searchUrl from './ethaor-search.wasm?url';
 
 interface Exports {
 	memory: WebAssembly.Memory;
-	codec_chunk(length: number): number;
-	codec_push(): void;
-	codec_finish(): number;
-	codec_output(): number;
-	text_buffer(length: number): number;
-	text_load(): number;
+	tile_buffer(length: number): number;
+	tile_load(first: number, end: number): number;
+	readings_load(): number;
 	els_query_ptr(): number;
 	els_query_cap(): number;
 	els_search(length: number, skip0: number, skip1: number): number;
@@ -45,27 +41,18 @@ export class SearchCore {
 		return new SearchCore(instance.exports as unknown as Exports);
 	}
 
-	/** One chunk of the text part as it downloads: decoded as far as it allows. */
-	push(chunk: Uint8Array) {
-		const at = this.wasm.codec_chunk(chunk.length);
-		// Views taken after each call: the module's memory may have grown.
-		new Uint8Array(this.wasm.memory.buffer, at, chunk.length).set(chunk);
-		this.wasm.codec_push();
+	/** Lands a run of chapters — a book — in this module's corpus. */
+	tile(first: number, end: number, codes: Uint8Array) {
+		const at = this.wasm.tile_buffer(codes.length);
+		new Uint8Array(this.wasm.memory.buffer, at, codes.length).set(codes);
+		this.wasm.tile_load(first, end);
 	}
 
-	/** No more chunks: decodes the rest, lands it here, and gives it, opened. */
-	finish(): Uint8Array {
-		const length = this.wasm.codec_finish();
-		const plain = new Uint8Array(this.wasm.memory.buffer, this.wasm.codec_output(), length).slice();
-		this.land(plain);
-		return plain;
-	}
-
-	/** Lands the opened text in this module's corpus: the searches can run. */
-	land(plain: Uint8Array) {
-		const at = this.wasm.text_buffer(plain.length);
-		new Uint8Array(this.wasm.memory.buffer, at, plain.length).set(plain);
-		this.wasm.text_load();
+	/** Lands the readings once every book is in: the searches can run. */
+	readings(bytes: Uint8Array): boolean {
+		const at = this.wasm.tile_buffer(bytes.length);
+		new Uint8Array(this.wasm.memory.buffer, at, bytes.length).set(bytes);
+		return this.wasm.readings_load() === 1;
 	}
 
 	/** ELS: `query` read with `skip0..=skip1` letters jumped between its letters. */

@@ -7,3 +7,4 @@ node_modules
 /src/lib/ethaor.wasm
 /src/lib/ethaor-search.wasm
 /src/lib/ethaor-text*.bin
+/src/lib/ethaor-text*.json

@@ -7,9 +7,9 @@
 //!   text.bin     all the UTF-8 text, concatenated
 //!   index.bin    flat array of u32: header + offsets
 //!   map.pack     the corpus' map, packed — what the module embeds
-//!   text.pack    the corpus' text, packed and through the codec: a file the
-//!                page fetches once the map is drawn
-//!   text.plain   the same before the codec, for native builds and tests
+//!   text.plain   the corpus' text, packed: what the page fetches, a book at a
+//!                time (gzipped) and a chapter at a time (tiles)
+//!   text.books   where each book lies in it, as u32: what cuts it into books
 //!
 //! The first three are the working form, the reference the packed form is
 //! checked against; `src/pack.rs` packs here and unpacks in the module.
@@ -33,7 +33,6 @@ fn main() {
     println!("cargo:rerun-if-changed=build/mamre.rs");
     println!("cargo:rerun-if-changed=build/variants.rs");
     println!("cargo:rerun-if-changed=src/pack.rs");
-    println!("cargo:rerun-if-changed=src/pack/codec.rs");
     println!("cargo:rerun-if-changed={VARIANTS}");
 
     let mut files: Vec<PathBuf> = fs::read_dir(src)
@@ -192,8 +191,9 @@ fn write_output(corpus: &Corpus, out: &Path) {
     // The transport form: `pack` asserts that it unpacks to the above.
     let packed = pack::pack(&pack::Blobs { text: text.clone().into_bytes(), index: idx.clone(), variants: variants.clone() });
     fs::write(out.join("map.pack"), &packed.map).unwrap();
-    fs::write(out.join("text.pack"), &packed.text).unwrap();
-    fs::write(out.join("text.plain"), &packed.plain).unwrap();
+    fs::write(out.join("text.plain"), &packed.text).unwrap();
+    let books: Vec<u8> = packed.books.iter().flat_map(|o| o.to_le_bytes()).collect();
+    fs::write(out.join("text.books"), &books).unwrap();
 
     let mut report = String::new();
     let _ = writeln!(

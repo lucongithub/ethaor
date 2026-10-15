@@ -126,3 +126,35 @@ fn tiles_are_asked_for_ahead_of_the_reading_level() {
         assert!(at + 2 <= reading, "{w}x{h}: demande au cran {at}, lisible au cran {reading}");
     }
 }
+
+/// **The text follows the visitor**: the next book to fetch is the one under
+/// the centre of the view, then the nearest; every book is asked for exactly
+/// once; and when the view moves, the next one is the nearest to where it
+/// now is.
+#[test]
+fn books_are_fetched_nearest_to_the_view_first() {
+    let mut app = reference_framed();
+    let (cx, cy) = app.camera.to_world(app.width / 2.0, app.height / 2.0);
+    let first = app.next_book().expect("un livre");
+    assert!(
+        (0..corpus::book_count()).all(|b| gap_to(app.layout.books[first], cx, cy) <= gap_to(app.layout.books[b], cx, cy)),
+        "le premier livre n'est pas le plus proche du centre"
+    );
+
+    // The view moves to the last book: the next asked is it.
+    let last = corpus::book_count() - 1;
+    let target = app.layout.books[last];
+    let (tx, ty) = (target.x + target.w / 2.0, target.y + target.h / 2.0);
+    app.camera.x += app.width / 2.0 - (tx * app.camera.z + app.camera.x);
+    app.camera.y += app.height / 2.0 - (ty * app.camera.z + app.camera.y);
+    assert_eq!(app.next_book(), Some(last), "le texte ne suit pas la vue");
+
+    let mut seen = vec![false; corpus::book_count()];
+    seen[first] = true;
+    seen[last] = true;
+    while let Some(b) = app.next_book() {
+        assert!(!seen[b], "le livre {b} demande deux fois");
+        seen[b] = true;
+    }
+    assert!(seen.iter().all(|&s| s), "un livre jamais demande");
+}

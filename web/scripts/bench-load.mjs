@@ -12,9 +12,7 @@
 //   node scripts/bench-load.mjs [build dir] [runs]
 //
 // CHROME overrides the browser path; CPU slows the processor down by that
-// factor (DevTools' emulation: 4 is a mid-range phone). The emulation spares
-// workers, so with CPU the page is opened with `?decode=page`: the text is
-// decoded where the throttle applies, which times it as a phone would.
+// factor (DevTools' emulation: 4 is a mid-range phone).
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -27,12 +25,12 @@ const root = resolve(process.argv[2] ?? 'build');
 const runs = Number(process.argv[3] ?? 3);
 const quality = Number(process.env.BROTLI ?? 5);
 const cpu = Number(process.env.CPU ?? 1);
-// TEXT=codec|gzip forces the text's form; unset, the page picks it.
-const form = process.env.TEXT;
 // DIVE=n: as soon as the map is drawn, a visitor in a hurry turns the wheel n
 // notches at the centre, one every 150 ms, and the bench times the first verse
 // drawn (`ethaor:verse`) — what the visitor waits for to read.
 const dive = Number(process.env.DIVE ?? 0);
+// WAIT=mark times that mark instead — `near`, the book nearest to the view.
+const wait = process.env.WAIT;
 const chrome = process.env.CHROME ?? 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 
 // DevTools' presets, in bytes per second.
@@ -188,14 +186,11 @@ async function once(network) {
 	});
 	await p.send('Emulation.setCPUThrottlingRate', { rate: cpu });
 	await p.send('Page.enable');
-	const query = new URLSearchParams();
-	if (cpu > 1) query.set('decode', 'page');
-	if (form) query.set('text', form);
-	await p.send('Page.navigate', { url: `${site}${query.size ? `?${query}` : ''}` });
+	await p.send('Page.navigate', { url: site });
 	const begin = Date.now();
 	let marks = {};
 	let dived = dive === 0;
-	const wanted = dive ? 'ethaor:verse' : 'ethaor:text';
+	const wanted = wait ? `ethaor:${wait}` : dive ? 'ethaor:verse' : 'ethaor:text';
 	while (Date.now() - begin < 120_000) {
 		const r = await p.send('Runtime.evaluate', {
 			expression: `JSON.stringify(Object.fromEntries(performance.getEntriesByType('mark').map(m => [m.name, m.startTime])))`,
@@ -220,33 +215,25 @@ async function once(network) {
 	}
 	p.close();
 	await fetch(`http://127.0.0.1:${port}/json/close/${p.id}`);
-	const via =
-		marks['ethaor:via-codec'] !== undefined
-			? 'codec'
-			: marks['ethaor:via-gzip'] !== undefined
-				? 'gzip'
-				: '?';
-	return [marks['ethaor:map'] ?? NaN, marks[dive ? 'ethaor:verse' : 'ethaor:text'] ?? NaN, via];
+	return [marks['ethaor:map'] ?? NaN, marks[wanted] ?? NaN];
 }
 
 const median = (xs) => [...xs].sort((a, b) => a - b)[xs.length >> 1];
 console.log(
-	`site ${root}, brotli ${quality}, processeur /${cpu}, texte ${form || 'au choix de la page'}, ` +
+	`site ${root}, brotli ${quality}, processeur /${cpu}, ` +
 		`${dive ? `plongee de ${dive} crans, ` : ''}${runs} essais par reseau (mediane)`
 );
-console.log(`reseau      carte (ms)  ${dive ? 'verset' : ' texte'} (ms)   forme`);
+console.log(`reseau      carte (ms)  ${(wait ?? (dive ? 'verse' : 'text')).padStart(6)} (ms)`);
 for (const network of NETWORKS) {
 	const map = [];
 	const text = [];
-	const vias = new Set();
 	for (let i = 0; i < runs; i++) {
-		const [m, t, via] = await once(network);
+		const [m, t] = await once(network);
 		map.push(m);
 		text.push(t);
-		vias.add(via);
 	}
 	console.log(
-		`${network.name.padEnd(10)} ${median(map).toFixed(0).padStart(10)} ${median(text).toFixed(0).padStart(12)}   ${[...vias].join('/')}`
+		`${network.name.padEnd(10)} ${median(map).toFixed(0).padStart(10)} ${median(text).toFixed(0).padStart(12)}`
 	);
 }
 

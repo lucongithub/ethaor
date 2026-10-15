@@ -332,3 +332,27 @@ fn a_tile_range_is_its_chapters_stretch() {
     let total: usize = landing.map.chapters.iter().map(|s| s.stream.1).sum();
     assert_eq!(to - from, total);
 }
+
+/// **The text lands a book at a time, in any order, then the readings**: the
+/// readings refuse to land while a chapter is missing, and once every book is
+/// in they complete the corpus byte for byte.
+#[test]
+fn books_land_in_any_order_then_the_readings() {
+    const MAP_PACK: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/map.pack"));
+    const PLAIN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/text.plain"));
+    const BOOKS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/text.books"));
+    let offsets: Vec<usize> = BOOKS.chunks_exact(4).map(|w| u32::from_le_bytes(w.try_into().unwrap()) as usize).collect();
+    assert_eq!(offsets.len(), book_count() + 2, "un decoupage par livre, puis les lectures");
+    let landing = Landing::new(MAP_PACK);
+    let rest = &PLAIN[offsets[book_count()]..offsets[book_count() + 1]];
+
+    for (k, b) in shuffled(book_count(), 7).into_iter().enumerate() {
+        assert!(!landing.land_readings(rest), "les lectures se posent avant le livre {b}");
+        landing.land_chapters(chapters_of(b), &PLAIN[offsets[b]..offsets[b + 1]]);
+        assert!(chapters_of(b).all(|c| landing.chapter_ready(c)), "livre {b} (le {k}e) incomplet");
+    }
+    assert!(landing.land_readings(rest));
+    assert!(landing.has_text());
+    assert!(landing.text() == text(), "le texte differe apres les livres");
+    assert_eq!(landing.readings.get().unwrap()[..], variant_table()[..]);
+}

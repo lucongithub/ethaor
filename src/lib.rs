@@ -300,6 +300,8 @@ struct App {
     text: bool,
     /// Chapters whose tile has been asked for already.
     asked: Vec<bool>,
+    /// Books whose text has been asked for, in the background.
+    books_asked: Vec<bool>,
     /// Tiles to fetch, as `tiles_wanted` leaves them for the page: per run of
     /// chapters, first, end, and its byte range in the opened text part.
     tiles: Vec<u32>,
@@ -342,6 +344,7 @@ impl App {
             mouse_away: false,
             text: true,
             asked: vec![false; corpus::chapter_count()],
+            books_asked: vec![false; corpus::book_count()],
             tiles: Vec::new(),
         };
         app.base = app.base_scale();
@@ -1022,6 +1025,20 @@ impl App {
             self.push_tile(r);
         }
         self.tiles.len() / 4
+    }
+
+    /// Of the books not asked for yet, the nearest to the centre of the view,
+    /// now asked for. Distance is the world's, from the centre to the box.
+    fn next_book(&mut self) -> Option<usize> {
+        let (cx, cy) = self.camera.to_world(self.width / 2.0, self.height / 2.0);
+        let book = (0..corpus::book_count())
+            .filter(|&b| !self.books_asked[b])
+            .min_by(|&a, &b| {
+                let d = |b: usize| gap_to(self.layout.books[b], cx, cy);
+                d(a).total_cmp(&d(b))
+            })?;
+        self.books_asked[book] = true;
+        Some(book)
     }
 
     fn push_tile(&mut self, (first, end): (usize, usize)) {
@@ -2227,8 +2244,7 @@ pub extern "C" fn text_buffer(len: u32) -> *mut u8 {
     }
 }
 
-/// Lands the text part written at `text_buffer` — opened, that is through
-/// `codec_finish` already: the verses and readings join the map, and the
+/// Lands the text part written at `text_buffer`: the verses and readings join the map, and the
 /// reading level opens. Returns 1 once the text is in; the page then asks for
 /// a frame.
 #[unsafe(no_mangle)]
@@ -2274,7 +2290,7 @@ pub extern "C" fn tiles_ptr() -> *const u32 {
 static mut TILE_IN: Vec<u8> = Vec::new();
 
 /// Room for a tile of `len` bytes: where the page writes it.
-#[cfg_attr(feature = "map", unsafe(no_mangle))]
+#[unsafe(no_mangle)]
 #[allow(static_mut_refs)]
 pub extern "C" fn tile_buffer(len: u32) -> *mut u8 {
     unsafe {
@@ -2284,63 +2300,50 @@ pub extern "C" fn tile_buffer(len: u32) -> *mut u8 {
     }
 }
 
-/// Lands the tile written at `tile_buffer`, chapters `first..end`; the page
-/// then asks for a frame.
-#[cfg_attr(feature = "map", unsafe(no_mangle))]
+/// Lands the tile written at `tile_buffer`, chapters `first..end` — a run of
+/// chapters or a whole book; the page then asks for a frame. Both modules
+/// take them: the search module's corpus fills from the same bytes.
+#[unsafe(no_mangle)]
 #[allow(static_mut_refs)]
 pub extern "C" fn tile_load(first: u32, end: u32) -> u32 {
     unsafe { corpus::land_chapters(first as usize..end as usize, &TILE_IN) };
     1
 }
 
-/// The text part being opened as it arrives, the chunk the page writes, and
-/// the opened text once finished.
-static mut OPENING: Option<pack::Opening> = None;
-static mut CODEC_IN: Vec<u8> = Vec::new();
-static mut CODEC_OUT: Vec<u8> = Vec::new();
-
-/// Room for the next chunk of the text part as it downloads, `len` bytes:
-/// where to write them before `codec_push`.
-///
-/// The codec is the heavy step — hundreds of milliseconds — so the page runs
-/// it in a worker, on a second instance of this very module, chunk by chunk
-/// as the bytes arrive: over a slow link the decode is done when the
-/// download is. Only the opened text reaches the instance that draws.
-#[cfg_attr(feature = "search", unsafe(no_mangle))]
+/// Lands the other edition's readings, written at `tile_buffer`, once every
+/// chapter is in: the whole text is then there — the searches can run, and
+/// the chapters laid without their readings are laid again. Returns 1 then,
+/// 0 if chapters are still missing.
+#[unsafe(no_mangle)]
 #[allow(static_mut_refs)]
-pub extern "C" fn codec_chunk(len: u32) -> *mut u8 {
-    unsafe {
-        CODEC_IN.clear();
-        CODEC_IN.resize(len as usize, 0);
-        CODEC_IN.as_mut_ptr()
+pub extern "C" fn readings_load() -> u32 {
+    if !unsafe { corpus::land_readings(&TILE_IN) } {
+        return 0;
     }
+    if let Some(app) = unsafe { APP.as_mut() } {
+        app.lines.clear();
+    }
+    1
 }
 
-/// Takes the chunk written at `codec_chunk` and decodes what it allows.
-#[cfg_attr(feature = "search", unsafe(no_mangle))]
-#[allow(static_mut_refs)]
-pub extern "C" fn codec_push() {
-    unsafe {
-        OPENING.get_or_insert_with(pack::Opening::default).push(&CODEC_IN);
-    }
+/// The book whose text to fetch next, in the background: of those not asked
+/// yet, the nearest to the centre of the view — so the text arrives where the
+/// visitor is first, and follows them if they move. -1 once every book has
+/// been asked for.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+pub extern "C" fn next_book() -> i32 {
+    app().next_book().map_or(-1, |b| b as i32)
 }
 
-/// No more chunks: decodes the rest. Returns the length of the opened text,
-/// which sits at `codec_output`, ready for `text_buffer` / `text_load`.
-#[cfg_attr(feature = "search", unsafe(no_mangle))]
-#[allow(static_mut_refs)]
-pub extern "C" fn codec_finish() -> u32 {
-    unsafe {
-        CODEC_OUT = OPENING.take().unwrap_or_default().finish();
-        CODEC_IN = Vec::new();
-        CODEC_OUT.len() as u32
-    }
+/// First chapter of a book, and the chapter after its last.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+pub extern "C" fn book_first_chapter(book: u32) -> u32 {
+    corpus::chapters_of(book as usize).start as u32
 }
 
-#[cfg_attr(feature = "search", unsafe(no_mangle))]
-#[allow(static_mut_refs)]
-pub extern "C" fn codec_output() -> *const u8 {
-    unsafe { CODEC_OUT.as_ptr() }
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+pub extern "C" fn book_end_chapter(book: u32) -> u32 {
+    corpus::chapters_of(book as usize).end as u32
 }
 
 // ----------------------------------------------------------------------- els

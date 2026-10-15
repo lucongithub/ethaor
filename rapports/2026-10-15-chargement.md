@@ -176,6 +176,86 @@ En 4G et en fibre, les écarts sont du bruit de mesure.
 Vérifié dans V8 : le module de recherche décode le texte au fil de l'eau et le
 redonne identique ; l'ELS retrouve `תורה` (saut 49) à la lettre 5.
 
+## Retrait du codec maison
+
+Depuis les tuiles, le codec maison ne changeait plus rien pour la lecture :
+le premier verset arrivait au même moment avec lui ou avec gzip. Il ne
+servait plus qu'à faire arriver le texte complet plus tôt sur les réseaux
+lents, au prix de :
+
+- plusieurs secondes de calcul sur téléphone ;
+- un second fichier texte à publier ;
+- ~640 lignes de code spécialisé.
+
+Il a été retiré : le texte complet voyage en gzip, décodé nativement par le
+navigateur. Le module de recherche passe de 124 à 95 Ko brut.
+
+| mesure (HTTP/2, PC) | avec codec | gzip seul |
+|---|---|---|
+| carte, 3G | 2,42 s | 2,43 s |
+| premier verset, 3G | 3,91 s | 3,91 s |
+| premier verset, 4G lente | 2,68 s | 2,71 s |
+| texte complet, 3G | 7,96 s | 11,08 s |
+| texte complet, 4G lente | 3,95 s | 5,46 s |
+| texte complet, fibre | 0,25 s | 0,21 s |
+
+Le texte complet ne sert qu'à la recherche ELS et à lire ailleurs que là où
+l'on plonge : en 3G, la recherche est prête ~3 s plus tard. La lecture n'est
+pas touchée.
+
+Vérifié dans V8 : le gzip ouvert redonne le texte octet pour octet, et la
+recherche trouve toujours `תורה` (saut 49) à la lettre 5. 245 tests verts.
+
+## Le texte livre par livre, le plus proche de la vue d'abord
+
+Idée de l'utilisateur, à la Google Earth.
+- La carte, jusqu'aux numéros de chapitres, est immédiate : elle est dans le
+  module.
+- Ensuite, le texte arrive **par livres**, toujours le livre le plus proche du
+  centre de la vue en premier (`next_book`). L'ordre se recalcule à chaque
+  envoi, donc il suit le visiteur s'il se déplace.
+- Les tuiles de plongée passent en priorité haute, les livres en priorité
+  basse.
+
+**Mise en œuvre.**
+- Un seul fichier, `ethaor-text.books.bin` : 39 livres compressés chacun à
+  part, puis les lectures. Total 821 Ko, contre 791 Ko d'un seul bloc (+4 %).
+- Chaque bloc est demandé par une requête partielle (*Range*). Leurs positions
+  sont livrées avec le code de la page (JSON) : aucune requête pour les
+  connaître.
+- Le worker de recherche reçoit les mêmes livres.
+
+**Boucle de réglage : nombre de livres en vol.** Un seul à la fois payait un
+aller-retour réseau par livre : 24 s en 3G pour le texte complet.
+
+| texte complet | 2 | 4 | 6 | **8 (retenu)** | gzip d'un bloc |
+|---|---|---|---|---|---|
+| 3G | 15,1 s | 12,3 s | 12,1 s | **12,0 s** | 11,1 s |
+| 4G lente | 7,8 s | 6,2 s | 6,0 s | **5,9 s** | 5,5 s |
+| 4G | 2,6 s | 1,6 s | 1,4 s | **1,36 s** | 1,17 s |
+| fibre | 0,68 s | 0,40 s | 0,33 s | **0,26 s** | 0,21 s |
+
+**Le critère de l'idée : le livre regardé arrive presque aussitôt.**
+
+| réseau | carte | livre le plus proche de la vue arrivé |
+|---|---|---|
+| 3G | 2,42 s | **2,76 s** (+0,34 s) |
+| 4G lente | 1,21 s | **1,38 s** (+0,17 s) |
+| 4G | 0,36 s | **0,44 s** |
+| fibre | 0,13 s | **0,14 s** |
+
+Avec le fichier unique, ce livre pouvait attendre jusqu'à 11 s en 3G, selon sa
+place dans le Tanakh. Le premier verset en plongée reste limité par le geste
+(3,9 s en 3G), quel que soit le réglage. Le texte complet, nécessaire à la
+recherche ELS, arrive ~0,9 s plus tard qu'en un seul bloc en 3G : c'est le prix
+de la compression livre par livre.
+
+247 tests verts, dont deux nouveaux :
+- les livres arrivent dans n'importe quel ordre, et les lectures attendent
+  qu'ils soient tous là ;
+- le prochain livre demandé est le plus proche de la vue, il suit la vue quand
+  elle se déplace, et chaque livre n'est demandé qu'une fois.
+
 ## Dernière phase — livrée
 
 1. **Vérifier.**

@@ -25,8 +25,8 @@
 
 #![allow(dead_code)]
 
-#[path = "pack/codec.rs"]
-pub mod codec;
+/// Ends a verse in the verse stream. Above every character code.
+pub const VERSE_END: u8 = 255;
 
 // ------------------------------------------------------------------ varints
 
@@ -267,11 +267,13 @@ pub struct Blobs {
     pub variants: Vec<u32>,
 }
 
-/// The two parts of the transport form, and the text part before the codec.
+/// The two parts of the transport form, and where each book lies in the
+/// text part: the start of every book's stretch of the verse stream, then
+/// the end of the stream — the readings follow — then the end of the part.
 pub struct Packed {
     pub map: Vec<u8>,
     pub text: Vec<u8>,
-    pub plain: Vec<u8>,
+    pub books: Vec<u32>,
 }
 
 /// Reduces the working form to its information. Asserts, rather than
@@ -320,18 +322,17 @@ pub fn pack(blobs: &Blobs) -> Packed {
     // The full size of the working text, so the text part can land in place.
     put(&mut map, text.len() as u32);
 
-    // The verses get an alphabet of their own — the codec's symbols: space
-    // first, the verse separator last — and travel as one stream.
+    // The verses get an alphabet of their own and travel as one stream, each
+    // verse ended by `VERSE_END`: a chapter is then one stretch of it, a tile.
     let mut verse_chars: Vec<char> = (0..nv).flat_map(|v| slice(verse_text, v).chars()).collect();
     verse_chars.sort_unstable();
     verse_chars.dedup();
-    assert!(verse_chars.len() <= codec::SEP as usize, "trop de caracteres dans les versets pour le codec");
-    assert!(verse_chars[0] == ' ', "l'espace doit etre le symbole 0 du codec");
+    assert!(verse_chars.len() < VERSE_END as usize, "trop de caracteres dans les versets");
     let verse_abc = Alphabet::new(verse_chars);
     let mut stream = Vec::with_capacity(text.len() / 2);
     for v in 0..nv {
         stream.extend(slice(verse_text, v).chars().map(|c| verse_abc.code(c)));
-        stream.push(codec::SEP);
+        stream.push(VERSE_END);
     }
     let mut body = Vec::with_capacity(stream.len() + 4096);
     verse_abc.write(&mut body);
@@ -376,123 +377,20 @@ pub fn pack(blobs: &Blobs) -> Packed {
         last_verse = verse;
     }
 
-    let sealed = seal(&body);
-    assert!(open(&sealed) == body, "le codec ne redonne pas le texte");
-    let packed = Packed { map, text: sealed, plain: body };
+    let books = (0..=nb)
+        .map(|b| {
+            let first = book_chap[b] as usize;
+            let before: usize = (0..first).map(|c| {
+                let (f, l) = (chap_verse[c] as usize, chap_verse[c + 1] as usize);
+                (f..l).map(|v| slice(verse_text, v).chars().count() + 1).sum::<usize>()
+            }).sum();
+            (stream_base + before) as u32
+        })
+        .chain([body.len() as u32])
+        .collect();
+    let packed = Packed { map, text: body, books };
     assert!(unpack(&packed.map, &packed.text) == *blobs, "le paquet ne redonne pas le corpus");
     packed
-}
-
-/// Splits a text part around its verse stream: the alphabet before, the
-/// stream's length field and bytes, the readings after.
-fn around_stream(part: &[u8]) -> (&[u8], usize, &[u8]) {
-    let mut r = Reader::new(part);
-    let n = r.get() as usize;
-    for _ in 0..n {
-        r.get();
-    }
-    let head = r.at;
-    let len = r.get() as usize;
-    let at = r.at;
-    (&part[..head], len, &part[at..])
-}
-
-/// The text part as it travels: its verse stream through the codec, the rest
-/// as is — the alphabet and the readings are a few kilobytes.
-pub fn seal(plain: &[u8]) -> Vec<u8> {
-    let (head, len, rest) = around_stream(plain);
-    let packed = codec::encode(&rest[..len]);
-    let mut out = head.to_vec();
-    put(&mut out, packed.len() as u32);
-    out.extend_from_slice(&packed);
-    out.extend_from_slice(&rest[len..]);
-    out
-}
-
-/// The text part as `unpack_text` reads it: the verse stream decoded.
-/// The heavy step — the page runs it in a worker, as the bytes arrive.
-pub fn open(sealed: &[u8]) -> Vec<u8> {
-    let mut opening = Opening::default();
-    opening.push(sealed);
-    opening.finish()
-}
-
-/// Opens a text part as it arrives: the alphabet, then the codec's stream —
-/// decoded as far as the bytes received allow — then the readings.
-#[derive(Default)]
-pub struct Opening {
-    /// Bytes received before the stream starts.
-    head: Vec<u8>,
-    /// Once the head is read: where the stream's length field starts in it,
-    /// and the stream's length.
-    split: Option<(usize, usize)>,
-    stream: codec::Stream,
-    /// Bytes of the stream received so far.
-    seen: usize,
-    /// What follows the stream: the readings.
-    tail: Vec<u8>,
-}
-
-/// The head of a text part, if whole: where the stream's length field
-/// starts, the stream's length, where the stream starts.
-fn read_head(bytes: &[u8]) -> Option<(usize, usize, usize)> {
-    // A varint at `at`, if whole, and where the next one starts.
-    let get = |at: usize| -> Option<(u32, usize)> {
-        let (mut v, mut shift, mut at) = (0u32, 0, at);
-        loop {
-            let byte = *bytes.get(at)?;
-            at += 1;
-            v |= ((byte & 0x7F) as u32) << shift;
-            if byte & 0x80 == 0 {
-                return Some((v, at));
-            }
-            shift += 7;
-        }
-    };
-    let (n, mut at) = get(0)?;
-    for _ in 0..n {
-        at = get(at)?.1;
-    }
-    let field = at;
-    let (len, start) = get(at)?;
-    Some((field, len as usize, start))
-}
-
-impl Opening {
-    /// Appends bytes of the text part, in order, and decodes what they allow.
-    pub fn push(&mut self, chunk: &[u8]) {
-        if self.split.is_none() {
-            self.head.extend_from_slice(chunk);
-            let Some((field, len, start)) = read_head(&self.head) else { return };
-            self.split = Some((field, len));
-            // What came past the head is the start of the stream.
-            let rest = self.head.split_off(start);
-            self.head.truncate(field);
-            return self.push(&rest);
-        }
-        let (_, len) = self.split.unwrap();
-        let take = chunk.len().min(len - self.seen);
-        self.stream.push(&chunk[..take]);
-        self.seen += take;
-        self.tail.extend_from_slice(&chunk[take..]);
-        self.stream.run(false);
-    }
-
-    /// Symbols of the verse stream decoded so far.
-    pub fn decoded(&self) -> usize {
-        self.stream.decoded()
-    }
-
-    /// Decodes the rest — no more input is coming — and gives the opened text.
-    pub fn finish(self) -> Vec<u8> {
-        let stream = self.stream.finish();
-        let mut out = Vec::with_capacity(self.head.len() + 5 + stream.len() + self.tail.len());
-        out.extend_from_slice(&self.head);
-        put(&mut out, stream.len() as u32);
-        out.extend_from_slice(&stream);
-        out.extend_from_slice(&self.tail);
-        out
-    }
 }
 
 /// The map part, read: what the overview needs, and where the text part will
@@ -610,7 +508,7 @@ pub fn lay_chapter(map: &Map, chapter: usize, codes: &[u8], out: &mut [u8], boun
     assert_eq!(out.len(), span.text.1, "place de taille fausse");
     let (mut at, mut verse, mut start) = (0usize, 0usize, span.text.0);
     for &code in codes {
-        if code == codec::SEP {
+        if code == VERSE_END {
             bounds[verse] = (start as u32, (span.text.0 + at) as u32);
             verse += 1;
             start = span.text.0 + at;
@@ -717,9 +615,9 @@ pub fn unpack_text(map: Map, plain: &[u8]) -> Blobs {
     Blobs { text, index, variants }
 }
 
-/// Both parts at once, the text part as it travels.
+/// Both parts at once.
 pub fn unpack(map: &[u8], text: &[u8]) -> Blobs {
-    unpack_text(unpack_map(map), &open(text))
+    unpack_text(unpack_map(map), text)
 }
 
 #[cfg(test)]

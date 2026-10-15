@@ -22,9 +22,8 @@ use crate::pack;
 static MAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/map.pack"));
 
 /// Away from the browser — the test suite, a native build — the text part
-/// is embedded too, already through the codec's decoder (an unoptimised test
-/// build would spend seconds on it at every run), and lands at first use:
-/// everything behaves as once the page has fed it.
+/// is embedded too and lands at first use: everything behaves as once the
+/// page has fed it.
 #[cfg(not(target_arch = "wasm32"))]
 static TEXT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/text.plain"));
 
@@ -133,15 +132,29 @@ impl Landing {
         self.ready[chapter].store(true, Ordering::Release);
     }
 
-    /// Lands the whole text part, opened: every chapter not in yet, then the
+    /// Lands the whole text part: every chapter not in yet, then the
     /// readings.
     pub fn land_text(&self, plain: &[u8]) {
+        // Called at every access away from the browser: once in, at once out.
         if self.readings.get().is_some() {
             return;
         }
         let (stream, rest) = pack::split_text(&self.map, plain);
         let n = self.map.chapters.len();
         self.land_chapters(0..n, stream);
+        self.land_readings(rest);
+    }
+
+    /// Lands the other edition's readings — what follows the verse stream in
+    /// the text part — once every chapter is in; before, nothing. Returns
+    /// whether the whole text is now in.
+    pub fn land_readings(&self, rest: &[u8]) -> bool {
+        if self.readings.get().is_some() {
+            return true;
+        }
+        if !(0..self.ready.len()).all(|c| self.chapter_ready(c)) {
+            return false;
+        }
         let bounds: Vec<(u32, u32)> = (0..self.bounds.len()).map(|v| self.bound(v)).collect();
         let end = self.map.verses_end();
         // SAFETY: the verses are read and the readings' stretch, past them,
@@ -150,6 +163,7 @@ impl Landing {
         let out = unsafe { self.place(end..self.len) };
         let table = pack::lay_readings(&self.map, rest, verses, out, &bounds);
         let _ = self.readings.set(table.into_boxed_slice());
+        true
     }
 
     fn bound(&self, verse: usize) -> (u32, u32) {
@@ -187,6 +201,12 @@ pub fn load_text(plain: &[u8]) -> bool {
 /// text part's verse stream.
 pub fn land_chapters(chapters: core::ops::Range<usize>, codes: &[u8]) {
     landing().land_chapters(chapters, codes);
+}
+
+/// Lands the other edition's readings once every chapter is in. Returns
+/// whether the whole text is now in.
+pub fn land_readings(rest: &[u8]) -> bool {
+    landing().land_readings(rest)
 }
 
 /// Where a run of chapters lies in the opened text part, in bytes.

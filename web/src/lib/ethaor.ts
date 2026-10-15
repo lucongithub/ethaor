@@ -19,21 +19,20 @@
 import moduleUrl from './ethaor.wasm?url';
 // The verses travel apart from the module: the map draws without them, so
 // the first image never waits for the bulk of the corpus. Same hashed name.
-import textUrl from './ethaor-text.bin?url';
-import gzipUrl from './ethaor-text.gzip.bin?url';
+import booksUrl from './ethaor-text.books.bin?url';
+import bookCuts from './ethaor-text.books.json';
 import plainUrl from './ethaor-text.plain.bin?url';
 import SearchWorker from './search-worker?worker';
 import type { Answer, Request } from './search-worker';
 import { SearchCore, type Found } from './search-core';
-import { bandwidth, chunks, inflate, range } from './text-open';
+import { inflate, range } from './text-open';
 
 /**
- * Below this download speed, in bytes per second, the text comes through the
- * codec: the fewest bytes, decoded as they arrive. Above it, gzipped: more
- * bytes, but the browser decodes them at once — where a phone's processor,
- * not the link, would hold the codec back.
+ * Books fetched at once in the background. One at a time paid a round trip
+ * per book; a few together fill the link, and each is still chosen nearest
+ * to the view when its turn comes.
  */
-const SLOW_LINK = 300_000;
+const BOOKS_IN_FLIGHT = 8;
 
 /** Must cover Hebrew with niqqud. Noto Serif Hebrew is loaded by app.css. */
 export const HEBREW_FONT =
@@ -107,6 +106,12 @@ interface Wasm {
 	tiles_ptr(): number;
 	tile_buffer(length: number): number;
 	tile_load(first: number, end: number): number;
+	/** Lands the readings once every book is in: 1 then. */
+	readings_load(): number;
+	/** The next book to fetch in the background, nearest to the view; -1 when none. */
+	next_book(): number;
+	book_first_chapter(book: number): number;
+	book_end_chapter(book: number): number;
 	/** Probe: 1 when the last frame draws a line of a verse. */
 	probe_verse_drawn(): number;
 }
@@ -256,7 +261,8 @@ export async function createTanakhMap(
 	}
 
 	// Marks a benchmark — or a real visitor's timing — can read: the first
-	// image on screen, the verses landed, the first verse drawn.
+	// image on screen (`map`), the book nearest to the view landed (`near`),
+	// the whole text landed (`text`), the first verse drawn (`verse`).
 	let painted = false;
 	let versed = false;
 
@@ -416,7 +422,7 @@ export async function createTanakhMap(
 		const asked = Array.from(new Uint32Array(wasm.memory.buffer, wasm.tiles_ptr(), runs * 4));
 		for (let i = 0; i < asked.length; i += 4) {
 			const [first, end, from, to] = asked.slice(i, i + 4);
-			range(plainUrl, from, to)
+			range(plainUrl, from, to, 'high')
 				.then((bytes) => {
 					const at = wasm.tile_buffer(bytes.length);
 					// A view taken after the call: the allocation may grow the memory.
@@ -615,36 +621,22 @@ export async function createTanakhMap(
 
 	draw();
 
-	// The verses land when they arrive; the reading level opens then. A
-	// worker fetches and opens them — the codec's decode never holds a frame —
-	// with the module already compiled. Should the worker fail, the same
-	// decode runs here; should the text never come, the map stays whole at the
-	// level of the numbers.
+	// The whole text is in once every book and the readings have landed. Should
+	// part of it never come, the map stays whole — at the level of the
+	// numbers, but for the chapters that did.
 	let textLanded: () => void = () => {};
 	const textIn = new Promise<void>((done) => (textLanded = done));
-	function land(plain: Uint8Array) {
-		textLanded();
-		const at = wasm.text_buffer(plain.length);
-		// A view taken after the call: the allocation may grow the memory.
-		new Uint8Array(wasm.memory.buffer, at, plain.length).set(plain);
-		if (wasm.text_load() === 1) {
-			performance.mark('ethaor:text');
-			draw();
-		}
-	}
-	// The search module — the codec and the searches — runs in a worker,
-	// started once the first image is drawn: neither the text's decode nor a
-	// search ever holds a frame. Should no worker be available, it runs here.
+	// The search module runs in a worker, started once the first image is
+	// drawn: no search — up to a second over every skip — ever holds a frame.
+	// Should no worker be available, it runs here.
 	//
-	// The text comes in the form the measured bandwidth favours (`SLOW_LINK`,
-	// `?text=codec|gzip` to force one). Through the codec it is read chunk by
-	// chunk as it downloads, each chunk decoded at once by the search module,
-	// which hands the opened text back; gzipped, the browser opens it itself.
-	// Either way the opened text lands here and in the search module.
-	// `?decode=page` runs the search module here from the start: what a
-	// benchmark needs to time the decode under a throttled processor, which
-	// spares workers.
-	let ask: (request: Request, transfer?: Transferable[]) => void = () => {};
+	// The text comes as Google Earth's world does: what the visitor looks at
+	// first. Once the first image is drawn, books are fetched one after the
+	// other in the background, each time the one nearest to the view
+	// (`next_book`), at low priority; a fast dive meanwhile asks for its
+	// chapters' tiles at high priority (`fetchTiles`). Each book lands here and
+	// in the search module; the readings last, and the whole text is in.
+	let ask: (request: Request) => void = () => {};
 	let here: Promise<SearchCore> | null = null;
 	const searches = new Map<number, (found: Found) => void>();
 	let next = 0;
@@ -655,29 +647,30 @@ export async function createTanakhMap(
 			ask({ els: { id, query, skip0, skip1 } });
 		});
 	}
+	function landHere(first: number, end: number, codes: Uint8Array) {
+		const at = wasm.tile_buffer(codes.length);
+		// A view taken after the call: the allocation may grow the memory.
+		new Uint8Array(wasm.memory.buffer, at, codes.length).set(codes);
+		wasm.tile_load(first, end);
+		draw();
+	}
 	firstImage
 		.then(async () => {
-			const params = new URLSearchParams(location.search);
 			let worker: Worker | null = null;
-			if (!params.has('decode')) {
-				try {
-					worker = new SearchWorker();
-				} catch {
-					worker = null;
-				}
+			try {
+				worker = new SearchWorker();
+			} catch {
+				worker = null;
 			}
-			let opened: (plain: Uint8Array) => void = () => {};
-			const plainBack = new Promise<Uint8Array>((done) => (opened = done));
 			if (worker) {
 				worker.onmessage = (event: MessageEvent<Answer>) => {
 					const message = event.data;
-					if ('plain' in message) opened(message.plain);
-					else if ('id' in message) {
+					if ('id' in message) {
 						searches.get(message.id)?.(message.found);
 						searches.delete(message.id);
 					} else console.warn(message.error);
 				};
-				ask = (request, transfer = []) => worker!.postMessage(request, { transfer });
+				ask = (request) => worker!.postMessage(request);
 			} else {
 				here = SearchCore.create();
 				ask = (request) => {
@@ -693,28 +686,32 @@ export async function createTanakhMap(
 				};
 			}
 
-			const speed = bandwidth(moduleUrl);
-			const viaCodec = params.has('text')
-				? params.get('text') === 'codec'
-				: speed !== null && speed < SLOW_LINK;
-			performance.mark(viaCodec ? 'ethaor:via-codec' : 'ethaor:via-gzip');
-			if (!viaCodec) {
-				const plain = await inflate(await fetch(gzipUrl));
-				land(plain);
-				if (worker) ask({ plain });
-				else (await here!).land(plain);
-				return;
+			// Books in flight at once: one at a time paid a full round trip per
+			// book — forty on a 3G link — so a few travel together, each still
+			// the nearest to the view when its turn comes.
+			const block = async (i: number) =>
+				inflate(await range(booksUrl, bookCuts[i], bookCuts[i + 1], 'low'));
+			const lane = async () => {
+				for (let book = wasm.next_book(); book >= 0; book = wasm.next_book()) {
+					const codes = await block(book);
+					const [first, end] = [wasm.book_first_chapter(book), wasm.book_end_chapter(book)];
+					landHere(first, end, codes);
+					if (!performance.getEntriesByName('ethaor:near').length) performance.mark('ethaor:near');
+					if (worker) ask({ tile: { first, end, codes } });
+					else (await here!).tile(first, end, codes);
+				}
+			};
+			await Promise.all(Array.from({ length: BOOKS_IN_FLIGHT }, lane));
+			const readings = await block(bookCuts.length - 2);
+			const atReadings = wasm.tile_buffer(readings.length);
+			new Uint8Array(wasm.memory.buffer, atReadings, readings.length).set(readings);
+			if (wasm.readings_load() === 1) {
+				textLanded();
+				performance.mark('ethaor:text');
+				draw();
 			}
-			const response = await fetch(textUrl);
-			if (worker) {
-				await chunks(response, (chunk) => ask({ chunk }));
-				ask({ done: true });
-				land(await plainBack);
-			} else {
-				const core = await here!;
-				await chunks(response, (chunk) => core.push(chunk));
-				land(core.finish());
-			}
+			if (worker) ask({ readings });
+			else (await here!).readings(readings);
 		})
 		.catch((cause) => console.warn(cause));
 
