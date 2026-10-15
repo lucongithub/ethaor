@@ -28,24 +28,15 @@
 	--font-hebrew: 'Noto Serif Hebrew Variable', 'Taamey Frank CLM', 'SBL Hebrew', serif;
 }
 
+/* Baloo 2 ne sert qu'a quelques caracteres latins de l'interface — le
+   message de chargement, les separateurs, les exposants, un nom de site. Un
+   seul poids, reduit au latin (pyftsubset, U+0020-007E, U+00A0-00FF, U+2019,
+   U+2026, U+203A) et compresse en woff : 21 Ko au lieu de trois TTF de 410 Ko,
+   qui contenaient tout le devanagari. */
 @font-face {
 	font-family: 'Baloo2';
-	src: url('/fonts/Baloo2-Regular.ttf') format('truetype');
+	src: url('/fonts/Baloo2-Regular.woff') format('woff');
 	font-weight: 400;
-	font-style: normal;
-	font-display: swap;
-}
-@font-face {
-	font-family: 'Baloo2';
-	src: url('/fonts/Baloo2-Medium.ttf') format('truetype');
-	font-weight: 500;
-	font-style: normal;
-	font-display: swap;
-}
-@font-face {
-	font-family: 'Baloo2';
-	src: url('/fonts/Baloo2-SemiBold.ttf') format('truetype');
-	font-weight: 600;
 	font-style: normal;
 	font-display: swap;
 }

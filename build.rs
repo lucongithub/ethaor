@@ -6,7 +6,13 @@
 //!
 //!   text.bin     all the UTF-8 text, concatenated
 //!   index.bin    flat array of u32: header + offsets
-//!   letters.bin  the consonants alone, one byte each, for the search
+//!   map.pack     the corpus' map, packed — what the module embeds
+//!   text.pack    the corpus' text, packed and through the codec: a file the
+//!                page fetches once the map is drawn
+//!   text.plain   the same before the codec, for native builds and tests
+//!
+//! The first three are the working form, the reference the packed form is
+//! checked against; `src/pack.rs` packs here and unpacks in the module.
 //!
 //! At run time the program parses nothing: it slices those two blocks.
 
@@ -26,6 +32,8 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=build/mamre.rs");
     println!("cargo:rerun-if-changed=build/variants.rs");
+    println!("cargo:rerun-if-changed=src/pack.rs");
+    println!("cargo:rerun-if-changed=src/pack/codec.rs");
     println!("cargo:rerun-if-changed={VARIANTS}");
 
     let mut files: Vec<PathBuf> = fs::read_dir(src)
@@ -56,6 +64,9 @@ fn main() {
 // `tests/builder.rs` check it on the very code the build runs.
 include!("build/mamre.rs");
 include!("build/variants.rs");
+
+#[path = "src/pack.rs"]
+mod pack;
 
 // -------------------------------------------------------------------- output
 
@@ -177,14 +188,21 @@ fn write_output(corpus: &Corpus, out: &Path) {
     fs::write(out.join("text.bin"), text.as_bytes()).unwrap();
     fs::write(out.join("index.bin"), &bytes).unwrap();
     fs::write(out.join("variants.bin"), &variant_bytes).unwrap();
-    fs::write(out.join("letters.bin"), letter_stream(corpus)).unwrap();
+
+    // The transport form: `pack` asserts that it unpacks to the above.
+    let packed = pack::pack(&pack::Blobs { text: text.clone().into_bytes(), index: idx.clone(), variants: variants.clone() });
+    fs::write(out.join("map.pack"), &packed.map).unwrap();
+    fs::write(out.join("text.pack"), &packed.text).unwrap();
+    fs::write(out.join("text.plain"), &packed.plain).unwrap();
 
     let mut report = String::new();
     let _ = writeln!(
         report,
-        "corpus: {n_books} livres, {n_chapters} chapitres, {n_verses} versets, {} Ko de texte, {} Ko d'index, {report_variants}",
+        "corpus: {n_books} livres, {n_chapters} chapitres, {n_verses} versets, {} Ko de texte, {} Ko d'index, {report_variants} ; paquet {} Ko de carte + {} Ko de texte",
         text.len() / 1024,
-        bytes.len() / 1024
+        bytes.len() / 1024,
+        packed.map.len() / 1024,
+        packed.text.len() / 1024
     );
     println!("cargo:warning={}", report.trim());
 }
@@ -253,49 +271,4 @@ fn weld_variants(corpus: &Corpus, text: &mut String) -> (Vec<u32>, String) {
 
     let report = format!("{} ecarts sur {} versets", inserts.len() / 4, display.len() / 3);
     (out, report)
-}
-
-/// Alphabet rank of each consonant U+05D0..=U+05EA, final forms folded onto
-/// their letter: a skip search reads letters, not word endings, so `אדמ`
-/// must find `אדם`. Mirrored by `letter::code`, and the search tests check
-/// the two agree on every verse.
-const FOLD: [u8; 27] = [
-    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, // א..י
-    10, 10, 11, 12, 12, 13, 13, 14, 15, 16, 16, 17, 17, // ך כ ל ם מ ן נ ס ע ף פ ץ צ
-    18, 19, 20, 21, // ק ר ש ת
-];
-
-/// Builds `letters.bin`: every consonant of the Tanakh, in reading order, as
-/// one byte — its rank in the alphabet — with no space, mark or verse break.
-///
-/// Layout, little-endian:
-///
-///   u32 n_letters
-///   u32 n_verses
-///   u32 x n_verses+1  index of each verse's first letter, with a sentinel
-///   u8  x n_letters   the stream
-///
-/// The u32 part comes first so it stays 4-byte aligned behind `Align4`.
-fn letter_stream(corpus: &Corpus) -> Vec<u8> {
-    let mut stream: Vec<u8> = Vec::new();
-    let mut starts: Vec<u32> = Vec::new();
-    for v in corpus.books.iter().flat_map(|b| &b.chapters).flat_map(|c| &c.verses) {
-        starts.push(stream.len() as u32);
-        for c in v.text.chars() {
-            if ('\u{05D0}'..='\u{05EA}').contains(&c) {
-                stream.push(FOLD[(c as u32 - 0x05D0) as usize]);
-            }
-        }
-    }
-    starts.push(stream.len() as u32);
-
-    let mut words = vec![stream.len() as u32, (starts.len() - 1) as u32];
-    words.extend_from_slice(&starts);
-
-    let mut bytes = Vec::with_capacity(words.len() * 4 + stream.len());
-    for w in &words {
-        bytes.extend_from_slice(&w.to_le_bytes());
-    }
-    bytes.extend_from_slice(&stream);
-    bytes
 }

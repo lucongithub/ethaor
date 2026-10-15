@@ -17,6 +17,23 @@
 // `_app/immutable/` with a hash of its content in the name, like the scripts,
 // so a browser may keep it for good and a new build is never served stale.
 import moduleUrl from './ethaor.wasm?url';
+// The verses travel apart from the module: the map draws without them, so
+// the first image never waits for the bulk of the corpus. Same hashed name.
+import textUrl from './ethaor-text.bin?url';
+import gzipUrl from './ethaor-text.gzip.bin?url';
+import plainUrl from './ethaor-text.plain.bin?url';
+import SearchWorker from './search-worker?worker';
+import type { Answer, Request } from './search-worker';
+import { SearchCore, type Found } from './search-core';
+import { bandwidth, chunks, inflate, range } from './text-open';
+
+/**
+ * Below this download speed, in bytes per second, the text comes through the
+ * codec: the fewest bytes, decoded as they arrive. Above it, gzipped: more
+ * bytes, but the browser decodes them at once — where a phone's processor,
+ * not the link, would hold the codec back.
+ */
+const SLOW_LINK = 300_000;
 
 /** Must cover Hebrew with niqqud. Noto Serif Hebrew is loaded by app.css. */
 export const HEBREW_FONT =
@@ -80,6 +97,18 @@ interface Wasm {
 	text_len(): number;
 	/** 1 when what the pointer names holds another reading. */
 	readings_at(x: number, y: number): number;
+	/** Room for the text part of the corpus: where to write its bytes. */
+	text_buffer(length: number): number;
+	/** Lands the text part written at `text_buffer`: 1 once the verses are in. */
+	text_load(): number;
+	/** Tiles the view needs now: the number of runs at `tiles_ptr`. */
+	tiles_wanted(): number;
+	/** Per run: first chapter, end chapter, byte range in the opened text. */
+	tiles_ptr(): number;
+	tile_buffer(length: number): number;
+	tile_load(first: number, end: number): number;
+	/** Probe: 1 when the last frame draws a line of a verse. */
+	probe_verse_drawn(): number;
 }
 
 /**
@@ -125,8 +154,16 @@ export interface TanakhMap {
 	reset(): void;
 	/** Detaches the listeners and releases the resize observer. */
 	destroy(): void;
+	/**
+	 * ELS across the whole Tanakh: `query` read with `skip0..=skip1` letters
+	 * jumped between its letters. Runs in the search module's worker, so it
+	 * never holds a frame; answers once the text has landed.
+	 */
+	search(query: string, skip0: number, skip1: number): Promise<Found>;
 	readonly books: number;
 }
+
+export type { Found };
 
 export interface MapOptions {
 	/** Called on click: the verse hit, or `null` if the click falls on nothing. */
@@ -156,18 +193,28 @@ export async function createTanakhMap(
 	if (!context) throw new Error('canvas 2d indisponible');
 	const ctx = context;
 
-	// The font must be loaded **before** the first measurement: a width taken on
-	// a fallback font would be cached and wrong for good.
+	// The module downloads while the font loads. The text waits for the first
+	// image: the overview does not need it, and fetched alongside it took
+	// bandwidth from what the first image waits for — a priority hint does not
+	// stop that over several connections. Measured, the map came sooner and
+	// the text no later: the pipe is full either way.
+	const loading = WebAssembly.instantiateStreaming(fetch(moduleUrl), {});
+	let mapDrawn: () => void = () => {};
+	const firstImage = new Promise<void>((drawn) => (mapDrawn = drawn));
+
+	// The Hebrew font must be loaded **before** the first measurement: a width
+	// taken on a fallback font would be cached and wrong for good. Only that
+	// one: the interface font has nothing to do with the canvas, and waiting
+	// for every font held the first image for nothing.
 	if (document.fonts) {
 		try {
 			await document.fonts.load(`16px ${HEBREW_FONT}`, `א${MARKS}`);
-			await document.fonts.ready;
 		} catch {
 			// Font unavailable: the system fallback will do.
 		}
 	}
 
-	const { instance } = await WebAssembly.instantiateStreaming(fetch(moduleUrl), {});
+	const { module, instance } = await loading;
 	const wasm = instance.exports as unknown as Wasm;
 
 	// If the final font arrives after the first measurements, those were taken on
@@ -207,6 +254,11 @@ export async function createTanakhMap(
 		canvas.width = Math.round(width * dpr);
 		canvas.height = Math.round(height * dpr);
 	}
+
+	// Marks a benchmark — or a real visitor's timing — can read: the first
+	// image on screen, the verses landed, the first verse drawn.
+	let painted = false;
+	let versed = false;
 
 	function paint() {
 		const words = wasm.build_frame();
@@ -355,11 +407,42 @@ export async function createTanakhMap(
 		draw();
 	}
 
+	// Tiles: after each frame the module says which chapters the view is about
+	// to read without their verses in; each run is fetched by itself — a few
+	// kilobytes — and lands as soon as it arrives, ahead of the whole text.
+	function fetchTiles() {
+		const runs = wasm.tiles_wanted();
+		if (runs === 0) return;
+		const asked = Array.from(new Uint32Array(wasm.memory.buffer, wasm.tiles_ptr(), runs * 4));
+		for (let i = 0; i < asked.length; i += 4) {
+			const [first, end, from, to] = asked.slice(i, i + 4);
+			range(plainUrl, from, to)
+				.then((bytes) => {
+					const at = wasm.tile_buffer(bytes.length);
+					// A view taken after the call: the allocation may grow the memory.
+					new Uint8Array(wasm.memory.buffer, at, bytes.length).set(bytes);
+					wasm.tile_load(first, end);
+					draw();
+				})
+				.catch((cause) => console.warn(cause));
+		}
+	}
+
 	let frame: number | null = null;
 	function draw() {
 		frame ??= requestAnimationFrame(() => {
 			frame = null;
 			paint();
+			if (!painted) {
+				painted = true;
+				performance.mark('ethaor:map');
+				mapDrawn();
+			}
+			fetchTiles();
+			if (!versed && wasm.probe_verse_drawn() === 1) {
+				versed = true;
+				performance.mark('ethaor:verse');
+			}
 		});
 	}
 
@@ -532,8 +615,112 @@ export async function createTanakhMap(
 
 	draw();
 
+	// The verses land when they arrive; the reading level opens then. A
+	// worker fetches and opens them — the codec's decode never holds a frame —
+	// with the module already compiled. Should the worker fail, the same
+	// decode runs here; should the text never come, the map stays whole at the
+	// level of the numbers.
+	let textLanded: () => void = () => {};
+	const textIn = new Promise<void>((done) => (textLanded = done));
+	function land(plain: Uint8Array) {
+		textLanded();
+		const at = wasm.text_buffer(plain.length);
+		// A view taken after the call: the allocation may grow the memory.
+		new Uint8Array(wasm.memory.buffer, at, plain.length).set(plain);
+		if (wasm.text_load() === 1) {
+			performance.mark('ethaor:text');
+			draw();
+		}
+	}
+	// The search module — the codec and the searches — runs in a worker,
+	// started once the first image is drawn: neither the text's decode nor a
+	// search ever holds a frame. Should no worker be available, it runs here.
+	//
+	// The text comes in the form the measured bandwidth favours (`SLOW_LINK`,
+	// `?text=codec|gzip` to force one). Through the codec it is read chunk by
+	// chunk as it downloads, each chunk decoded at once by the search module,
+	// which hands the opened text back; gzipped, the browser opens it itself.
+	// Either way the opened text lands here and in the search module.
+	// `?decode=page` runs the search module here from the start: what a
+	// benchmark needs to time the decode under a throttled processor, which
+	// spares workers.
+	let ask: (request: Request, transfer?: Transferable[]) => void = () => {};
+	let here: Promise<SearchCore> | null = null;
+	const searches = new Map<number, (found: Found) => void>();
+	let next = 0;
+	function search(query: string, skip0: number, skip1: number): Promise<Found> {
+		return new Promise((done) => {
+			const id = next++;
+			searches.set(id, done);
+			ask({ els: { id, query, skip0, skip1 } });
+		});
+	}
+	firstImage
+		.then(async () => {
+			const params = new URLSearchParams(location.search);
+			let worker: Worker | null = null;
+			if (!params.has('decode')) {
+				try {
+					worker = new SearchWorker();
+				} catch {
+					worker = null;
+				}
+			}
+			let opened: (plain: Uint8Array) => void = () => {};
+			const plainBack = new Promise<Uint8Array>((done) => (opened = done));
+			if (worker) {
+				worker.onmessage = (event: MessageEvent<Answer>) => {
+					const message = event.data;
+					if ('plain' in message) opened(message.plain);
+					else if ('id' in message) {
+						searches.get(message.id)?.(message.found);
+						searches.delete(message.id);
+					} else console.warn(message.error);
+				};
+				ask = (request, transfer = []) => worker!.postMessage(request, { transfer });
+			} else {
+				here = SearchCore.create();
+				ask = (request) => {
+					if (!('els' in request)) return;
+					const { id, query, skip0, skip1 } = request.els;
+					// Searches wait for the text, as in the worker.
+					textIn
+						.then(() => here!)
+						.then((core) => {
+							searches.get(id)?.(core.els(query, skip0, skip1));
+							searches.delete(id);
+						});
+				};
+			}
+
+			const speed = bandwidth(moduleUrl);
+			const viaCodec = params.has('text')
+				? params.get('text') === 'codec'
+				: speed !== null && speed < SLOW_LINK;
+			performance.mark(viaCodec ? 'ethaor:via-codec' : 'ethaor:via-gzip');
+			if (!viaCodec) {
+				const plain = await inflate(await fetch(gzipUrl));
+				land(plain);
+				if (worker) ask({ plain });
+				else (await here!).land(plain);
+				return;
+			}
+			const response = await fetch(textUrl);
+			if (worker) {
+				await chunks(response, (chunk) => ask({ chunk }));
+				ask({ done: true });
+				land(await plainBack);
+			} else {
+				const core = await here!;
+				await chunks(response, (chunk) => core.push(chunk));
+				land(core.finish());
+			}
+		})
+		.catch((cause) => console.warn(cause));
+
 	return {
 		books,
+		search,
 		draw,
 		reset() {
 			wasm.reset();

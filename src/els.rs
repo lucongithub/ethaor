@@ -2,16 +2,16 @@
 //! with the same number of letters skipped between each of its letters,
 //! contiguous (skip 0) or not, over one skip or a whole range of them.
 //!
-//! The search does not read the text: it reads `letters.bin`, which `build.rs`
-//! welds next to it — every consonant of the Tanakh in reading order, **one
-//! byte each**, final forms folded, with no space, mark or verse break. That is
+//! The search does not read the text: it reads the letter stream it derives
+//! from it at first use — every consonant of the Tanakh in reading order,
+//! **one byte each**, final forms folded, with no space, mark or verse break. That is
 //! what "without regard to passages" means: an occurrence may start in one
 //! verse and end in the next, or in the next book.
 //!
 //! A letter's **global rank** in that stream is the one coordinate the search
 //! speaks: a hit is the rank of its first letter and its skip. Everything else
 //! — book, chapter, verse, rank inside the verse — derives from the rank
-//! through the verse starts welded with the stream.
+//! through the verse starts recorded with the stream.
 //!
 //! How hits are found is `method`'s business, over indices `index` derives
 //! from the stream in memory; this module folds the query, bounds the output
@@ -23,14 +23,11 @@ mod method;
 pub use index::Index;
 pub use method::{METHODS, Method};
 
-use crate::corpus::{self, Align4};
+use std::sync::OnceLock;
+
+use crate::corpus;
 use crate::letter::{self, ALPHABET};
 use method::{Query, count_pairs, run};
-
-static DATA: &Align4<[u8]> = &Align4 {
-    _align: [],
-    bytes: *include_bytes!(concat!(env!("OUT_DIR"), "/letters.bin")),
-};
 
 /// Words of a hit record, a contract with the page: the rank of the first
 /// letter in the stream, the skip, then book, chapter and verse of the first
@@ -47,25 +44,41 @@ pub const CAP: usize = 100_000;
 /// `1 << START_BITS`.
 const START_BITS: u32 = 21;
 
-fn header() -> &'static [u32] {
-    // SAFETY: `Align4` forces 4-byte alignment; the head of `letters.bin` is
-    // `2 + verse_count() + 1` u32 written little-endian by build.rs, and
-    // `corpus` has already checked that the target is little-endian.
-    unsafe { core::slice::from_raw_parts(DATA.bytes.as_ptr().cast::<u32>(), 2 + verse_count() + 1) }
+/// The stream and where each verse starts in it, with a closing sentinel.
+struct Letters {
+    stream: Vec<u8>,
+    starts: Vec<u32>,
 }
 
-fn verse_count() -> usize {
-    u32::from_le_bytes(DATA.bytes[4..8].try_into().unwrap()) as usize
+static LETTERS: OnceLock<Letters> = OnceLock::new();
+
+/// Read off the corpus at first use rather than shipped: it is entirely
+/// given by the text, and shipping it cost more than the text itself once
+/// both were compressed.
+fn letters() -> &'static Letters {
+    LETTERS.get_or_init(|| {
+        // Read before the text lands, the stream would be empty for good.
+        assert!(corpus::has_text(), "lettres demandees avant le texte");
+        let n = corpus::verse_count();
+        let mut stream = Vec::with_capacity(corpus::text().len() / 3);
+        let mut starts = Vec::with_capacity(n + 1);
+        for v in 0..n {
+            starts.push(stream.len() as u32);
+            stream.extend(corpus::verse_text(v).chars().filter_map(letter::code));
+        }
+        starts.push(stream.len() as u32);
+        Letters { stream, starts }
+    })
 }
 
 /// Every consonant of the Tanakh, as its rank in the alphabet.
 pub fn stream() -> &'static [u8] {
-    &DATA.bytes[(2 + verse_count() + 1) * 4..]
+    &letters().stream
 }
 
 /// Rank of each verse's first letter in the stream, with a closing sentinel.
 pub fn verse_starts() -> &'static [u32] {
-    &header()[2..]
+    &letters().starts
 }
 
 /// Folds a query into the stream's code: consonants only, finals folded. A

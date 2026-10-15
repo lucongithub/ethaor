@@ -10,6 +10,15 @@ path = "src/lib.rs"
 
 [dependencies]
 
+# One crate, two modules. `map` exports what the page draws with — gestures,
+# frames, tiles; `search` what the worker searches with — the codec and the
+# searches, ELS first. Each WebAssembly build exports one set and link-time
+# optimisation drops the rest; native builds and the tests take both.
+[features]
+default = ["map", "search"]
+map = []
+search = []
+
 # Le corpus est soude au binaire par build.rs. On vise la taille et la vitesse
 # d'execution, pas la vitesse de compilation.
 [profile.release]

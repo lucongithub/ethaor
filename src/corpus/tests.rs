@@ -1,4 +1,4 @@
-//! What the welded corpus promises: counts, a well-formed index, a hierarchy
+//! What the unpacked corpus promises: counts, a well-formed index, a hierarchy
 //! that partitions, and clean text.
 //!
 //! Those figures are **not** re-estimated here: `CLAUDE.md` records them as
@@ -18,8 +18,7 @@ fn counts_are_the_measured_ones() {
 }
 
 #[test]
-fn index_is_a_whole_number_of_words() {
-    assert_eq!(INDEX.bytes.len() % 4, 0);
+fn index_follows_its_layout() {
     let expected = 3 + 4 + 2 * (BOOKS + 1) + 2 * (CHAPTERS + 1) + 2 * (VERSES + 1);
     assert_eq!(index().len(), expected, "la taille de l'index ne suit pas sa disposition");
 }
@@ -34,10 +33,9 @@ fn every_series_of_offsets_is_monotonic_and_bounded() {
         ("book_name", l.book_name),
         ("chap_label", l.chap_label),
         ("verse_label", l.verse_label),
-        ("verse_text", l.verse_text),
     ] {
         assert!(series.windows(2).all(|w| w[0] <= w[1]), "{name} n'est pas croissant");
-        assert!(*series.last().unwrap() as usize <= TEXT.len(), "{name} depasse le texte");
+        assert!(*series.last().unwrap() as usize <= text().len(), "{name} depasse le texte");
     }
     for (name, series) in [("book_chap", l.book_chap), ("chap_verse", l.chap_verse)] {
         assert!(series.windows(2).all(|w| w[0] <= w[1]), "{name} n'est pas croissant");
@@ -46,6 +44,13 @@ fn every_series_of_offsets_is_monotonic_and_bounded() {
     assert_eq!(*l.book_chap.last().unwrap() as usize, CHAPTERS);
     assert_eq!(l.chap_verse[0], 0);
     assert_eq!(*l.chap_verse.last().unwrap() as usize, VERSES);
+    // The verses, landed, lie end to end from where the map's strings stop.
+    let mut at = verses_offset();
+    for v in 0..VERSES {
+        let verse = verse_text(v);
+        assert_eq!(offset_of(verse), at, "le verset {v} ne suit pas le precedent");
+        at += verse.len();
+    }
 }
 
 /// Books partition the chapters, chapters partition the verses: no hole, no
@@ -256,4 +261,74 @@ fn the_text_regions_follow_the_documented_order() {
     assert!(offset_of(last) + last.len() <= offset_of(shown[0]));
     let tail = shown[shown.len() - 1];
     assert_eq!(offset_of(tail) + tail.len(), text().len());
+}
+
+// ------------------------------------------------------------------ landing
+
+/// A deterministic shuffle: the same order on every run.
+fn shuffled(n: usize, mut seed: u64) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..n).collect();
+    for i in (1..n).rev() {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        order.swap(i, (seed % (i as u64 + 1)) as usize);
+    }
+    order
+}
+
+/// **Chapters land in any order, each straight into its place**: a landed
+/// chapter reads exactly as the whole corpus has it, one not landed reads as
+/// empty, the text stays valid UTF-8 throughout — and the whole text landing
+/// last, over chapters already in, gives the corpus byte for byte, readings
+/// included.
+#[test]
+fn chapters_land_in_any_order_then_the_whole_text() {
+    const MAP_PACK: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/map.pack"));
+    const PLAIN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/text.plain"));
+    let landing = Landing::new(MAP_PACK);
+    let order = shuffled(CHAPTERS, 2024);
+    let (stream, _) = crate::pack::split_text(&landing.map, PLAIN);
+    let base = landing.map.stream_base;
+
+    // Runs of one to five chapters, as tiles come, in a shuffled order.
+    let mut landed = vec![false; CHAPTERS];
+    for (k, &first) in order.iter().take(300).enumerate() {
+        let end = (first + 1 + k % 5).min(CHAPTERS);
+        let (from, to) = landing.tile_range(first..end);
+        landing.land_chapters(first..end, &stream[from - base..to - base]);
+        landed[first..end].fill(true);
+    }
+    assert!(std::str::from_utf8(landing.text().as_bytes()).is_ok(), "le texte n'est plus de l'UTF-8");
+    for (c, &in_) in landed.iter().enumerate() {
+        assert_eq!(landing.chapter_ready(c), in_, "chapitre {c}");
+        for v in verses_of(c) {
+            let want = if in_ { verse_text(v) } else { "" };
+            assert_eq!(landing.verse_text(v), want, "verset {v} du chapitre {c}");
+        }
+    }
+    assert!(!landing.has_text());
+
+    landing.land_text(PLAIN);
+    assert!(landing.has_text());
+    assert!(landing.text() == text(), "le texte entier differe apres les tuiles");
+    assert_eq!(landing.readings.get().unwrap()[..], variant_table()[..], "les lectures different");
+    for v in (0..VERSES).step_by(97) {
+        assert_eq!(landing.verse_text(v), verse_text(v));
+    }
+}
+
+/// A tile asks for exactly its chapters' stretch of the opened text part:
+/// consecutive runs are contiguous, and the whole run covers the stream.
+#[test]
+fn a_tile_range_is_its_chapters_stretch() {
+    let landing = landing();
+    let (start, _) = landing.tile_range(0..1);
+    assert_eq!(start, landing.map.stream_base);
+    for c in 0..CHAPTERS - 1 {
+        assert_eq!(landing.tile_range(c..c + 1).1, landing.tile_range(c + 1..c + 2).0, "chapitre {c}");
+    }
+    let (from, to) = landing.tile_range(0..CHAPTERS);
+    let total: usize = landing.map.chapters.iter().map(|s| s.stream.1).sum();
+    assert_eq!(to - from, total);
 }

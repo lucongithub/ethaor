@@ -10,9 +10,14 @@
 //! and no in-house implementation would do it as well. Rust asks for the
 //! widths it lacks, caches them, and never comes back to them.
 
+// A WebAssembly build exports one feature's functions: the other's code is
+// then unused, and link-time optimisation drops it.
+#![cfg_attr(not(all(feature = "map", feature = "search")), allow(dead_code, unused_imports))]
+
 mod corpus;
 mod els;
 mod letter;
+mod pack;
 #[cfg(test)]
 mod tests;
 mod treemap;
@@ -134,6 +139,11 @@ const CHAPTER_FROM: f32 = 1.1;
 /// It is just below 1 and not at 1: the framing itself must stay on the books'
 /// side, rounding included.
 const PORTIONS_UNDER: f32 = 0.95;
+
+/// How many wheel notches ahead of the reading level a chapter's tile is
+/// asked for: while the zoom closes in on a few chapters, their verses travel,
+/// so they are there by the time the lines are legible.
+const TILE_AHEAD: i32 = 3;
 
 /// Line height and breathing space between verses, as multiples of the
 /// character size of a chapter's text.
@@ -282,6 +292,17 @@ struct App {
     /// A mouse has left the canvas. The centre of the view then names nothing
     /// until the pointer comes back — see `leave`.
     mouse_away: bool,
+    /// Whether verses may be read at all. A chapter opens to the reading
+    /// level once its own verses have landed (`corpus::chapter_ready`);
+    /// until then it draws its number, and nothing that needs a verse —
+    /// drawing it, clicking it, naming it — is asked. Always on in the
+    /// module; the tests turn it off to stand for a corpus with no verse in.
+    text: bool,
+    /// Chapters whose tile has been asked for already.
+    asked: Vec<bool>,
+    /// Tiles to fetch, as `tiles_wanted` leaves them for the page: per run of
+    /// chapters, first, end, and its byte range in the opened text part.
+    tiles: Vec<u32>,
 }
 
 static mut APP: Option<App> = None;
@@ -319,6 +340,9 @@ impl App {
             selection: [0; 6],
             focus: [0; 8],
             mouse_away: false,
+            text: true,
+            asked: vec![false; corpus::chapter_count()],
+            tiles: Vec::new(),
         };
         app.base = app.base_scale();
         app.fit();
@@ -944,10 +968,67 @@ impl App {
     ///
     /// It is the one measure that says whether a chapter is **read** or merely
     /// numbered, so the drawing and the breadcrumb both take it from here.
+    ///
+    /// Zero until the text has landed: this is the one gate of the reading
+    /// level — the drawing, the click and the breadcrumb all go through it.
     fn line_height(&self, chapter: usize, camera: Camera) -> f32 {
+        if !self.verses_in(chapter) {
+            return 0.0;
+        }
+        self.line_height_once_in(chapter, camera)
+    }
+
+    /// The line height the chapter has — or will have once its verses land.
+    fn line_height_once_in(&self, chapter: usize, camera: Camera) -> f32 {
         let count = corpus::verses_of(chapter).len().max(1);
         column(self.layout.chapters[chapter]).h / count as f32 * camera.z
     }
+
+    /// Whether a chapter's verses are there to read.
+    fn verses_in(&self, chapter: usize) -> bool {
+        self.text && corpus::chapter_ready(chapter)
+    }
+
+    /// Asks for the tiles of the chapters the view is about to read: those on
+    /// screen whose lines will pass `READABLE_LINE` within `TILE_AHEAD`
+    /// notches, not in and not asked yet. Neighbours come in one run — one
+    /// request — since a run of chapters is one stretch of the text part.
+    /// Returns the number of runs, left in `tiles`.
+    fn want_tiles(&mut self) -> usize {
+        self.tiles.clear();
+        let ahead = self.zoom_step().powi(TILE_AHEAD);
+        let camera = self.camera;
+        let mut run: Option<(usize, usize)> = None;
+        for chapter in 0..corpus::chapter_count() {
+            let wanted = !self.asked[chapter]
+                && !self.verses_in(chapter)
+                && self.visible(camera.project(self.layout.chapters[chapter]))
+                && self.line_height_once_in(chapter, camera) * ahead >= READABLE_LINE;
+            match (wanted, run) {
+                (true, Some((first, end))) if end == chapter => run = Some((first, chapter + 1)),
+                (true, _) => {
+                    if let Some(r) = run {
+                        self.push_tile(r);
+                    }
+                    run = Some((chapter, chapter + 1));
+                }
+                (false, _) => {}
+            }
+            if wanted {
+                self.asked[chapter] = true;
+            }
+        }
+        if let Some(r) = run {
+            self.push_tile(r);
+        }
+        self.tiles.len() / 4
+    }
+
+    fn push_tile(&mut self, (first, end): (usize, usize)) {
+        let (from, to) = corpus::tile_range(first..end);
+        self.tiles.extend_from_slice(&[first as u32, end as u32, from as u32, to as u32]);
+    }
+
 
     /// Path to show in the breadcrumb, for a point of the world: section, book,
     /// chapter, verse, each as an (offset, length) in the corpus.
@@ -1771,13 +1852,13 @@ fn key_of(fragment: &'static str) -> (u32, u32) {
 // ----------------------------------------------------------------- interface
 
 /// Prepares the state. Returns the number of books, which serves as a check.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn init(width: f32, height: f32) -> u32 {
     unsafe { APP = Some(App::new(width, height)) };
     corpus::book_count() as u32
 }
 
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn resize(width: f32, height: f32) {
     let app = app();
     let refit = app.at_opening();
@@ -1788,14 +1869,14 @@ pub extern "C" fn resize(width: f32, height: f32) {
     }
 }
 
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn reset() {
     let app = app();
     app.level = 0;
     app.fit();
 }
 
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn pan(dx: f32, dy: f32) {
     let app = app();
     app.camera.x += dx;
@@ -1804,12 +1885,12 @@ pub extern "C" fn pan(dx: f32, dy: f32) {
 
 /// Factor of one wheel notch, computed for this window: the page raises it to
 /// the number of notches of the gesture. See `App::zoom_step`.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn zoom_step() -> f32 {
     app().zoom_step()
 }
 
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn zoom(x: f32, y: f32, factor: f32) {
     app().zoom_at(x, y, factor);
 }
@@ -1821,7 +1902,7 @@ pub extern "C" fn zoom(x: f32, y: f32, factor: f32) {
 /// very condition of a click: the same tolerance as `locate` — a book box,
 /// never the air between two portions — and a chapter one can read. Above the
 /// reading zoom nothing is clickable, and the cursor says so.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn hover(x: f32, y: f32) -> i32 {
     let app = app();
     let (wx, wy) = app.camera.to_world(x, y);
@@ -1840,14 +1921,14 @@ pub extern "C" fn hover(x: f32, y: f32) -> i32 {
 /// The export is only unmangled on wasm: on a host build — the one the test
 /// suite uses — the symbol `select` collides with the one of the system socket
 /// library, and the link fails.
-#[cfg_attr(target_arch = "wasm32", unsafe(no_mangle))]
+#[cfg_attr(all(target_arch = "wasm32", feature = "map"), unsafe(no_mangle))]
 pub extern "C" fn select(x: f32, y: f32) -> u32 {
     pick_into(x, y, false)
 }
 
 /// Same, one step finer: **the word under the point**, which a double click
 /// asks for. The verse is filled too, so the page can show the word inside it.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn select_word(x: f32, y: f32) -> u32 {
     pick_into(x, y, true)
 }
@@ -1875,7 +1956,7 @@ fn pick_into(x: f32, y: f32, word: bool) -> u32 {
 /// tells where one is, including when the title bands have left the screen.
 /// Its depth is that of the zoom — the chapter arrives with the numbers, the
 /// verse with the text.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn focus() {
     let app = app();
     if app.mouse_away {
@@ -1893,7 +1974,7 @@ pub extern "C" fn focus() {
 /// names nothing, the air between two portions for instance, and falls back on
 /// the centre of the view, so that the breadcrumb never blinks out while the
 /// pointer wanders.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn focus_at(x: f32, y: f32) -> u32 {
     let app = app();
     // A pointer on the canvas: whatever left before is back.
@@ -1928,46 +2009,46 @@ pub extern "C" fn focus_at(x: f32, y: f32) -> u32 {
 /// lifted finger is different: a touch screen has no hover, and the centre is
 /// the only position there is. `focus_at` clears the state as soon as a
 /// pointer is back on the canvas.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn leave(mouse: u32) {
     app().mouse_away = mouse != 0;
 }
 
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn focus_ptr() -> *const u32 {
     app().focus.as_ptr()
 }
 
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn selection_ptr() -> *const u32 {
     app().selection.as_ptr()
 }
 
 /// Builds the frame's command list. Returns its number of words.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn build_frame() -> u32 {
     let app = app();
     app.build_frame();
     app.commands.len() as u32
 }
 
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn frame_ptr() -> *const f32 {
     app().commands.as_ptr()
 }
 
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn frame_stride() -> u32 {
     STRIDE as u32
 }
 
 /// Fragments whose width the page must measure: (offset, size) pairs.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn pending_ptr() -> *const u32 {
     app().pending.as_ptr()
 }
 
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn pending_len() -> u32 {
     app().pending.len() as u32
 }
@@ -1976,7 +2057,7 @@ pub extern "C" fn pending_len() -> u32 {
 ///
 /// To be called when the font changes — when the final font loads, for
 /// instance: widths taken on a fallback font would be wrong for good.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn clear_ratios() {
     let app = app();
     app.ratios.clear();
@@ -1985,7 +2066,7 @@ pub extern "C" fn clear_ratios() {
 }
 
 /// Records a measured width, for a font of size 1.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn set_ratio(offset: u32, len: u32, ratio: f32) {
     let app = app();
     app.ratios.insert((offset, len), ratio);
@@ -1998,33 +2079,33 @@ pub extern "C" fn set_ratio(offset: u32, len: u32, ratio: f32) {
 /// Diagnostic: camera state and depth of descent.
 /// Camera position, in pixels. Serves the probes: without it, a reading has to
 /// guess the framing and gets it wrong as soon as one has zoomed.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn cam_x() -> f32 {
     app().camera.x
 }
 
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn cam_y() -> f32 {
     app().camera.y
 }
 
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn cam_z() -> f32 {
     app().camera.z
 }
 
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn cam_fit() -> f32 {
     app().fit_scale()
 }
 
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn depth() -> u32 {
     app().level
 }
 
 /// Diagnostic: on-screen width of the aimed nest, or -1 if there is none.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn probe_nest(x: f32, y: f32) -> f32 {
     let app = app();
     let (wx, wy) = app.camera.to_world(x, y);
@@ -2035,7 +2116,7 @@ pub extern "C" fn probe_nest(x: f32, y: f32) -> f32 {
 }
 
 /// Diagnostic: on-screen width of the aimed letter cell.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn probe_letter(x: f32, y: f32) -> f32 {
     let app = app();
     let (wx, wy) = app.camera.to_world(x, y);
@@ -2046,7 +2127,7 @@ pub extern "C" fn probe_letter(x: f32, y: f32) -> f32 {
 }
 
 /// Diagnostic: 1 if the old world has given way to the next.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn probe_fade() -> f32 {
     let app = app();
     let camera = app.camera;
@@ -2054,7 +2135,7 @@ pub extern "C" fn probe_fade() -> f32 {
     if app.last_nests == 0 { 0.0 } else { 1.0 }
 }
 
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn probe_points() -> u32 {
     app().last_nests
 }
@@ -2065,9 +2146,19 @@ pub extern "C" fn probe_points() -> u32 {
 /// see `readings_at`. A reading can be on screen without the reader having
 /// anything under the cursor, and explaining a mark he is not looking at is
 /// noise.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn variants_drawn() -> u32 {
     app().variant_runs
+}
+
+/// Probe: 1 when the last frame draws at least one line of a verse — the
+/// reading level reached and its text there. What the load benchmark times:
+/// the first verse a visitor can read.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+pub extern "C" fn probe_verse_drawn() -> u32 {
+    let app = app();
+    let start = corpus::verses_offset() as f32;
+    app.commands.chunks(STRIDE).any(|c| c[0] == KIND_TEXT && c[7] >= start && c[8] > 0.0) as u32
 }
 
 /// 1 when the chapter under the pointer holds another reading, 0 otherwise.
@@ -2075,7 +2166,7 @@ pub extern "C" fn variants_drawn() -> u32 {
 /// The page shows the index under the canvas on that answer alone. Only at the
 /// chapter: higher up the answer would be yes almost everywhere, and an index
 /// always lit explains nothing.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn readings_at(x: f32, y: f32) -> u32 {
     let app = app();
     let (wx, wy) = app.camera.to_world(x, y);
@@ -2083,7 +2174,7 @@ pub extern "C" fn readings_at(x: f32, y: f32) -> u32 {
 }
 
 /// Diagnostic: geometry of a book in the world (0=x 1=y 2=w 3=h).
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn probe_book(book: u32, field: u32) -> f32 {
     let r = app().layout.books[book as usize];
     match field {
@@ -2095,7 +2186,7 @@ pub extern "C" fn probe_book(book: u32, field: u32) -> f32 {
 }
 
 /// Diagnostic: geometry of a chapter in the world (0=x 1=y 2=w 3=h).
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn probe_chapter(chapter: u32, field: u32) -> f32 {
     let r = app().layout.chapters[chapter as usize];
     match field {
@@ -2106,14 +2197,150 @@ pub extern "C" fn probe_chapter(chapter: u32, field: u32) -> f32 {
     }
 }
 
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn text_ptr() -> *const u8 {
     corpus::text().as_ptr()
 }
 
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn text_len() -> u32 {
     corpus::text().len() as u32
+}
+
+// ---------------------------------------------------------------------- text
+
+/// The text part as the page fetched it, until `text_load` lands it.
+static mut TEXT_PACK: Vec<u8> = Vec::new();
+
+/// Room for the text part of the corpus, `len` bytes as fetched: returns
+/// where the page writes them before calling `text_load`.
+///
+/// The map is in the module and draws at once; the text — the bulk — is a
+/// file of its own the page fetches beside it, so the overview never waits
+/// for verses it does not show.
+#[unsafe(no_mangle)]
+#[allow(static_mut_refs)]
+pub extern "C" fn text_buffer(len: u32) -> *mut u8 {
+    unsafe {
+        TEXT_PACK = vec![0; len as usize];
+        TEXT_PACK.as_mut_ptr()
+    }
+}
+
+/// Lands the text part written at `text_buffer` — opened, that is through
+/// `codec_finish` already: the verses and readings join the map, and the
+/// reading level opens. Returns 1 once the text is in; the page then asks for
+/// a frame.
+#[unsafe(no_mangle)]
+#[allow(static_mut_refs)]
+pub extern "C" fn text_load() -> u32 {
+    let packed = unsafe { core::mem::take(&mut TEXT_PACK) };
+    if !corpus::load_text(&packed) {
+        return 0;
+    }
+    // Chapters landed from a tile were laid without the other edition's
+    // readings, which come with the whole text: they are laid again.
+    if let Some(app) = unsafe { APP.as_mut() } {
+        app.lines.clear();
+    }
+    1
+}
+
+/// Whether the text has landed.
+#[unsafe(no_mangle)]
+pub extern "C" fn text_ready() -> u32 {
+    corpus::has_text() as u32
+}
+
+/// Asks the module which tiles the view needs now: chapters about to be read
+/// whose verses are not in. Returns the number of runs, four words each at
+/// `tiles_ptr`: first chapter, end chapter, and the byte range to request
+/// from the opened text part (`ethaor-text.plain.bin`), end excluded.
+///
+/// The map of Google Maps' kind: while the whole text travels in the
+/// background, the chapters the visitor dives into come first, a few
+/// kilobytes each.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+pub extern "C" fn tiles_wanted() -> u32 {
+    app().want_tiles() as u32
+}
+
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+pub extern "C" fn tiles_ptr() -> *const u32 {
+    app().tiles.as_ptr()
+}
+
+/// A tile as fetched, until `tile_load` lands it.
+static mut TILE_IN: Vec<u8> = Vec::new();
+
+/// Room for a tile of `len` bytes: where the page writes it.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+#[allow(static_mut_refs)]
+pub extern "C" fn tile_buffer(len: u32) -> *mut u8 {
+    unsafe {
+        TILE_IN.clear();
+        TILE_IN.resize(len as usize, 0);
+        TILE_IN.as_mut_ptr()
+    }
+}
+
+/// Lands the tile written at `tile_buffer`, chapters `first..end`; the page
+/// then asks for a frame.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+#[allow(static_mut_refs)]
+pub extern "C" fn tile_load(first: u32, end: u32) -> u32 {
+    unsafe { corpus::land_chapters(first as usize..end as usize, &TILE_IN) };
+    1
+}
+
+/// The text part being opened as it arrives, the chunk the page writes, and
+/// the opened text once finished.
+static mut OPENING: Option<pack::Opening> = None;
+static mut CODEC_IN: Vec<u8> = Vec::new();
+static mut CODEC_OUT: Vec<u8> = Vec::new();
+
+/// Room for the next chunk of the text part as it downloads, `len` bytes:
+/// where to write them before `codec_push`.
+///
+/// The codec is the heavy step — hundreds of milliseconds — so the page runs
+/// it in a worker, on a second instance of this very module, chunk by chunk
+/// as the bytes arrive: over a slow link the decode is done when the
+/// download is. Only the opened text reaches the instance that draws.
+#[cfg_attr(feature = "search", unsafe(no_mangle))]
+#[allow(static_mut_refs)]
+pub extern "C" fn codec_chunk(len: u32) -> *mut u8 {
+    unsafe {
+        CODEC_IN.clear();
+        CODEC_IN.resize(len as usize, 0);
+        CODEC_IN.as_mut_ptr()
+    }
+}
+
+/// Takes the chunk written at `codec_chunk` and decodes what it allows.
+#[cfg_attr(feature = "search", unsafe(no_mangle))]
+#[allow(static_mut_refs)]
+pub extern "C" fn codec_push() {
+    unsafe {
+        OPENING.get_or_insert_with(pack::Opening::default).push(&CODEC_IN);
+    }
+}
+
+/// No more chunks: decodes the rest. Returns the length of the opened text,
+/// which sits at `codec_output`, ready for `text_buffer` / `text_load`.
+#[cfg_attr(feature = "search", unsafe(no_mangle))]
+#[allow(static_mut_refs)]
+pub extern "C" fn codec_finish() -> u32 {
+    unsafe {
+        CODEC_OUT = OPENING.take().unwrap_or_default().finish();
+        CODEC_IN = Vec::new();
+        CODEC_OUT.len() as u32
+    }
+}
+
+#[cfg_attr(feature = "search", unsafe(no_mangle))]
+#[allow(static_mut_refs)]
+pub extern "C" fn codec_output() -> *const u8 {
+    unsafe { CODEC_OUT.as_ptr() }
 }
 
 // ----------------------------------------------------------------------- els
@@ -2134,20 +2361,23 @@ fn els_engine() -> &'static mut els::Engine {
 }
 
 /// Builds the search index now rather than at the first query: the page may
-/// call it once idle, so the first search answers at full speed.
-#[unsafe(no_mangle)]
+/// call it once idle, so the first search answers at full speed. Nothing
+/// before the text has landed — the index is read off the verses.
+#[cfg_attr(feature = "search", unsafe(no_mangle))]
 pub extern "C" fn els_prepare() {
-    els_engine();
+    if corpus::has_text() {
+        els_engine();
+    }
 }
 
 /// Where the page writes its query, as UTF-8, before calling `els_search`.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "search", unsafe(no_mangle))]
 #[allow(static_mut_refs)]
 pub extern "C" fn els_query_ptr() -> *mut u8 {
     unsafe { ELS_QUERY.as_mut_ptr() }
 }
 
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "search", unsafe(no_mangle))]
 pub extern "C" fn els_query_cap() -> u32 {
     ELS_QUERY_CAP as u32
 }
@@ -2157,12 +2387,15 @@ pub extern "C" fn els_query_cap() -> u32 {
 /// of the query (0 = contiguous). Marks are ignored and final forms folded.
 ///
 /// Returns the exact number of hits — an f64, since a wide range of common
-/// letters exceeds a u32. The records, `els_stride` words each and at most
+/// letters exceeds a u32 — or -1 while the text has not landed. The records, `els_stride` words each and at most
 /// `els_cap` of them, sit at `els_hits_ptr`; `els_hits_len` says how many.
 ///
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "search", unsafe(no_mangle))]
 #[allow(static_mut_refs)]
 pub extern "C" fn els_search(len: u32, skip0: u32, skip1: u32) -> f64 {
+    if !corpus::has_text() {
+        return -1.0;
+    }
     let bytes = unsafe { &ELS_QUERY[..(len as usize).min(ELS_QUERY_CAP)] };
     let hits = unsafe { &mut ELS_HITS };
     match core::str::from_utf8(bytes) {
@@ -2174,38 +2407,38 @@ pub extern "C" fn els_search(len: u32, skip0: u32, skip1: u32) -> f64 {
     }
 }
 
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "search", unsafe(no_mangle))]
 #[allow(static_mut_refs)]
 pub extern "C" fn els_hits_ptr() -> *const u32 {
     unsafe { ELS_HITS.as_ptr() }
 }
 
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "search", unsafe(no_mangle))]
 #[allow(static_mut_refs)]
 pub extern "C" fn els_hits_len() -> u32 {
     unsafe { (ELS_HITS.len() / els::STRIDE) as u32 }
 }
 
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "search", unsafe(no_mangle))]
 pub extern "C" fn els_stride() -> u32 {
     els::STRIDE as u32
 }
 
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "search", unsafe(no_mangle))]
 pub extern "C" fn els_cap() -> u32 {
     els::CAP as u32
 }
 
 /// Probe: imposes a search method — 1, 2, 3 for `els::METHODS` — or gives
 /// the choice back to the cost model with 0. Only the benchmark calls it.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "search", unsafe(no_mangle))]
 pub extern "C" fn probe_els_method(method: u32) {
     els_engine().force = els::METHODS.get((method as usize).wrapping_sub(1)).copied();
 }
 
 /// Probe: forgets the remembered answers — and with `cold`, the planes and
 /// residue lists too — so the benchmark times a search, not a recall.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "search", unsafe(no_mangle))]
 pub extern "C" fn probe_els_forget(cold: u32) {
     let engine = els_engine();
     engine.forget_answers();

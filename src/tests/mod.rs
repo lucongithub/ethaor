@@ -15,6 +15,7 @@ mod camera;
 mod click;
 mod frame;
 mod geometry;
+mod landing;
 mod locate;
 mod readings;
 mod text;

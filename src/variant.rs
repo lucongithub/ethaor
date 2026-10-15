@@ -7,15 +7,10 @@
 //! in its own ink.
 //!
 //! Like `corpus`, everything here is an `O(1)` read — or a dichotomy over
-//! eighty-eight verses — over a block mapped straight from the binary. Nothing
-//! is parsed, nothing is allocated.
+//! eighty-eight verses — over the table `corpus` unpacks with the text.
+//! Nothing is parsed, nothing is allocated.
 
-use crate::corpus::{self, Align4};
-
-static DATA: &Align4<[u8]> = &Align4 {
-    _align: [],
-    bytes: *include_bytes!(concat!(env!("OUT_DIR"), "/variants.bin")),
-};
+use crate::corpus;
 
 /// One insertion inside a display string: where it starts, the length of the
 /// mark that numbers our form, the length of the other reading.
@@ -42,10 +37,7 @@ impl Insert {
 }
 
 fn words() -> &'static [u32] {
-    // SAFETY: `Align4` forces 4-byte alignment; `variants.bin` is a multiple of
-    // 4 bytes written little-endian by build.rs, and `corpus` has already
-    // checked that the target is little-endian.
-    unsafe { core::slice::from_raw_parts(DATA.bytes.as_ptr().cast::<u32>(), DATA.bytes.len() / 4) }
+    corpus::variant_table()
 }
 
 /// Verses carrying a display string.

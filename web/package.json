@@ -7,10 +7,11 @@
 		"dev": "vite dev",
 		"prebuild": "npm run wasm",
 		"build": "vite build",
+		"postbuild": "node scripts/preload.mjs",
 		"preview": "vite preview",
 		"host": "vite preview --host 0.0.0.0 --port 8080",
 		"deploy": "npm run build && wrangler pages deploy build --project-name ethaor",
-		"wasm": "cargo build --manifest-path ../Cargo.toml --target wasm32-unknown-unknown --release && node scripts/copy-wasm.mjs",
+		"wasm": "node scripts/copy-wasm.mjs",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"format": "prettier --write ."
 	},
