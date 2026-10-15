@@ -2,8 +2,5 @@ node_modules
 .svelte-kit
 build
 src/lib/ethaor.wasm
-src/lib/ethaor-text.bin
-src/lib/ethaor-text.gzip.bin
-src/lib/ethaor-text.plain.bin
 src/lib/ethaor-search.wasm
-src/lib/ethaor-text.books.*
+src/lib/ethaor-text.*

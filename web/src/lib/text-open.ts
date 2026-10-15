@@ -35,3 +35,20 @@ export async function range(
 	await reader.cancel();
 	return out.subarray(from, to);
 }
+
+/**
+ * Runs `lanes` loops at once, each taking the next item (`next`, negative
+ * once there is none) and awaiting `take` before asking again. The item is
+ * chosen when a lane frees, not up front: what is nearest to the view then
+ * is what comes, even if the view moved meanwhile.
+ */
+export async function lanes(
+	count: number,
+	next: () => number,
+	take: (item: number) => Promise<void>
+): Promise<void> {
+	const lane = async () => {
+		for (let item = next(); item >= 0; item = next()) await take(item);
+	};
+	await Promise.all(Array.from({ length: count }, lane));
+}

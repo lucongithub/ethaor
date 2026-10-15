@@ -4,11 +4,11 @@
 //! lands in pieces. The **map** — names, labels, counts, a sliver — is
 //! embedded in the module and unpacked at first access: the overview needs
 //! nothing else. The **verses** arrive later, chapter by chapter — a tile
-//! fetched for the chapters the view is about to read (`land_chapter`), the
-//! whole text in the background (`load_text`) — each straight into its final
-//! place in a buffer reserved at the corpus' full size. Nothing moves, so
-//! every slice handed out stays valid, and the order of arrival does not
-//! matter.
+//! fetched for the chapters the view is about to read, books in the
+//! background, nearest to the view first (`land_chapters`) — each straight
+//! into its final place in a buffer reserved at the corpus' full size.
+//! Nothing moves, so every slice handed out stays valid, and the order of
+//! arrival does not matter.
 //!
 //! Until a chapter lands its verses are the empty string, and until the whole
 //! text has landed no verse carries another reading: never a panic, only
@@ -188,13 +188,6 @@ fn landing() -> &'static Landing {
     #[cfg(not(target_arch = "wasm32"))]
     landing.land_text(TEXT);
     landing
-}
-
-/// Lands the whole text part, opened — `pack::open` done. Once only: a second
-/// call changes nothing. Returns whether the text is now in.
-pub fn load_text(plain: &[u8]) -> bool {
-    landing().land_text(plain);
-    true
 }
 
 /// Lands a run of chapters from their tile — their stretch of the opened

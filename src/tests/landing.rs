@@ -158,3 +158,26 @@ fn books_are_fetched_nearest_to_the_view_first() {
     }
     assert!(seen.iter().all(|&s| s), "un livre jamais demande");
 }
+
+/// The probe the load benchmark times by — the first verse a visitor can
+/// read — answers no at the framing and before any chapter has landed, and
+/// yes once the dive has reached the reading level with the text in.
+#[test]
+fn the_verse_probe_tells_numbers_from_verses() {
+    let framed = reference_framed();
+    assert!(!framed.draws_a_verse(), "un verset vu a la vue d'ensemble");
+
+    let notches = notches_to_reading(REFERENCE.0, REFERENCE.1);
+    let mut app = app_at(REFERENCE.0, REFERENCE.1);
+    app.text = false;
+    measure_all(&mut app);
+    let step = app.zoom_step();
+    for _ in 0..notches {
+        app.zoom_at(REFERENCE.0 * 0.5, REFERENCE.1 * 0.5, step);
+    }
+    measure_all(&mut app);
+    assert!(!app.draws_a_verse(), "un verset vu sans texte");
+    app.text = true;
+    measure_all(&mut app);
+    assert!(app.draws_a_verse(), "aucun verset vu au niveau de lecture");
+}

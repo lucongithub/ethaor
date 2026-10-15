@@ -6,16 +6,42 @@
 // time: those are skipped here too. Prints the same table with V8 times, for
 // `tune-els.mjs`.
 //
-//   node scripts/bench-els.mjs <ethaor.wasm> <native.csv> > v8.csv
+//   node scripts/bench-els.mjs <native.csv> > v8.csv
 import { readFileSync } from 'node:fs';
+import { gunzipSync } from 'node:zlib';
 
-const [, , wasm, table] = process.argv;
-if (!wasm || !table) {
-	console.error('usage: node scripts/bench-els.mjs <ethaor.wasm> <native.csv>');
+const [, , table] = process.argv;
+if (!table) {
+	console.error('usage: node scripts/bench-els.mjs <native.csv>   (after npm run wasm)');
 	process.exit(1);
 }
-const { instance } = await WebAssembly.instantiate(readFileSync(wasm), {});
+// The search module, and the text it searches, as the page hands it over:
+// book after book, then the readings. Without them every search would answer
+// -1 — the text not in — and the bench would time nothing.
+const lib = new URL('../src/lib/', import.meta.url);
+const { instance } = await WebAssembly.instantiate(
+	readFileSync(new URL('ethaor-search.wasm', lib)),
+	{}
+);
 const e = instance.exports;
+const books = readFileSync(new URL('ethaor-text.books.bin', lib));
+const cuts = JSON.parse(readFileSync(new URL('ethaor-text.books.json', lib), 'utf8'));
+const block = (i) => gunzipSync(books.subarray(cuts[i], cuts[i + 1]));
+// The allocation may grow the memory: the view is taken after it.
+const write = (bytes) => {
+	const at = e.tile_buffer(bytes.length);
+	new Uint8Array(e.memory.buffer, at, bytes.length).set(bytes);
+};
+const map = new WebAssembly.Instance(
+	new WebAssembly.Module(readFileSync(new URL('ethaor.wasm', lib))),
+	{}
+).exports;
+for (let b = 0; b < cuts.length - 2; b++) {
+	write(block(b));
+	e.tile_load(map.book_first_chapter(b), map.book_end_chapter(b));
+}
+write(block(cuts.length - 2));
+if (e.readings_load() !== 1) throw new Error('le texte ne se pose pas dans le module de recherche');
 e.els_prepare();
 const encoder = new TextEncoder();
 

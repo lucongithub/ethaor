@@ -25,7 +25,7 @@ import plainUrl from './ethaor-text.plain.bin?url';
 import SearchWorker from './search-worker?worker';
 import type { Answer, Request } from './search-worker';
 import { SearchCore, type Found } from './search-core';
-import { inflate, range } from './text-open';
+import { inflate, lanes, range } from './text-open';
 
 /**
  * Books fetched at once in the background. One at a time paid a round trip
@@ -96,10 +96,6 @@ interface Wasm {
 	text_len(): number;
 	/** 1 when what the pointer names holds another reading. */
 	readings_at(x: number, y: number): number;
-	/** Room for the text part of the corpus: where to write its bytes. */
-	text_buffer(length: number): number;
-	/** Lands the text part written at `text_buffer`: 1 once the verses are in. */
-	text_load(): number;
 	/** Tiles the view needs now: the number of runs at `tiles_ptr`. */
 	tiles_wanted(): number;
 	/** Per run: first chapter, end chapter, byte range in the opened text. */
@@ -691,17 +687,14 @@ export async function createTanakhMap(
 			// the nearest to the view when its turn comes.
 			const block = async (i: number) =>
 				inflate(await range(booksUrl, bookCuts[i], bookCuts[i + 1], 'low'));
-			const lane = async () => {
-				for (let book = wasm.next_book(); book >= 0; book = wasm.next_book()) {
-					const codes = await block(book);
-					const [first, end] = [wasm.book_first_chapter(book), wasm.book_end_chapter(book)];
-					landHere(first, end, codes);
-					if (!performance.getEntriesByName('ethaor:near').length) performance.mark('ethaor:near');
-					if (worker) ask({ tile: { first, end, codes } });
-					else (await here!).tile(first, end, codes);
-				}
-			};
-			await Promise.all(Array.from({ length: BOOKS_IN_FLIGHT }, lane));
+			await lanes(BOOKS_IN_FLIGHT, wasm.next_book, async (book) => {
+				const codes = await block(book);
+				const [first, end] = [wasm.book_first_chapter(book), wasm.book_end_chapter(book)];
+				landHere(first, end, codes);
+				if (!performance.getEntriesByName('ethaor:near').length) performance.mark('ethaor:near');
+				if (worker) ask({ tile: { first, end, codes } });
+				else (await here!).tile(first, end, codes);
+			});
 			const readings = await block(bookCuts.length - 2);
 			const atReadings = wasm.tile_buffer(readings.length);
 			new Uint8Array(wasm.memory.buffer, atReadings, readings.length).set(readings);

@@ -992,6 +992,13 @@ impl App {
         self.text && corpus::chapter_ready(chapter)
     }
 
+    /// Whether the last frame draws a line of a verse: a text command past
+    /// the map's strings — names and labels lie before the verses.
+    fn draws_a_verse(&self) -> bool {
+        let start = corpus::verses_offset() as f32;
+        self.commands.chunks(STRIDE).any(|c| c[0] == KIND_TEXT && c[7] >= start && c[8] > 0.0)
+    }
+
     /// Asks for the tiles of the chapters the view is about to read: those on
     /// screen whose lines will pass `READABLE_LINE` within `TILE_AHEAD`
     /// notches, not in and not asked yet. Neighbours come in one run — one
@@ -2173,9 +2180,7 @@ pub extern "C" fn variants_drawn() -> u32 {
 /// the first verse a visitor can read.
 #[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn probe_verse_drawn() -> u32 {
-    let app = app();
-    let start = corpus::verses_offset() as f32;
-    app.commands.chunks(STRIDE).any(|c| c[0] == KIND_TEXT && c[7] >= start && c[8] > 0.0) as u32
+    app().draws_a_verse() as u32
 }
 
 /// 1 when the chapter under the pointer holds another reading, 0 otherwise.
@@ -2225,48 +2230,6 @@ pub extern "C" fn text_len() -> u32 {
 }
 
 // ---------------------------------------------------------------------- text
-
-/// The text part as the page fetched it, until `text_load` lands it.
-static mut TEXT_PACK: Vec<u8> = Vec::new();
-
-/// Room for the text part of the corpus, `len` bytes as fetched: returns
-/// where the page writes them before calling `text_load`.
-///
-/// The map is in the module and draws at once; the text — the bulk — is a
-/// file of its own the page fetches beside it, so the overview never waits
-/// for verses it does not show.
-#[unsafe(no_mangle)]
-#[allow(static_mut_refs)]
-pub extern "C" fn text_buffer(len: u32) -> *mut u8 {
-    unsafe {
-        TEXT_PACK = vec![0; len as usize];
-        TEXT_PACK.as_mut_ptr()
-    }
-}
-
-/// Lands the text part written at `text_buffer`: the verses and readings join the map, and the
-/// reading level opens. Returns 1 once the text is in; the page then asks for
-/// a frame.
-#[unsafe(no_mangle)]
-#[allow(static_mut_refs)]
-pub extern "C" fn text_load() -> u32 {
-    let packed = unsafe { core::mem::take(&mut TEXT_PACK) };
-    if !corpus::load_text(&packed) {
-        return 0;
-    }
-    // Chapters landed from a tile were laid without the other edition's
-    // readings, which come with the whole text: they are laid again.
-    if let Some(app) = unsafe { APP.as_mut() } {
-        app.lines.clear();
-    }
-    1
-}
-
-/// Whether the text has landed.
-#[unsafe(no_mangle)]
-pub extern "C" fn text_ready() -> u32 {
-    corpus::has_text() as u32
-}
 
 /// Asks the module which tiles the view needs now: chapters about to be read
 /// whose verses are not in. Returns the number of runs, four words each at

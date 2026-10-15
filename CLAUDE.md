@@ -10,7 +10,7 @@ its volume, and zooming reveals its contents inside it.
 
 **Rules here, numbers in tests.** This file states invariants, intent and
 rejected alternatives — the things a test cannot express. Every measurement,
-ratio, count and threshold lives in `cargo test` (247 tests, 5 s), which is the
+ratio, count and threshold lives in `cargo test` (248 tests, 5 s), which is the
 only place they stay true. Do not restate a measured value here; if a rule can
 be asserted, assert it and leave only the *why* in prose.
 
@@ -65,7 +65,9 @@ web/                            SvelteKit 2 + Svelte 5 + Tailwind 4
                                 lie, JSON), and plain for tiles
   src/lib/search-worker.ts      the search module off the frame loop
   src/lib/search-core.ts        the search module: land the text, search
-  src/lib/text-open.ts          Range requests, and gzip opened natively
+  src/lib/text-open.ts          Range requests, gzip opened natively, the lanes
+  src/lib/*.test.ts             the page's own logic, on the real artifacts
+  src/lib/tests/artifacts.ts    those artifacts read from disk, for the tests
   static/fonts/Baloo2-Regular.woff   UI only, Latin subset (see Fonts)
   static/_headers               cache rules for the host (Cloudflare, Netlify)
   scripts/copy-wasm.mjs
@@ -90,7 +92,7 @@ and two theme tokens (`--font-sans`, `--font-hebrew`).
 ## Build
 
 ```sh
-cargo test         # 247 tests, 5 s — before any commit
+cargo test         # 248 tests, 5 s — before any commit
 cd web
 npm install
 npm run wasm       # both modules (map, search) built and copied into src/lib/
@@ -99,6 +101,9 @@ npm run build      # runs `wasm` first (prebuild), then writes build/
 npm run preview    # serves build/ on the dev port — to test, not to host
 npm run host       # same, on 0.0.0.0:8080
 npm run deploy     # build, then upload build/ to Cloudflare Pages (ethaor)
+npm test           # the page's own logic (vitest), modules rebuilt first
+npm run verify     # the whole gate: cargo test, clippy on all three builds,
+                   # npm test, svelte-check, prettier — before any commit
 ```
 
 `build` recompiles the module itself: Vite only takes the file it finds, so a
@@ -698,7 +703,7 @@ yet; the page only has the exports, all prefixed `els_` (`els_search`,
   ```sh
   cargo test --release bench_methods -- --ignored --nocapture 2> native.csv
   cd web && npm run wasm
-  node scripts/bench-els.mjs ../target/wasm32-unknown-unknown/release/ethaor.wasm ../native.csv > ../v8.csv
+  node scripts/bench-els.mjs ../native.csv > ../v8.csv
   node scripts/tune-els.mjs ../v8.csv ../native.csv
   ```
 
@@ -787,13 +792,15 @@ units.
 
 **Nothing is added to the computation without a test.** That is the counterpart
 of the guiding principle: if everything is computed here, everything is verified
-here. `cargo test` holds 247 tests and answers in 5 s, so there is no reason not
+here. `cargo test` holds 248 tests and answers in 5 s, so there is no reason not
 to run it at every step.
 
 ```sh
 cargo test                        # everything
 cargo test -- tests::frame        # one panel
 cargo test --test builder         # corpus build
+cd web && npm test                # the page's logic, on the built artifacts
+cd web && npm run verify          # everything, Rust and page, plus lints
 ```
 
 ### What a test asserts here
@@ -818,6 +825,9 @@ anywhere must be an assertion.
 | `src/tests/api.rs` | the interface the page really calls, global state under a lock: gestures, selection, breadcrumb at centre and under pointer, a mouse gone names nothing, forgetting measurements, probes; the search through the query buffer |
 | `src/els/tests.rs` | the stream is every verse read letter by letter; postings, residue lists and planes say what the stream says; **every method equals trying every start and every skip**, on random streams of every size and range; the cap keeps the first hits in (skip, start) order with the exact total; two letters counted without listing; the cost model picks the measured winner; radix sort; placement tables; memo; finals and pointing fold; an occurrence across two verses; every record placed where its hit is; `תורה` every fiftieth letter from the first tav; time budget |
 | `src/pack/tests.rs` | the packed corpus unpacks to the working form **byte for byte**; the map alone holds names, labels and counts and reserves the text's room; the packed form is a fraction of the working one; Hebrew numerals; label exceptions carry only what breaks the rule; varints |
+| `web/src/lib/text-open.test.ts` | gzip opened byte for byte, from a view too; a Range asks `from..to` end excluded, and a server ignoring it is read only as far as needed; the lanes take each item once, never more at once than their count, and choose each item when a lane frees — so the view's move is seen |
+| `web/src/lib/search-core.test.ts` | the books file: 39 books then the readings, in order, and opened they give back the plain text the tiles read; the search module answers -1 until the last book and the readings are in, in any order, then finds, its hits a copy |
+| `web/src/lib/search-worker.test.ts` | a search asked before the text is held, then answered by its id; the next one answers the same |
 | `src/tests/landing.rs` | the next book fetched is the nearest to the view, follows it when it moves, each book once; before the text lands the map stays whole — no black frame however deep, no verse drawn, clicked or named — and the verses come once it lands; the overview is identical with and without the text; a chapter's tile is asked two notches or more ahead of its reading level, once, only for chapters on screen, with its exact byte range |
 | `src/variant/tests.rs` | the welded table: taking the insertions out gives the verse back byte for byte, every range is a slice on a letter boundary, an offset is mapped back to the verse or refused |
 | `src/tests/readings.rs` | the other reading **in the flow, never over it**: the runs of a line tile it from the right and recompose it, the ink marks theirs and only theirs, a verse without a variant stays one command, a click never names the other edition |
@@ -847,8 +857,17 @@ anywhere must be an assertion.
 - **A record's layout is a contract**: changing it in Rust forces changing it in
   `ethaor.ts`. `a_record_keeps_the_layout_the_page_reads` is the alarm, not the
   guarantee.
-- **The TypeScript bridge is not covered** — it only measures and paints. Any
-  logic appearing there must move down into Rust, or come with its own tests.
+- **The page's logic is tested in `web/`, the rest of the bridge is not.**
+  Measuring and painting stay uncovered; anything that decides — what to
+  fetch, in what order, how bytes are opened, when a search answers — lives
+  in a small module of its own (`text-open.ts`, `search-core.ts`,
+  `search-worker.ts`) with its `*.test.ts` beside it, run on the real
+  artifacts. Logic growing inside `ethaor.ts` must move down into Rust or out
+  into such a module first.
+- **`npm run verify` is the gate**: green before any commit. A script in
+  `scripts/` that reads the module's exports is run once after any change to
+  them — `bench-els.mjs` measured nothing for a while because the text it
+  needed no longer landed.
 
 ## Forbidden
 
