@@ -24,6 +24,7 @@ import bookCuts from './ethaor-text.books.json';
 import plainUrl from './ethaor-text.plain.bin?url';
 import SearchWorker from './search-worker?worker';
 import type { Answer, Request } from './search-worker';
+import { escalate, Fault, readTraps, relay, reporter } from './fault';
 import { SearchCore, type Found } from './search-core';
 import { inflate, lanes, range } from './text-open';
 
@@ -65,6 +66,8 @@ const KIND_UNCLIP = 3;
 /** Signature of the module's exports. Every float is CSS pixels. */
 interface Wasm {
 	memory: WebAssembly.Memory;
+	fault_ptr(): number;
+	fault_len(): number;
 	init(width: number, height: number): number;
 	resize(width: number, height: number): void;
 	reset(): void;
@@ -158,7 +161,8 @@ export interface TanakhMap {
 	/**
 	 * ELS across the whole Tanakh: `query` read with `skip0..=skip1` letters
 	 * jumped between its letters. Runs in the search module's worker, so it
-	 * never holds a frame; answers once the text has landed.
+	 * never holds a frame; answers once the text has landed. Rejected if the
+	 * module failed on it — the next search runs on a new one.
 	 */
 	search(query: string, skip0: number, skip1: number): Promise<Found>;
 	readonly books: number;
@@ -182,16 +186,22 @@ export interface MapOptions {
 	 * that alone.
 	 */
 	onReadings?: (count: number) => void;
+	/**
+	 * A fault the user should hear of — the map stopped, a search failed.
+	 * Every fault is reported to the log whether shown or not; those the page
+	 * lives through degrade in silence.
+	 */
+	onFault?: (fault: Fault) => void;
 }
 
 export async function createTanakhMap(
 	canvas: HTMLCanvasElement,
 	options: MapOptions = {}
 ): Promise<TanakhMap> {
-	const { onSelect, onFocus, onReadings } = options;
+	const { onSelect, onFocus, onReadings, onFault } = options;
 
 	const context = canvas.getContext('2d', { alpha: false });
-	if (!context) throw new Error('canvas 2d indisponible');
+	if (!context) throw new Error('canvas 2d unavailable');
 	const ctx = context;
 
 	// The module downloads while the font loads. The text waits for the first
@@ -217,6 +227,23 @@ export async function createTanakhMap(
 
 	const { module, instance } = await loading;
 	const wasm = instance.exports as unknown as Wasm;
+	// A trap in the map module is traced to the Rust panic that caused it.
+	const unwatch = readTraps(() => {
+		const length = wasm.fault_len();
+		if (length === 0) return null;
+		return new TextDecoder().decode(new Uint8Array(wasm.memory.buffer, wasm.fault_ptr(), length));
+	});
+
+	/** Reported always; told to the user when the code says so. */
+	function told(raised: Fault): Fault {
+		reporter.report(raised);
+		if (raised.show) onFault?.(raised);
+		return raised;
+	}
+	/** Raised here, from whatever was thrown. */
+	function fault(cause: unknown, code: Parameters<typeof escalate>[1], what: string): Fault {
+		return told(escalate(cause, code, what));
+	}
 
 	// If the final font arrives after the first measurements, those were taken on
 	// a fallback font: they must be forgotten, otherwise the text stays badly
@@ -426,15 +453,27 @@ export async function createTanakhMap(
 					wasm.tile_load(first, end);
 					draw();
 				})
-				.catch((cause) => console.warn(cause));
+				.catch((cause) =>
+					fault(cause, 'tile-unfetched', `fetching the tile of chapters ${first}..${end}`)
+				);
 		}
 	}
 
 	let frame: number | null = null;
+	// Once a frame has failed the module may be half-written: the map stops,
+	// its user is told, and nothing is drawn again — no error in a loop.
+	let broken = false;
 	function draw() {
+		if (broken) return;
 		frame ??= requestAnimationFrame(() => {
 			frame = null;
-			paint();
+			try {
+				paint();
+			} catch (cause) {
+				broken = true;
+				fault(cause, 'map-broken', 'drawing a frame');
+				return;
+			}
 			if (!painted) {
 				painted = true;
 				performance.mark('ethaor:map');
@@ -634,12 +673,17 @@ export async function createTanakhMap(
 	// in the search module; the readings last, and the whole text is in.
 	let ask: (request: Request) => void = () => {};
 	let here: Promise<SearchCore> | null = null;
-	const searches = new Map<number, (found: Found) => void>();
+	// Each search waiting for its answer — or its failure: a search the
+	// module could not run is rejected, never left pending.
+	const searches = new Map<
+		number,
+		{ done: (found: Found) => void; fail: (cause: Error) => void }
+	>();
 	let next = 0;
 	function search(query: string, skip0: number, skip1: number): Promise<Found> {
-		return new Promise((done) => {
+		return new Promise((done, fail) => {
 			const id = next++;
-			searches.set(id, done);
+			searches.set(id, { done, fail });
 			ask({ els: { id, query, skip0, skip1 } });
 		});
 	}
@@ -661,10 +705,12 @@ export async function createTanakhMap(
 			if (worker) {
 				worker.onmessage = (event: MessageEvent<Answer>) => {
 					const message = event.data;
-					if ('id' in message) {
-						searches.get(message.id)?.(message.found);
-						searches.delete(message.id);
-					} else console.warn(message.error);
+					if ('found' in message) searches.get(message.id)?.done(message.found);
+					else if (message.id !== undefined) {
+						const failed = Fault.from(message.fault);
+						searches.get(message.id)?.fail(told(relay(failed, "answering the page's search")));
+					} else told(relay(Fault.from(message.fault), 'the worker preparing the text'));
+					if (message.id !== undefined) searches.delete(message.id);
 				};
 				ask = (request) => worker!.postMessage(request);
 			} else {
@@ -675,10 +721,11 @@ export async function createTanakhMap(
 					// Searches wait for the text, as in the worker.
 					textIn
 						.then(() => here!)
-						.then((core) => {
-							searches.get(id)?.(core.els(query, skip0, skip1));
-							searches.delete(id);
-						});
+						.then((core) => searches.get(id)?.done(core.els(query, skip0, skip1)))
+						.catch((cause) =>
+							searches.get(id)?.fail(fault(cause, 'search-failed-here', 'a search in the page'))
+						)
+						.finally(() => searches.delete(id));
 				};
 			}
 
@@ -706,7 +753,7 @@ export async function createTanakhMap(
 			if (worker) ask({ readings });
 			else (await here!).readings(readings);
 		})
-		.catch((cause) => console.warn(cause));
+		.catch((cause) => fault(cause, 'text-unfetched', 'fetching the books in the background'));
 
 	return {
 		books,
@@ -725,6 +772,7 @@ export async function createTanakhMap(
 			canvas.removeEventListener('pointerleave', onPointerLeave);
 			canvas.removeEventListener('wheel', onWheel);
 			if (frame !== null) cancelAnimationFrame(frame);
+			unwatch();
 		}
 	};
 }

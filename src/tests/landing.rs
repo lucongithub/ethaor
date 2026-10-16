@@ -24,7 +24,7 @@ fn notches_to_reading(width: f32, height: f32) -> usize {
             return notch;
         }
     }
-    panic!("le clic ne s'active jamais");
+    panic!("the click never becomes live");
 }
 
 /// **Before the text, the dive goes on with the numbers**: well past the
@@ -44,14 +44,14 @@ fn the_map_stays_whole_until_the_text_lands() {
             app.zoom_at(cx, cy, step);
             app.build_frame();
             let drawn = commands(&app);
-            assert!(drawn.iter().any(|c| c.is_text()), "{w}x{h}, cran {notch}: image vide sans le texte");
+            assert!(drawn.iter().any(|c| c.is_text()), "{w}x{h}, notch {notch}: empty image without the text");
             assert!(
                 drawn.iter().filter(|c| c.is_text()).all(|c| c.offset < verses_start()),
-                "{w}x{h}, cran {notch}: un verset dessine avant l'arrivee du texte"
+                "{w}x{h}, notch {notch}: a verse drawn before the text came"
             );
             let (wx, wy) = app.camera.to_world(cx, cy);
-            assert!(app.clickable_at(wx, wy).is_none(), "{w}x{h}: un clic vivant sans texte");
-            assert!(app.path_at(wx, wy, false).is_none_or(|p| p[7] == 0), "{w}x{h}: un verset nomme sans texte");
+            assert!(app.clickable_at(wx, wy).is_none(), "{w}x{h}: a live click without text");
+            assert!(app.path_at(wx, wy, false).is_none_or(|p| p[7] == 0), "{w}x{h}: a verse named without text");
         }
 
         // The text lands: the verses come.
@@ -65,7 +65,7 @@ fn the_map_stays_whole_until_the_text_lands() {
                 break;
             }
         }
-        assert!(opened, "{w}x{h}: le texte arrive mais aucun verset n'apparait");
+        assert!(opened, "{w}x{h}: the text came but no verse shows");
     }
 }
 
@@ -79,7 +79,7 @@ fn the_overview_needs_no_verse() {
     measure_all(&mut without);
     at_framing(&mut without);
     without.build_frame();
-    assert_eq!(commands(&without), commands(&with), "la vue d'ensemble depend du texte");
+    assert_eq!(commands(&without), commands(&with), "the overview depends on the text");
 }
 
 
@@ -106,11 +106,11 @@ fn tiles_are_asked_for_ahead_of_the_reading_level() {
             let runs = app.want_tiles();
             for run in app.tiles.chunks(4).take(runs) {
                 let (first, end) = (run[0] as usize, run[1] as usize);
-                assert_eq!(corpus::tile_range(first..end), (run[2] as usize, run[3] as usize), "{w}x{h}: tranche fausse");
+                assert_eq!(corpus::tile_range(first..end), (run[2] as usize, run[3] as usize), "{w}x{h}: wrong stretch");
                 for (c, count) in asked.iter_mut().enumerate().take(end).skip(first) {
                     *count += 1;
                     let cell = app.camera.project(app.layout.chapters[c]);
-                    assert!(app.visible(cell), "{w}x{h}: chapitre {c} demande hors de l'ecran");
+                    assert!(app.visible(cell), "{w}x{h}: chapter {c} asked off screen");
                 }
             }
             let (wx, wy) = app.camera.to_world(cx, cy);
@@ -121,9 +121,9 @@ fn tiles_are_asked_for_ahead_of_the_reading_level() {
                 centre_asked = Some(notch);
             }
         }
-        assert!(asked.iter().all(|&n| n <= 1), "{w}x{h}: un chapitre demande deux fois");
-        let at = centre_asked.unwrap_or_else(|| panic!("{w}x{h}: le chapitre vise n'est jamais demande"));
-        assert!(at + 2 <= reading, "{w}x{h}: demande au cran {at}, lisible au cran {reading}");
+        assert!(asked.iter().all(|&n| n <= 1), "{w}x{h}: a chapter asked twice");
+        let at = centre_asked.unwrap_or_else(|| panic!("{w}x{h}: the aimed chapter is never asked"));
+        assert!(at + 2 <= reading, "{w}x{h}: asked at notch {at}, readable at notch {reading}");
     }
 }
 
@@ -135,10 +135,10 @@ fn tiles_are_asked_for_ahead_of_the_reading_level() {
 fn books_are_fetched_nearest_to_the_view_first() {
     let mut app = reference_framed();
     let (cx, cy) = app.camera.to_world(app.width / 2.0, app.height / 2.0);
-    let first = app.next_book().expect("un livre");
+    let first = app.next_book().expect("a book");
     assert!(
         (0..corpus::book_count()).all(|b| gap_to(app.layout.books[first], cx, cy) <= gap_to(app.layout.books[b], cx, cy)),
-        "le premier livre n'est pas le plus proche du centre"
+        "the first book is not the nearest to the centre"
     );
 
     // The view moves to the last book: the next asked is it.
@@ -147,16 +147,16 @@ fn books_are_fetched_nearest_to_the_view_first() {
     let (tx, ty) = (target.x + target.w / 2.0, target.y + target.h / 2.0);
     app.camera.x += app.width / 2.0 - (tx * app.camera.z + app.camera.x);
     app.camera.y += app.height / 2.0 - (ty * app.camera.z + app.camera.y);
-    assert_eq!(app.next_book(), Some(last), "le texte ne suit pas la vue");
+    assert_eq!(app.next_book(), Some(last), "the text does not follow the view");
 
     let mut seen = vec![false; corpus::book_count()];
     seen[first] = true;
     seen[last] = true;
     while let Some(b) = app.next_book() {
-        assert!(!seen[b], "le livre {b} demande deux fois");
+        assert!(!seen[b], "book {b} asked twice");
         seen[b] = true;
     }
-    assert!(seen.iter().all(|&s| s), "un livre jamais demande");
+    assert!(seen.iter().all(|&s| s), "a book never asked");
 }
 
 /// The probe the load benchmark times by — the first verse a visitor can
@@ -165,7 +165,7 @@ fn books_are_fetched_nearest_to_the_view_first() {
 #[test]
 fn the_verse_probe_tells_numbers_from_verses() {
     let framed = reference_framed();
-    assert!(!framed.draws_a_verse(), "un verset vu a la vue d'ensemble");
+    assert!(!framed.draws_a_verse(), "a verse seen in the overview");
 
     let notches = notches_to_reading(REFERENCE.0, REFERENCE.1);
     let mut app = app_at(REFERENCE.0, REFERENCE.1);
@@ -176,8 +176,8 @@ fn the_verse_probe_tells_numbers_from_verses() {
         app.zoom_at(REFERENCE.0 * 0.5, REFERENCE.1 * 0.5, step);
     }
     measure_all(&mut app);
-    assert!(!app.draws_a_verse(), "un verset vu sans texte");
+    assert!(!app.draws_a_verse(), "a verse seen without text");
     app.text = true;
     measure_all(&mut app);
-    assert!(app.draws_a_verse(), "aucun verset vu au niveau de lecture");
+    assert!(app.draws_a_verse(), "no verse seen at reading level");
 }

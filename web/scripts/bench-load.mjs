@@ -146,7 +146,7 @@ const port = await new Promise((ok, fail) => {
 		const m = err.match(/DevTools listening on ws:\/\/[^:]+:(\d+)\//);
 		if (m) ok(Number(m[1]));
 	});
-	browser.on('exit', () => fail(new Error('chrome est sorti')));
+	browser.on('exit', () => fail(new Error('chrome exited')));
 });
 
 /** A page target and a tiny client of the debugging protocol over it. */
@@ -221,9 +221,9 @@ async function once(network) {
 const median = (xs) => [...xs].sort((a, b) => a - b)[xs.length >> 1];
 console.log(
 	`site ${root}, brotli ${quality}, processeur /${cpu}, ` +
-		`${dive ? `plongee de ${dive} crans, ` : ''}${runs} essais par reseau (mediane)`
+		`${dive ? `plongee de ${dive} crans, ` : ''}${runs} runs per network (median)`
 );
-console.log(`reseau      carte (ms)  ${(wait ?? (dive ? 'verse' : 'text')).padStart(6)} (ms)`);
+console.log(`network     map (ms)    ${(wait ?? (dive ? 'verse' : 'text')).padStart(6)} (ms)`);
 for (const network of NETWORKS) {
 	const map = [];
 	const text = [];

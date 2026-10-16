@@ -6,7 +6,7 @@
 	<title>ethaor</title>
 	<meta
 		name="description"
-		content="Le Tanakh en carte zoomable : trois sections, les livres dans l’ordre, les versets un par ligne."
+		content="The Tanakh as a zoomable map: three sections, the books in order, the verses one per line."
 	/>
 </svelte:head>
 

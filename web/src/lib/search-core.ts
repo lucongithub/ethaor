@@ -20,6 +20,9 @@ interface Exports {
 	els_hits_ptr(): number;
 	els_hits_len(): number;
 	els_stride(): number;
+	fault_ptr(): number;
+	fault_len(): number;
+	probe_panic(): void;
 }
 
 /** What an ELS search found: the exact total, and the first records. */
@@ -53,6 +56,27 @@ export class SearchCore {
 		const at = this.wasm.tile_buffer(bytes.length);
 		new Uint8Array(this.wasm.memory.buffer, at, bytes.length).set(bytes);
 		return this.wasm.readings_load() === 1;
+	}
+
+	/**
+	 * What the module's last panic left — its Rust place, a new line, its
+	 * message — or null. Read after a trap (`src/wasm/fault.rs`).
+	 */
+	panic(): string | null {
+		try {
+			const length = this.wasm.fault_len();
+			if (length === 0) return null;
+			return new TextDecoder().decode(
+				new Uint8Array(this.wasm.memory.buffer, this.wasm.fault_ptr(), length)
+			);
+		} catch {
+			return null;
+		}
+	}
+
+	/** Probe: makes the module panic, for the tests of what a trap leaves. */
+	probePanic() {
+		this.wasm.probe_panic();
 	}
 
 	/** ELS: `query` read with `skip0..=skip1` letters jumped between its letters. */

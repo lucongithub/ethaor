@@ -36,7 +36,7 @@ fn main() {
     println!("cargo:rerun-if-changed={VARIANTS}");
 
     let mut files: Vec<PathBuf> = fs::read_dir(src)
-        .unwrap_or_else(|e| panic!("source introuvable: {}: {e}", src.display()))
+        .unwrap_or_else(|e| panic!("source not found: {}: {e}", src.display()))
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| {
             let n = p.file_name().unwrap().to_string_lossy().to_string();
@@ -45,7 +45,7 @@ fn main() {
         })
         .collect();
     files.sort();
-    assert!(!files.is_empty(), "aucun fichier source dans {SRC_DIR}");
+    assert!(!files.is_empty(), "no source file in {SRC_DIR}");
 
     let mut corpus = Corpus::default();
     for f in &files {
@@ -55,7 +55,7 @@ fn main() {
 
     split_books(&mut corpus);
     reorder(&mut corpus);
-    assert_eq!(corpus.books.len(), ORDER.len(), "nombre de livres inattendu");
+    assert_eq!(corpus.books.len(), ORDER.len(), "unexpected number of books");
     write_output(&corpus, &out);
 }
 
@@ -198,7 +198,7 @@ fn write_output(corpus: &Corpus, out: &Path) {
     let mut report = String::new();
     let _ = writeln!(
         report,
-        "corpus: {n_books} livres, {n_chapters} chapitres, {n_verses} versets, {} Ko de texte, {} Ko d'index, {report_variants} ; paquet {} Ko de carte + {} Ko de texte",
+        "corpus: {n_books} books, {n_chapters} chapters, {n_verses} verses, {} KB of text, {} KB of index, {report_variants}; pack {} KB of map + {} KB of text",
         text.len() / 1024,
         bytes.len() / 1024,
         packed.map.len() / 1024,
@@ -261,7 +261,7 @@ fn weld_variants(corpus: &Corpus, text: &mut String) -> (Vec<u32>, String) {
     assert_eq!(
         matched,
         specs.len(),
-        "{} entrees de {VARIANTS} ne tombent sur aucun verset",
+        "{} entries of {VARIANTS} fall on no verse",
         specs.len() - matched
     );
 
@@ -269,6 +269,6 @@ fn weld_variants(corpus: &Corpus, text: &mut String) -> (Vec<u32>, String) {
     out.extend_from_slice(&display);
     out.extend_from_slice(&inserts);
 
-    let report = format!("{} ecarts sur {} versets", inserts.len() / 4, display.len() / 3);
+    let report = format!("{} differences over {} verses", inserts.len() / 4, display.len() / 3);
     (out, report)
 }

@@ -16,7 +16,7 @@ const assets = join(build, '_app/immutable/assets');
 const names = readdirSync(assets);
 const find = (pattern) => {
 	const name = names.find((n) => pattern.test(n));
-	if (!name) throw new Error(`preload : aucun fichier ne correspond a ${pattern}`);
+	if (!name) throw new Error(`preload: no file matches ${pattern}`);
 	return `./_app/immutable/assets/${name}`;
 };
 
@@ -30,6 +30,6 @@ const links = [
 
 const index = join(build, 'index.html');
 const html = readFileSync(index, 'utf8');
-if (html.includes('rel="preload"')) throw new Error('preload : index.html est deja traite');
+if (html.includes('rel="preload"')) throw new Error('preload: index.html is already processed');
 writeFileSync(index, html.replace('</head>', `\t${links.join('\n\t\t')}\n\t</head>`));
-console.log(`preload : ${links.length} liens dans index.html`);
+console.log(`preload: ${links.length} links in index.html`);

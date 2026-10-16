@@ -3,12 +3,18 @@ name = "ethaor"
 version = "0.1.0"
 edition = "2024"
 
-# Bibliotheque WebAssembly : tout le calcul vit ici, la page ne fait que peindre.
+# WebAssembly library: all the computation lives here, the page only paints.
 [lib]
 crate-type = ["cdylib", "rlib"]
 path = "src/lib.rs"
 
 [dependencies]
+
+# The HTTP twin of the WebAssembly modules (`server/`): native, it links this
+# crate. `cargo test` runs both; a WebAssembly build names `-p ethaor`.
+[workspace]
+members = ["server"]
+default-members = [".", "server"]
 
 # One crate, two modules. `map` exports what the page draws with — gestures,
 # frames, tiles; `search` what the worker searches with — the codec and the
@@ -19,18 +25,29 @@ default = ["map", "search"]
 map = []
 search = []
 
-# Le corpus est soude au binaire par build.rs. On vise la taille et la vitesse
-# d'execution, pas la vitesse de compilation.
+# The corpus is welded into the binary by build.rs. The aim is size and speed
+# of execution, not speed of compilation.
 [profile.release]
 opt-level = 3
 lto = "fat"
 codegen-units = 1
-panic = "abort"
 strip = true
+# A panic unwinds: the server catches it and answers 500, the process lives
+# on. Only the WebAssembly modules abort (profile `wasm`), where unwinding
+# would only cost bytes.
+panic = "unwind"
+
+# The WebAssembly modules: release, aborting on panic — smaller, and a page
+# has no process to keep alive. `web/scripts/copy-wasm.mjs` builds with it.
+[profile.wasm]
+inherits = "release"
+panic = "abort"
 
 # build.rs parse 12 Mo de HTML : l'optimiser evite plusieurs secondes a chaque
 # compilation propre.
 [profile.dev.build-override]
 opt-level = 2
 [profile.release.build-override]
+opt-level = 2
+[profile.wasm.build-override]
 opt-level = 2

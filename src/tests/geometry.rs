@@ -36,13 +36,13 @@ fn the_text_column_is_a_share_of_its_cell() {
         let cell = Rect { x: 100.0, y: 200.0, w: side, h: side };
         let col = column(cell);
         let pad = (cell.w - col.w) / 2.0;
-        assert_close(pad, side * CELL_PAD, 1e-4, "la marge n'est pas proportionnelle");
-        assert_close(col.h, side * (1.0 - 2.0 * CELL_PAD), 1e-4, "la marge verticale differe");
+        assert_close(pad, side * CELL_PAD, 1e-4, "the margin is not proportional");
+        assert_close(col.h, side * (1.0 - 2.0 * CELL_PAD), 1e-4, "the vertical margin differs");
         assert_close(
             cell.x + cell.w / 2.0,
             col.x + col.w / 2.0,
             1e-4,
-            "la colonne n'est pas centree",
+            "the column is not centred",
         );
     }
 }
@@ -54,11 +54,11 @@ fn the_text_column_is_a_share_of_its_cell() {
 fn the_pull_beats_the_drift_of_one_notch() {
     for factor in [1.0_f32, 1.1, 1.22, 1.4, 1.47, 2.0, 4.0] {
         let k = pull(factor);
-        assert!(k >= 1.0 - 1.0 / factor, "l'attraction laisse fuir la cible a {factor}");
-        assert!(k <= 0.75, "l'attraction depasse son plafond a {factor}");
+        assert!(k >= 1.0 - 1.0 / factor, "the pull lets the target escape at {factor}");
+        assert!(k <= 0.75, "the pull goes past its ceiling at {factor}");
         assert!(k > 0.0);
     }
-    assert_close(pull(1.0), 0.12, 1e-6, "la marge de convergence");
+    assert_close(pull(1.0), 0.12, 1e-6, "the convergence margin");
     // A zoom-out notch never pulls beyond the clamp, and never goes negative.
     assert!(pull(0.5) >= 0.0);
 }
@@ -87,7 +87,7 @@ fn a_number_is_exactly_half_a_title() {
                 number / band,
                 treemap::CHAPTER_OVER_BOOK,
                 1e-3,
-                "rapport numero/titre de bande",
+                "number/band title ratio",
             );
             // It reads in full or not at all: never wider than its cell, never
             // taller.
@@ -122,5 +122,5 @@ fn a_measured_numeral_never_overflows_its_cell() {
     let widest = app.widest_numeral();
     let size = number_in(&app.layout, widest);
     let cell = app.layout.chapters[0];
-    assert!(widest * size <= cell.w, "le numero le plus large deborde sa case");
+    assert!(widest * size <= cell.w, "the widest number overflows its cell");
 }

@@ -23,6 +23,7 @@ mod method;
 pub use index::Index;
 pub use method::{METHODS, Method};
 
+use std::ops::Range;
 use std::sync::OnceLock;
 
 use crate::corpus;
@@ -58,7 +59,7 @@ static LETTERS: OnceLock<Letters> = OnceLock::new();
 fn letters() -> &'static Letters {
     LETTERS.get_or_init(|| {
         // Read before the text lands, the stream would be empty for good.
-        assert!(corpus::has_text(), "lettres demandees avant le texte");
+        assert!(corpus::has_text(), "letters asked before the text");
         let n = corpus::verse_count();
         let mut stream = Vec::with_capacity(corpus::text().len() / 3);
         let mut starts = Vec::with_capacity(n + 1);
@@ -105,7 +106,7 @@ pub fn hits(
 ) -> u64 {
     out.clear();
     let (n, m) = (index.text.len(), pattern.len());
-    assert!(n < 1 << START_BITS, "le flux deborde la cle des occurrences");
+    assert!(n < 1 << START_BITS, "the stream overflows the occurrences' key");
     if m == 0 || n == 0 || skip0 > skip1 || pattern.iter().any(|&c| c as usize >= ALPHABET) {
         return 0;
     }
@@ -284,9 +285,7 @@ pub fn features(index: &Index, pattern: &[u8], skip0: u32, skip1: u32) -> Featur
 /// tuned to minimise the time actually picked over it.
 /// `the_cost_model_picks_the_winner` holds the cases that decide it.
 pub fn choose(f: &Features) -> Method {
-    let direct = 1.89 * f.anchors + 1.84 * f.steps;
-    let pairs = 19.0 * f.anchors + 2.35 * f.steps * f.second;
-    let planes = 9.9 * f.anchors + 1.97 * f.steps / 64.0 * f.lanes.min(3.0);
+    let [direct, pairs, planes] = costs(f);
     if direct <= pairs && direct <= planes {
         Method::Direct
     } else if pairs <= planes {
@@ -296,10 +295,29 @@ pub fn choose(f: &Features) -> Method {
     }
 }
 
+/// Each method's expected time, in V8 nanoseconds: `Direct`, `Pairs`,
+/// `Planes`.
+fn costs(f: &Features) -> [f64; 3] {
+    [
+        1.89 * f.anchors + 1.84 * f.steps,
+        19.0 * f.anchors + 2.35 * f.steps * f.second,
+        9.9 * f.anchors + 1.97 * f.steps / 64.0 * f.lanes.min(3.0),
+    ]
+}
+
+/// What the chosen method is expected to cost, in V8 nanoseconds — read
+/// before searching, so a server can refuse a query too heavy to run.
+pub fn cost(f: &Features) -> f64 {
+    costs(f).into_iter().fold(f64::INFINITY, f64::min)
+}
+
 /// The search behind the page: the corpus' index, built at the first query,
 /// and where each hit falls.
 pub struct Engine {
     pub index: Index<'static>,
+    /// Indices over a stretch of the stream, for searches kept to it — the
+    /// last few, most recent first.
+    scoped: Vec<Index<'static>>,
     /// Verse holding the first letter of each block of `1 << BLOCK` letters:
     /// a letter's verse is a step or two from there.
     verse_at_block: Vec<u16>,
@@ -318,6 +336,7 @@ pub struct Engine {
 struct Answer {
     codes: Vec<u8>,
     skips: (u32, u32),
+    letters: (usize, usize),
     force: Option<Method>,
     total: u64,
     hits: Vec<(u32, u32)>,
@@ -326,12 +345,18 @@ struct Answer {
 /// Answers kept in memory: each holds at most `CAP` hits, eight bytes each.
 const MEMO: usize = 8;
 
+/// Stretch indices kept: each holds the postings of its stretch, four bytes
+/// a letter.
+const SCOPED: usize = 4;
+
 /// Letters per block of `verse_at_block`, as a power of two. Verses hold
 /// about fifty letters, so a block starts at most a few verses before its
 /// letters'.
 const BLOCK: u32 = 6;
 
 impl Engine {
+    /// Reads the whole text: no `Default`, which would promise a cheap value.
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Engine {
         let starts = verse_starts();
         let n = stream().len();
@@ -357,6 +382,7 @@ impl Engine {
         }
         Engine {
             index: Index::new(stream()),
+            scoped: Vec::new(),
             verse_at_block,
             chapter_of_verse,
             book_of_chapter,
@@ -383,22 +409,95 @@ impl Engine {
         v
     }
 
-    /// Runs a search and writes one `STRIDE` record per kept hit into `out`.
-    /// Returns the exact number of hits, which may exceed the records.
-    pub fn search(&mut self, query: &str, skip0: u32, skip1: u32, out: &mut Vec<u32>) -> u64 {
+    /// The hits of a query as (start, skip), the first `CAP` in (skip, start)
+    /// order, and the exact total — searched, or remembered. Nothing is
+    /// placed: a caller wanting one page places that page only.
+    pub fn hits(&mut self, query: &str, skip0: u32, skip1: u32) -> (u64, &[(u32, u32)]) {
+        self.hits_in(query, skip0, skip1, 0..stream().len())
+    }
+
+    /// The same, kept to a stretch of the stream: only the occurrences whose
+    /// every letter lies in `letters`. They are searched on that stretch
+    /// alone, as if it were the whole text — so the first `CAP` kept are the
+    /// stretch's own, not what is left of the whole text's — and their
+    /// starts given back as ranks in the whole stream.
+    pub fn hits_in(&mut self, query: &str, skip0: u32, skip1: u32, letters: Range<usize>) -> (u64, &[(u32, u32)]) {
+        let n = stream().len();
+        let letters = letters.start.min(n)..letters.end.min(n).max(letters.start.min(n));
         pattern(query, &mut self.codes);
-        let asked = |a: &Answer| a.codes == self.codes && a.skips == (skip0, skip1) && a.force == self.force;
+        let key = (letters.start, letters.end);
+        let asked = |a: &Answer| {
+            a.codes == self.codes && a.skips == (skip0, skip1) && a.letters == key && a.force == self.force
+        };
         let answer = match self.memo.iter().position(asked) {
             Some(k) => self.memo.remove(k),
             None => {
                 self.runs += 1;
                 let mut found = Vec::new();
-                let total = hits(&mut self.index, &self.codes, skip0, skip1, CAP, self.force, &mut found);
-                Answer { codes: self.codes.clone(), skips: (skip0, skip1), force: self.force, total, hits: found }
+                let (force, codes) = (self.force, std::mem::take(&mut self.codes));
+                let total = hits(self.index_of(letters.clone()), &codes, skip0, skip1, CAP, force, &mut found);
+                self.codes = codes;
+                if letters.start > 0 {
+                    for hit in &mut found {
+                        hit.0 += letters.start as u32;
+                    }
+                }
+                Answer { codes: self.codes.clone(), skips: (skip0, skip1), letters: key, force, total, hits: found }
             }
         };
         self.memo.insert(0, answer);
         self.memo.truncate(MEMO);
+        (self.memo[0].total, &self.memo[0].hits)
+    }
+
+    /// The index a search over `letters` walks: the whole text's, or one
+    /// built over that stretch — a few milliseconds — and kept a while.
+    fn index_of(&mut self, letters: Range<usize>) -> &mut Index<'static> {
+        let n = stream().len();
+        if letters.start == 0 && letters.end == n {
+            return &mut self.index;
+        }
+        let text = &stream()[letters];
+        let same = |i: &Index| i.text.as_ptr() == text.as_ptr() && i.text.len() == text.len();
+        match self.scoped.iter().position(same) {
+            Some(k) => {
+                let index = self.scoped.remove(k);
+                self.scoped.insert(0, index);
+            }
+            None => {
+                self.scoped.insert(0, Index::new(text));
+                self.scoped.truncate(SCOPED);
+            }
+        }
+        &mut self.scoped[0]
+    }
+
+    /// What a query is expected to cost, in V8 nanoseconds, without running
+    /// it: the cost model's estimate for the method it would pick.
+    pub fn cost(&mut self, query: &str, skip0: u32, skip1: u32, letters: Range<usize>) -> f64 {
+        let n = stream().len();
+        let letters = letters.start.min(n)..letters.end.min(n).max(letters.start.min(n));
+        pattern(query, &mut self.codes);
+        let codes = std::mem::take(&mut self.codes);
+        let estimate = if codes.len() <= 1 || skip0 > skip1 {
+            // One letter is a lookup; an empty range searches nothing.
+            codes.first().map_or(0.0, |&c| self.index.freq[c as usize] as f64)
+        } else {
+            cost(&features(self.index_of(letters), &codes, skip0, skip1))
+        };
+        self.codes = codes;
+        estimate
+    }
+
+    /// Runs a search and writes one `STRIDE` record per kept hit into `out`.
+    /// Returns the exact number of hits, which may exceed the records.
+    pub fn search(&mut self, query: &str, skip0: u32, skip1: u32, out: &mut Vec<u32>) -> u64 {
+        self.search_in(query, skip0, skip1, 0..stream().len(), out)
+    }
+
+    /// `search`, kept to a stretch of the stream (`hits_in`).
+    pub fn search_in(&mut self, query: &str, skip0: u32, skip1: u32, letters: Range<usize>, out: &mut Vec<u32>) -> u64 {
+        self.hits_in(query, skip0, skip1, letters);
         let answer = &self.memo[0];
 
         let span = self.codes.len().saturating_sub(1);

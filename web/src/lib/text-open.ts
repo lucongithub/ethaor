@@ -22,7 +22,7 @@ export async function range(
 ): Promise<Uint8Array> {
 	const response = await fetch(url, { headers: { Range: `bytes=${from}-${to - 1}` }, priority });
 	if (response.status === 206) return new Uint8Array(await response.arrayBuffer());
-	if (!response.ok || !response.body) throw new Error(`tuile indisponible : ${response.status}`);
+	if (!response.ok || !response.body) throw new Error(`tile unavailable: ${response.status}`);
 	const out = new Uint8Array(to);
 	const reader = response.body.getReader();
 	let at = 0;

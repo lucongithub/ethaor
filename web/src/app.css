@@ -1,14 +1,14 @@
 @import 'tailwindcss';
 
-/* Noto Serif Hebrew : hebreu pointe complet, niqqud et cantillation.
-   Baloo 2 ne contient aucun glyphe hebreu — verifie dans sa table `cmap`,
-   0 consonne sur 27 — elle ne sert donc qu'a l'interface. */
+/* Noto Serif Hebrew: fully pointed Hebrew, niqqud and cantillation.
+   Baloo 2 holds no Hebrew glyph — checked in its `cmap` table, 0 consonants
+   of 27 — so it serves the interface only. */
 @import '@fontsource-variable/noto-serif-hebrew';
 
-/* Hauteur du fil d'Ariane, en une seule place : le panneau de verset s'y cale
-   aussi, donc les deux ne peuvent pas se desynchroniser. Elle suit la taille de
-   son texte — 14 px sur un telephone, 16 au format courant, 18 sur un tres
-   grand ecran — avec la meme air au-dessus et en dessous. */
+/* Height of the breadcrumb, in one place: the verse panel aligns on it too,
+   so the two cannot drift apart. It follows the size of its text — 14 px on a
+   phone, 16 on a usual screen, 18 on a very large one — with the same air
+   above and below. */
 :root {
 	--nav: 2.25rem;
 }
@@ -28,11 +28,11 @@
 	--font-hebrew: 'Noto Serif Hebrew Variable', 'Taamey Frank CLM', 'SBL Hebrew', serif;
 }
 
-/* Baloo 2 ne sert qu'a quelques caracteres latins de l'interface — le
-   message de chargement, les separateurs, les exposants, un nom de site. Un
-   seul poids, reduit au latin (pyftsubset, U+0020-007E, U+00A0-00FF, U+2019,
-   U+2026, U+203A) et compresse en woff : 21 Ko au lieu de trois TTF de 410 Ko,
-   qui contenaient tout le devanagari. */
+/* Baloo 2 serves only a few Latin characters of the interface — the loading
+   message, the separators, the superscripts, a site name. One weight, cut to
+   Latin (pyftsubset, U+0020-007E, U+00A0-00FF, U+2019, U+2026, U+203A) and
+   compressed to woff: 21 KB instead of three 410 KB TTFs, which held the whole
+   of Devanagari. */
 @font-face {
 	font-family: 'Baloo2';
 	src: url('/fonts/Baloo2-Regular.woff') format('woff');

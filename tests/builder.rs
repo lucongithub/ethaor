@@ -81,8 +81,8 @@ mod mamre {
         fn every_rank_of_the_tanakh_reads_in_three_letters() {
             for n in 1..=150 {
                 let label = hebrew_numeral(n);
-                assert!(!label.is_empty(), "le rang {n} n'a pas de numero");
-                assert!(label.chars().count() <= 3, "le rang {n} s'ecrit {label}");
+                assert!(!label.is_empty(), "rank {n} has no number");
+                assert!(label.chars().count() <= 3, "rank {n} is written {label}");
                 assert_ne!(label, "יה", "rang {n}");
                 assert_ne!(label, "יו", "rang {n}");
             }
@@ -91,7 +91,7 @@ mod mamre {
             all.sort();
             let count = all.len();
             all.dedup();
-            assert_eq!(all.len(), count, "deux rangs portent le meme numero");
+            assert_eq!(all.len(), count, "two ranks bear the same number");
         }
 
         // ---------------------------------------------------------- parsing
@@ -101,7 +101,7 @@ mod mamre {
             assert_eq!(strip_tags("<B>1,1</B>"), "1,1");
             assert_eq!(strip_tags("a<FONT SIZE=2>b</FONT>c"), "abc");
             assert_eq!(strip_tags("<A HREF=\"x\"><B>y</B></A>"), "y");
-            assert_eq!(strip_tags("sans balise"), "sans balise");
+            assert_eq!(strip_tags("no tag"), "no tag");
         }
 
         /// Cleaning: markers `{פ} {ס} {ר} {ש}` and all punctuation go; the maqaf
@@ -112,7 +112,7 @@ mod mamre {
             assert_eq!(clean("{ס} שלום {ר}"), "שלום");
             assert_eq!(clean("אל-תעש"), "אל תעש");
             assert_eq!(clean("א, ב. ג; ד:"), "א ב ג ד");
-            assert_eq!(clean("  espaces   multiples  "), "");
+            assert_eq!(clean("  several   spaces  "), "");
             assert_eq!(clean("<B>1,1</B>בראשית"), "בראשית");
             assert_eq!(clean(""), "");
         }
@@ -121,7 +121,7 @@ mod mamre {
         fn cleaning_keeps_the_niqqud_and_the_cantillation() {
             let pointed = "בְּרֵאשִׁ֖ית";
             assert_eq!(clean(pointed), pointed);
-            assert_eq!(clean("עֲוֺן"), "עֲוֺן", "le U+05BA doit survivre au nettoyage");
+            assert_eq!(clean("עֲוֺן"), "עֲוֺן", "U+05BA must survive the cleaning");
         }
 
         #[test]
@@ -164,7 +164,7 @@ mod mamre {
                         <H1>בראשית</H1><B>א,א</B> בראשית ברא";
             let mut corpus = Corpus::default();
             parse_book_file(html, &mut corpus);
-            assert_eq!(corpus.books.len(), 1, "la page de garde a ouvert un livre");
+            assert_eq!(corpus.books.len(), 1, "the cover page opened a book");
             assert_eq!(corpus.books[0].name, "בראשית");
             assert_eq!(corpus.books[0].chapters.len(), 1);
             assert_eq!(corpus.books[0].chapters[0].verses.len(), 1);
@@ -263,8 +263,8 @@ mod mamre {
             );
             // Every half named by a split must exist in the canonical order.
             for &(_, _, first, second) in &SPLITS {
-                assert!(ORDER.contains(&first), "{first} absent de ORDER");
-                assert!(ORDER.contains(&second), "{second} absent de ORDER");
+                assert!(ORDER.contains(&first), "{first} missing from ORDER");
+                assert!(ORDER.contains(&second), "{second} missing from ORDER");
             }
         }
 
@@ -285,7 +285,7 @@ mod mamre {
             let mut sorted = ORDER.to_vec();
             sorted.sort_unstable();
             sorted.dedup();
-            assert_eq!(sorted.len(), 39, "deux entrees de ORDER sont identiques");
+            assert_eq!(sorted.len(), 39, "two entries of ORDER are the same");
         }
 
         /// `reorder` puts the source's books in the displayed order, whatever
@@ -300,7 +300,7 @@ mod mamre {
         }
 
         #[test]
-        #[should_panic(expected = "livre absent de la source")]
+        #[should_panic(expected = "book missing from the source")]
         fn a_missing_book_stops_the_build() {
             let mut corpus = Corpus {
                 books: vec![Book { name: "בראשית".into(), chapters: Vec::new() }],
@@ -337,22 +337,22 @@ mod variants {
 
         #[test]
         fn comments_and_blank_lines_are_skipped() {
-            let tsv = "# un commentaire\n\n0\t1\tא\t2\t1\tאב\tאג\tletters\n";
+            let tsv = "# a comment\n\n0\t1\tא\t2\t1\tאב\tאג\tletters\n";
             let out = parse_variants(tsv);
             assert_eq!(out.len(), 1);
             assert_eq!(out[0], entry(2, 1, "אב", "אג"));
         }
 
         #[test]
-        #[should_panic(expected = "colonnes")]
+        #[should_panic(expected = "columns")]
         fn a_short_line_stops_the_build() {
             parse_variants("0\t1\tא\t2\n");
         }
 
         #[test]
-        #[should_panic(expected = "vide")]
+        #[should_panic(expected = "empty")]
         fn an_empty_table_stops_the_build() {
-            parse_variants("# rien que des commentaires\n");
+            parse_variants("# nothing but comments\n");
         }
 
         // ------------------------------------------------------------ anchors
@@ -374,13 +374,13 @@ mod variants {
         }
 
         #[test]
-        #[should_panic(expected = "hors du verset")]
+        #[should_panic(expected = "outside the verse")]
         fn a_span_past_the_verse_stops_the_build() {
             word_span("אא בב", 1, 5);
         }
 
         #[test]
-        #[should_panic(expected = "ancre absente")]
+        #[should_panic(expected = "anchor missing")]
         fn a_wrong_anchor_stops_the_build() {
             display_of("אא בב גג", &[entry(1, 1, "דד", "הה")]);
         }
@@ -397,14 +397,14 @@ mod variants {
             assert_eq!(inserts.len(), 1);
 
             let Insert { at, mark, other } = inserts[0];
-            assert_eq!(&shown[..at], "אא בב", "ce qui precede est intact");
-            assert_eq!(&shown[at..at + mark], MARK_OURS, "la marque suit notre forme");
+            assert_eq!(&shown[..at], "אא בב", "what comes before is intact");
+            assert_eq!(&shown[at..at + mark], MARK_OURS, "the mark follows our form");
             assert_eq!(&shown[at + mark..at + mark + other], format!(" {OPEN}בג{CLOSE}{MARK_OTHER}"));
-            assert_eq!(&shown[at + mark + other..], " גג", "ce qui suit est intact");
+            assert_eq!(&shown[at + mark + other..], " גג", "what follows is intact");
 
             let mut rebuilt = String::from(&shown[..at]);
             rebuilt.push_str(&shown[at + mark + other..]);
-            assert_eq!(rebuilt, text, "le verset n'est pas retrouve");
+            assert_eq!(rebuilt, text, "the verse is not found back");
         }
 
         #[test]
@@ -413,7 +413,7 @@ mod variants {
             let (shown, inserts) =
                 display_of(text, &[entry(0, 1, "אא", "אב"), entry(2, 1, "גג", "גד")]);
             assert_eq!(inserts.len(), 2);
-            assert!(inserts[0].at < inserts[1].at, "insertions desordonnees");
+            assert!(inserts[0].at < inserts[1].at, "insertions out of order");
 
             let mut rebuilt = String::new();
             let mut cursor = 0;
@@ -426,7 +426,7 @@ mod variants {
         }
 
         #[test]
-        #[should_panic(expected = "entrees non ordonnees")]
+        #[should_panic(expected = "entries out of order")]
         fn entries_out_of_order_stop_the_build() {
             display_of("אא בב גג", &[entry(2, 1, "גג", "גד"), entry(0, 1, "אא", "אב")]);
         }

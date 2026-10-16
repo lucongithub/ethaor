@@ -151,7 +151,7 @@ pub fn count_pairs(index: &mut Index, q: &Query) -> u64 {
 unsafe fn matches(text: &[u8], i: usize, s: usize, letters: &[(isize, u8)]) -> bool {
     letters.iter().all(|&(g, c)| {
         let p = (i as isize + g * s as isize) as usize;
-        debug_assert!(p < text.len(), "lecture hors du flux");
+        debug_assert!(p < text.len(), "read outside the stream");
         unsafe { *text.get_unchecked(p) == c }
     })
 }
@@ -171,7 +171,7 @@ fn direct(index: &Index, q: &Query, shape: &Shape, sink: &mut impl Sink) -> u64 
         for s in q.s0..=hi {
             // SAFETY: `Reach` keeps every letter of the pattern inside the
             // stream for every step up to `hi`, this one and the rest alike.
-            debug_assert!(p < text.len(), "lecture hors du flux");
+            debug_assert!(p < text.len(), "read outside the stream");
             if unsafe { *text.get_unchecked(p) } == c1 && unsafe { matches(text, i, s, rest) } {
                 total += 1;
                 sink.hit(i - a * s, s);
@@ -211,7 +211,7 @@ fn pairs(index: &mut Index, q: &Query, shape: &Shape, sink: &mut impl Sink) -> u
         };
         let (lo_j, hi_j) = if gb > 0 { (i + g * q.s0, i + g * hi) } else { (i - g * hi, i - g * q.s0) };
         let c = &mut cursor[r];
-        debug_assert!(*c == 0 || (list[*c - 1] as usize) < lo_j, "la fenetre de Pairs a recule");
+        debug_assert!(*c == 0 || (list[*c - 1] as usize) < lo_j, "the Pairs window went back");
         while *c < list.len() && (list[*c] as usize) < lo_j {
             *c += 1;
         }
@@ -331,7 +331,7 @@ fn planes<const L: usize>(index: &mut Index, q: &Query, shape: &Shape, sink: &mu
 pub unsafe fn window(bits: &[u64], at: usize) -> u64 {
     let k = at >> 6;
     let sh = (at & 63) as u32;
-    debug_assert!(k + 1 < bits.len(), "lecture hors du plan");
+    debug_assert!(k + 1 < bits.len(), "read outside the plane");
     // `<< 1 << (63 - sh)` rather than `<< (64 - sh)`: a shift by 64 is not
     // zero, it is an overflow — this way sh = 0 needs no branch.
     unsafe { (bits.get_unchecked(k) >> sh) | ((bits.get_unchecked(k + 1) << 1) << (63 - sh)) }

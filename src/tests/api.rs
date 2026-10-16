@@ -6,13 +6,14 @@
 use std::sync::{Mutex, MutexGuard};
 
 use super::*;
+use crate::wasm::els::*;
 
 static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
 
 /// Takes the module, framed on a window, as the page does at startup.
 fn hold(width: f32, height: f32) -> MutexGuard<'static, ()> {
     let guard = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
-    assert_eq!(init(width, height), corpus::book_count() as u32, "init ne rend pas le nombre de livres");
+    assert_eq!(init(width, height), corpus::book_count() as u32, "init does not return the number of books");
     guard
 }
 
@@ -36,7 +37,7 @@ fn converge() {
 
 fn read_frame() -> Vec<Command> {
     let words = build_frame() as usize;
-    assert_eq!(words % frame_stride() as usize, 0, "la liste n'est pas un multiple du pas");
+    assert_eq!(words % frame_stride() as usize, 0, "the list is not a multiple of the stride");
     let app = app();
     assert_eq!(app.commands.len(), words);
     commands(app)
@@ -47,9 +48,9 @@ fn the_page_can_draw_a_frame_from_a_cold_start() {
     let _hold = hold(REFERENCE.0, REFERENCE.1);
     assert_eq!(frame_stride(), STRIDE as u32);
     let commands = read_frame();
-    assert!(!commands.is_empty(), "image vide au demarrage");
+    assert!(!commands.is_empty(), "empty image at start");
     assert!(!frame_ptr().is_null());
-    assert!(pending_len() > 0, "la premiere image doit reclamer des mesures");
+    assert!(pending_len() > 0, "the first image must ask for measurements");
     assert!(!pending_ptr().is_null());
     assert_eq!(text_len() as usize, corpus::text().len());
     assert!(!text_ptr().is_null());
@@ -65,21 +66,21 @@ fn the_gestures_move_the_camera_and_come_back() {
     // The map opens on the three portions alone, one notch below the framing.
     let fit = cam_fit();
     let opening = fit / zoom_step();
-    assert_close(cam_z(), opening, opening * 1e-3, "le demarrage n'est pas sur les portions");
+    assert_close(cam_z(), opening, opening * 1e-3, "the start is not on the portions");
 
     let step = zoom_step();
-    assert!(step > 1.0 && step < 1.6, "cran de {step}");
+    assert!(step > 1.0 && step < 1.6, "notch of {step}");
 
     pan(60.0, -25.0);
     let (x, y) = (cam_x(), cam_y());
     zoom(REFERENCE.0 / 2.0, REFERENCE.1 / 2.0, step);
-    assert!(cam_z() > fit, "le zoom n'a pas grandi l'echelle");
-    assert!((cam_x(), cam_y()) != (x, y), "le zoom n'a pas bouge la camera");
+    assert!(cam_z() > fit, "the zoom did not grow the scale");
+    assert!((cam_x(), cam_y()) != (x, y), "the zoom did not move the camera");
 
     reset();
     let opening = cam_fit() / zoom_step();
-    assert_close(cam_z(), opening, opening * 1e-3, "Echap ne revient pas sur les portions");
-    assert_eq!(depth(), 0, "Echap doit revenir au premier monde");
+    assert_close(cam_z(), opening, opening * 1e-3, "Escape does not go back to the portions");
+    assert_eq!(depth(), 0, "Escape must go back to the first world");
 }
 
 /// Resizing keeps the framing when it was framed, and leaves the view alone
@@ -90,15 +91,15 @@ fn resizing_keeps_the_framing() {
     converge();
     resize(1920.0, 1080.0);
     let opening = cam_fit() / zoom_step();
-    assert_close(cam_z(), opening, opening * 1e-3, "le recadrage n'a pas suivi la fenetre");
+    assert_close(cam_z(), opening, opening * 1e-3, "the framing did not follow the window");
     let frame = read_frame();
-    assert!(frame.iter().any(Command::is_text), "image vide apres redimensionnement");
+    assert!(frame.iter().any(Command::is_text), "empty image after resizing");
 
     // Zoomed in, a resize must not snap the view back to the framing.
     zoom(960.0, 540.0, zoom_step() * 2.0);
     let z = cam_z();
     resize(1024.0, 620.0);
-    assert_eq!(cam_z(), z, "le redimensionnement a recadre une vue zoomee");
+    assert_eq!(cam_z(), z, "resizing reframed a zoomed view");
 }
 
 /// **A click is only live on a passage one can read.** At the framing, where a
@@ -113,11 +114,11 @@ fn a_click_is_dead_above_the_reading_zoom() {
         let r = app.camera.project(app.layout.chapters[40]);
         (r.x + r.w / 2.0, r.y + r.h / 2.0)
     };
-    assert_eq!(hover(px, py), -1, "le curseur annonce un clic au cadrage");
-    assert_eq!(select(px, py), 0, "le clic a touche un verset invisible");
-    assert_eq!(select_word(px, py), 0, "le double clic a touche un mot invisible");
+    assert_eq!(hover(px, py), -1, "the cursor announces a click at the framing");
+    assert_eq!(select(px, py), 0, "the click hit an invisible verse");
+    assert_eq!(select_word(px, py), 0, "the double click hit an invisible word");
     let view = unsafe { std::slice::from_raw_parts(selection_ptr(), 6) };
-    assert_eq!(view, [0; 6], "la selection n'a pas ete effacee");
+    assert_eq!(view, [0; 6], "the selection was not cleared");
 }
 
 /// Once the lines are read, a click gives the passage and a double click the
@@ -139,7 +140,7 @@ fn clicking_gives_the_passage_then_the_word() {
             break;
         }
     }
-    assert!(live, "le clic ne s'active jamais en vingt crans");
+    assert!(live, "the click never becomes live in twenty notches");
 
     let read = |slot: usize| {
         let view = unsafe { std::slice::from_raw_parts(selection_ptr(), 6) };
@@ -152,23 +153,23 @@ fn clicking_gives_the_passage_then_the_word() {
     };
 
     // One click: the passage, and no word.
-    assert_eq!(select(cx, cy), 1, "le clic n'a rien touche au zoom de lecture");
+    assert_eq!(select(cx, cy), 1, "the click hit nothing at reading zoom");
     let (book, chapter) = indices();
-    let verse = read(2).expect("un verset");
+    let verse = read(2).expect("a verse");
     assert_eq!(book, book_of(chapter));
     assert!(
         corpus::verses_of(chapter).any(|v| corpus::verse_text(v) == verse),
-        "le verset doit etre du chapitre"
+        "the verse must be of the chapter"
     );
-    assert_eq!(read(4), None, "un clic simple ne doit pas nommer de mot");
+    assert_eq!(read(4), None, "a single click must not name a word");
 
     // Double click: the same passage, plus the word under the point.
-    assert_eq!(select_word(cx, cy), 1, "le double clic n'a rien touche");
-    assert_eq!(indices(), (book, chapter), "le double clic a change de chapitre");
-    assert_eq!(read(2), Some(verse), "le double clic a change de verset");
-    let word = read(4).expect("un mot");
-    assert!(!word.contains(' '), "le mot porte une espace : {word:?}");
-    assert!(verse.split(' ').any(|w| w == word), "le mot {word:?} n'est pas du verset");
+    assert_eq!(select_word(cx, cy), 1, "the double click hit nothing");
+    assert_eq!(indices(), (book, chapter), "the double click changed chapter");
+    assert_eq!(read(2), Some(verse), "the double click changed verse");
+    let word = read(4).expect("a word");
+    assert!(!word.contains(' '), "the word holds a space: {word:?}");
+    assert!(verse.split(' ').any(|w| w == word), "the word {word:?} is not of the verse");
 }
 
 /// `focus` feeds the breadcrumb from the centre of the view: section, book,
@@ -187,17 +188,17 @@ fn the_breadcrumb_is_filled_from_the_centre_of_the_view() {
     // At the opening the map is three portions: the breadcrumb says a portion
     // and stops there, since no book is drawn to be named.
     focus();
-    assert!(read(0).is_some(), "aucune portion a l'ouverture");
-    assert_eq!(read(2), None, "un livre annonce a l'ouverture");
+    assert!(read(0).is_some(), "no portion at the opening");
+    assert_eq!(read(2), None, "a book announced at the opening");
 
     // One notch in, at the framing: a portion and a book, nothing below.
     let step = zoom_step();
     zoom(REFERENCE.0 / 2.0, REFERENCE.1 / 2.0, step);
     build_frame();
     focus();
-    assert!(read(0).is_some() && read(2).is_some(), "le fil d'Ariane est vide au cadrage");
-    assert_eq!(read(4), None, "un chapitre annonce au cadrage");
-    assert_eq!(read(6), None, "un verset annonce au cadrage");
+    assert!(read(0).is_some() && read(2).is_some(), "the breadcrumb is empty at the framing");
+    assert_eq!(read(4), None, "a chapter announced at the framing");
+    assert_eq!(read(6), None, "a verse announced at the framing");
 
     // Deep in a chapter: the four levels, and they hold together.
     let mut dived = 0;
@@ -210,22 +211,22 @@ fn the_breadcrumb_is_filled_from_the_centre_of_the_view() {
             break;
         }
     }
-    assert!(dived > 0, "pas de verset en vingt crans");
+    assert!(dived > 0, "no verse in twenty notches");
 
-    let section = read(0).expect("une portion");
-    let name = read(2).expect("un livre");
-    let label = read(4).expect("un chapitre");
-    let verse = read(6).expect("un verset");
-    assert!((0..3).any(|s| corpus::section_name(s) == section), "portion inconnue : {section}");
+    let section = read(0).expect("a portion");
+    let name = read(2).expect("a book");
+    let label = read(4).expect("a chapter");
+    let verse = read(6).expect("a verse");
+    assert!((0..3).any(|s| corpus::section_name(s) == section), "unknown portion: {section}");
     let book = (0..corpus::book_count())
         .find(|&b| corpus::book_name(b) == name)
-        .unwrap_or_else(|| panic!("livre inconnu : {name}"));
+        .unwrap_or_else(|| panic!("unknown book: {name}"));
     let chapter = corpus::chapters_of(book)
         .find(|&c| corpus::chapter_label(c) == label)
-        .expect("le chapitre doit etre du livre");
+        .expect("the chapter must be of the book");
     assert!(
         corpus::verses_of(chapter).any(|v| corpus::verse_label(v) == verse),
-        "le verset doit etre du chapitre"
+        "the verse must be of the chapter"
     );
 }
 
@@ -254,25 +255,25 @@ fn the_breadcrumb_follows_the_pointer() {
         let r = {
             let app = app();
             let camera = app.camera;
-            app.book_ink(book, camera).expect("le titre du livre est dessine")
+            app.book_ink(book, camera).expect("the book title is drawn")
         };
         let (px, py) = (r.x + r.w / 2.0, r.y + r.h / 2.0);
-        assert_eq!(focus_at(px, py), 1, "le livre {book} ne nomme rien");
-        assert_eq!(read(2), Some(corpus::book_name(book)), "le pointeur nomme un autre livre");
-        named.push(read(0).expect("une portion"));
+        assert_eq!(focus_at(px, py), 1, "book {book} names nothing");
+        assert_eq!(read(2), Some(corpus::book_name(book)), "the pointer names another book");
+        named.push(read(0).expect("a portion"));
     }
     assert!(named.contains(&corpus::section_name(0)) && named.contains(&corpus::section_name(2)));
 
     // The black at the left edge names nothing, and the breadcrumb empties:
     // keeping the last position would name a place the pointer has left.
-    assert_eq!(focus_at(1.0, REFERENCE.1 / 2.0), 0, "le bord de l'ecran nomme un livre");
-    assert_eq!(read(0), None, "le fil d'Ariane a garde la derniere position");
-    assert_eq!(read(2), None, "un livre survit au pointeur dans le vide");
+    assert_eq!(focus_at(1.0, REFERENCE.1 / 2.0), 0, "the edge of the screen names a book");
+    assert_eq!(read(0), None, "the breadcrumb kept the last position");
+    assert_eq!(read(2), None, "a book survives the pointer in the void");
 
     // Asked for itself, the centre answers again: that is the fallback when
     // there is no pointer on the canvas at all.
     focus();
-    assert!(read(0).is_some(), "le centre ne repond plus");
+    assert!(read(0).is_some(), "the centre no longer answers");
 }
 
 /// **A mouse gone from the canvas empties the breadcrumb**; a lifted finger
@@ -287,24 +288,24 @@ fn a_mouse_gone_names_nothing_and_a_finger_lifted_hands_over_to_the_centre() {
 
     // At the opening, the centre of the view names a portion.
     focus();
-    assert!(section() > 0, "le centre ne nomme rien a l'ouverture");
+    assert!(section() > 0, "the centre names nothing at the opening");
 
     leave(1);
     focus();
-    assert_eq!(section(), 0, "une souris partie laisse un nom dans le fil d'Ariane");
+    assert_eq!(section(), 0, "a mouse gone leaves a name in the breadcrumb");
 
     // Back on the canvas: the pointer speaks again, and once gone again
     // without a mouse, so does the centre.
     focus_at(REFERENCE.0 / 2.0, REFERENCE.1 / 2.0);
     leave(0);
     focus();
-    assert!(section() > 0, "un doigt leve doit rendre la parole au centre");
+    assert!(section() > 0, "a lifted finger must hand over to the centre");
 
     // Leaving with a mouse, then coming back, is a pointer like any other.
     leave(1);
     focus_at(REFERENCE.0 / 2.0, REFERENCE.1 / 2.0);
     focus();
-    assert!(section() > 0, "le retour du pointeur ne leve pas l'absence");
+    assert!(section() > 0, "the pointer's return does not lift the absence");
 }
 
 /// A font change forgets every measured width: a width taken on a fallback font
@@ -313,13 +314,13 @@ fn a_mouse_gone_names_nothing_and_a_finger_lifted_hands_over_to_the_centre() {
 fn a_font_change_forgets_every_width() {
     let _hold = hold(REFERENCE.0, REFERENCE.1);
     converge();
-    assert_eq!(pending_len(), 0, "les mesures n'ont pas converge");
+    assert_eq!(pending_len(), 0, "the measurements did not converge");
 
     clear_ratios();
-    assert!(app().ratios.is_empty(), "les mesures n'ont pas ete oubliees");
+    assert!(app().ratios.is_empty(), "the measurements were not forgotten");
     let frame = read_frame();
-    assert!(frame.iter().any(Command::is_text), "image vide apres oubli des mesures");
-    assert!(pending_len() > 0, "les mesures ne sont pas redemandees");
+    assert!(frame.iter().any(Command::is_text), "empty image after forgetting the measurements");
+    assert!(pending_len() > 0, "the measurements are not asked again");
 }
 
 /// The probes the sondes read: they must answer on every state, and never lie
@@ -330,8 +331,8 @@ fn the_probes_answer_on_every_state() {
     converge();
     let (cx, cy) = (REFERENCE.0 / 2.0, REFERENCE.1 / 2.0);
 
-    assert_eq!(probe_nest(-1000.0, -1000.0), -1.0, "un nid dans le vide");
-    assert_eq!(probe_letter(-1000.0, -1000.0), -1.0, "une lettre dans le vide");
+    assert_eq!(probe_nest(-1000.0, -1000.0), -1.0, "a nest in the void");
+    assert_eq!(probe_letter(-1000.0, -1000.0), -1.0, "a letter in the void");
     assert!(probe_book(0, 2) > 0.0 && probe_book(0, 3) > 0.0);
     assert!(probe_chapter(0, 2) > 0.0);
     assert_eq!(probe_book(0, 0), app().layout.books[0].x);
@@ -347,7 +348,7 @@ fn the_probes_answer_on_every_state() {
             folded = true;
         }
     }
-    assert!(folded, "aucun repli en 120 crans");
+    assert!(folded, "no fold in 120 notches");
     assert!(probe_nest(cx, cy) >= -1.0);
     assert!(probe_letter(cx, cy) >= -1.0);
 }
@@ -369,7 +370,7 @@ fn a_frame_can_be_painted_from_the_module_memory_alone() {
         }
         let (offset, len) = (record[7] as usize, record[8] as usize);
         let fragment = std::str::from_utf8(&text[offset..offset + len])
-            .expect("un fragment doit etre de l'UTF-8 valide");
+            .expect("a fragment must be valid UTF-8");
         assert!(!fragment.is_empty());
         drawn += 1;
     }
@@ -393,8 +394,59 @@ fn the_page_searches_through_the_query_buffer() {
     assert!(n > 0);
     let stride = els_stride() as usize;
     let read = unsafe { core::slice::from_raw_parts(els_hits_ptr(), n * stride) };
-    assert_eq!(read, &expected[..], "la page ne lit pas les enregistrements ecrits");
+    assert_eq!(read, &expected[..], "the page does not read the records written");
 
     unsafe { *els_query_ptr() = 0xFF };
-    assert_eq!(els_search(1, 0, 0), 0.0, "une requete invalide trouve quelque chose");
+    assert_eq!(els_search(1, 0, 0), 0.0, "an invalid query finds something");
+}
+
+/// The landing exports, moved to `wasm/landing.rs`, as both modules call
+/// them: room for a tile, a tile landed, the readings landed once the whole
+/// text is in. Natively the text is in already: landing again changes
+/// nothing, and says the text is whole.
+#[test]
+fn the_landing_exports_take_a_tile_as_the_page_writes_it() {
+    let _hold = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    let book = 0;
+    let (first, end) = (book_first_chapter(book), book_end_chapter(book));
+    let (from, to) = corpus::tile_range(first as usize..end as usize);
+    let before = corpus::verse_text(0).to_string();
+    let plain = include_bytes!(concat!(env!("OUT_DIR"), "/text.plain"));
+    let room = crate::wasm::landing::tile_buffer((to - from) as u32);
+    unsafe { core::ptr::copy_nonoverlapping(plain[from..to].as_ptr(), room, to - from) };
+    assert_eq!(crate::wasm::landing::tile_load(first, end), 1);
+    assert_eq!(corpus::verse_text(0), before, "a chapter already in was rewritten");
+    assert_eq!(crate::wasm::landing::readings_load(), 1, "the whole text is not said complete");
+}
+
+/// The scoped search as the page would call it: the records of `search_in`
+/// over the verses' letters, and nothing for an empty or outlying range.
+#[test]
+fn the_page_searches_a_stretch_of_verses() {
+    let _hold = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    let query = "משה";
+    unsafe { core::ptr::copy_nonoverlapping(query.as_ptr(), els_query_ptr(), query.len()) };
+    let (first, end) = (1533u32, 4000u32);
+    let n = els_search_in(query.len() as u32, 0, 30, first, end) as usize;
+    let mut expected = Vec::new();
+    let letters = crate::shared::els::letters_of(Some((first as usize, end as usize)));
+    assert_eq!(els_engine().search_in(query, 0, 30, letters, &mut expected) as usize, n);
+    let stride = els_stride() as usize;
+    let read = unsafe { core::slice::from_raw_parts(els_hits_ptr(), els_hits_len() as usize * stride) };
+    assert_eq!(read, &expected[..]);
+    assert!(read.chunks(stride).all(|r| (first..end).contains(&r[4]) && (first..end).contains(&r[6])));
+    for (a, b) in [(9, 9), (9, 3), (0, u32::MAX)] {
+        assert_eq!(els_search_in(query.len() as u32, 0, 30, a, b), 0.0, "{a}..{b}");
+    }
+}
+
+/// What a panic leaves for the page: its place, a new line, its message —
+/// read back through the two exports the page reads after a trap.
+#[test]
+fn a_panic_leaves_its_place_and_message_for_the_page() {
+    let _hold = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    crate::wasm::fault::remember("src/els.rs:412:9", "index out of bounds");
+    let (at, len) = (crate::wasm::fault::fault_ptr(), crate::wasm::fault::fault_len() as usize);
+    let text = std::str::from_utf8(unsafe { core::slice::from_raw_parts(at, len) }).unwrap();
+    assert_eq!(text, "src/els.rs:412:9\nindex out of bounds");
 }

@@ -101,13 +101,13 @@ fn the_stream_is_every_verse_read_letter_by_letter() {
     let starts = verse_starts();
     assert_eq!(starts.len(), corpus::verse_count() + 1);
     assert_eq!(starts[0], 0);
-    assert_eq!(*starts.last().unwrap() as usize, stream().len(), "la sentinelle ne ferme pas le flux");
+    assert_eq!(*starts.last().unwrap() as usize, stream().len(), "the sentinel does not close the stream");
     for v in 0..corpus::verse_count() {
         let expected: Vec<u8> = corpus::verse_text(v).chars().filter_map(letter::code).collect();
         let welded = &stream()[starts[v] as usize..starts[v + 1] as usize];
-        assert_eq!(welded, &expected[..], "verset {v} : le flux soude ne relit pas le texte");
+        assert_eq!(welded, &expected[..], "verse {v}: the welded stream does not read the text back");
     }
-    assert!(stream().len() < 1 << START_BITS, "le flux ne tient plus dans la cle");
+    assert!(stream().len() < 1 << START_BITS, "the stream no longer fits in the key");
 }
 
 #[test]
@@ -117,7 +117,7 @@ fn final_forms_fold_onto_their_letter() {
     }
     assert_eq!(letter::code('א'), Some(0));
     assert_eq!(letter::code('ת'), Some(ALPHABET as u8 - 1));
-    assert_eq!(letter::code('\u{05B8}'), None, "une voyelle n'est pas une lettre");
+    assert_eq!(letter::code('\u{05B8}'), None, "a vowel is not a letter");
     assert_eq!(letter::code(' '), None);
 }
 
@@ -134,7 +134,7 @@ fn postings_list_every_position_of_every_letter() {
         let mut total = 0;
         for c in 0..ALPHABET as u8 {
             let want: Vec<u32> = (0..t.len()).filter(|&p| t[p] == c).map(|p| p as u32).collect();
-            assert_eq!(index.positions(c), &want[..], "positions du code {c}");
+            assert_eq!(index.positions(c), &want[..], "positions of code {c}");
             assert_eq!(index.freq[c as usize] as usize, want.len());
             total += want.len();
         }
@@ -181,7 +181,7 @@ fn a_plane_bit_is_the_letter_at_that_step() {
                     let p = if reverse { i.checked_sub(gap * s) } else { Some(i + gap * s).filter(|&p| p < n) };
                     let Some(p) = p else { break };
                     let bit = (plane.bits[(o + s) >> 6] >> ((o + s) & 63)) & 1;
-                    assert_eq!(bit == 1, text[p] == 4, "ecart {gap}, inverse {reverse}, ancre {i}, pas {s}");
+                    assert_eq!(bit == 1, text[p] == 4, "gap {gap}, reverse {reverse}, anchor {i}, step {s}");
                     s += 1;
                 }
             }
@@ -191,7 +191,7 @@ fn a_plane_bit_is_the_letter_at_that_step() {
                 for b in 0..64 {
                     let bit = at + b;
                     let want = (plane.bits[bit >> 6] >> (bit & 63)) & 1;
-                    assert_eq!((w >> b) & 1, want, "fenetre a {at}, bit {b}");
+                    assert_eq!((w >> b) & 1, want, "window at {at}, bit {b}");
                 }
             }
         }
@@ -228,7 +228,7 @@ fn every_method_finds_exactly_what_the_naive_search_finds() {
                     let want = naive(&text, &pattern, skip0, skip1);
                     for method in METHODS {
                         let got = by_method(&mut index, &pattern, skip0, skip1, method);
-                        assert_eq!(got, want, "{method:?}, n {n}, motif {pattern:?}, sauts {skip0}..={skip1}");
+                        assert_eq!(got, want, "{method:?}, n {n}, pattern {pattern:?}, skips {skip0}..={skip1}");
                         checked += 1;
                     }
                 }
@@ -248,7 +248,7 @@ fn the_methods_agree_on_the_corpus() {
     for (query, skip0, skip1) in [("אדם", 0, 300), ("תורה", 40, 200), ("טז", 0, 500)] {
         let pattern = codes(query);
         let reference = by_method(&mut engine.index, &pattern, skip0, skip1, Method::Direct);
-        assert!(!reference.is_empty(), "{query} : aucune occurrence");
+        assert!(!reference.is_empty(), "{query}: no occurrence");
         for method in [Method::Pairs, Method::Planes] {
             assert_eq!(by_method(&mut engine.index, &pattern, skip0, skip1, method), reference, "{query}, {method:?}");
         }
@@ -256,7 +256,7 @@ fn the_methods_agree_on_the_corpus() {
     for (query, skip0, skip1) in [("אדם", 0, 2000), ("משיח", 10, 20_000), ("צדק", 0, 50_000)] {
         let pattern = codes(query);
         let reference = by_method(&mut engine.index, &pattern, skip0, skip1, Method::Planes);
-        assert!(!reference.is_empty(), "{query} : aucune occurrence");
+        assert!(!reference.is_empty(), "{query}: no occurrence");
         assert_eq!(by_method(&mut engine.index, &pattern, skip0, skip1, Method::Pairs), reference, "{query}");
     }
     let pattern = codes("ישראל");
@@ -281,7 +281,7 @@ fn the_cap_keeps_the_first_hits_and_the_exact_total() {
             for method in METHODS {
                 let mut got = Vec::new();
                 let total = hits(&mut index, pattern, skip0, skip1, cap, Some(method), &mut got);
-                assert_eq!(total, want.len() as u64, "total faux, plafond {cap}, {method:?}");
+                assert_eq!(total, want.len() as u64, "wrong total, cap {cap}, {method:?}");
                 assert_eq!(got, want[..cap.min(want.len())], "plafond {cap}, {method:?}");
             }
         }
@@ -291,8 +291,8 @@ fn the_cap_keeps_the_first_hits_and_the_exact_total() {
 #[test]
 fn an_empty_query_finds_nothing() {
     assert_eq!(records("", 0, 10).0, 0);
-    assert_eq!(records("abc 123", 0, 3).0, 0, "une requete sans lettre hebraique trouve quelque chose");
-    assert_eq!(records("אדם", 5, 4).0, 0, "une plage renversee trouve quelque chose");
+    assert_eq!(records("abc 123", 0, 3).0, 0, "a query with no Hebrew letter finds something");
+    assert_eq!(records("אדם", 5, 4).0, 0, "a reversed range finds something");
     let mut out = Vec::new();
     let mut index = Index::new(&[]);
     assert_eq!(hits(&mut index, &[0, 1], 0, 9, CAP, None, &mut out), 0);
@@ -316,7 +316,7 @@ fn pointing_and_final_forms_do_not_change_the_search() {
     assert_eq!(records("אָדָם", 0, 0), bare);
     assert_eq!(records("אדמ", 0, 0), bare);
     // Genesis 1:26, "נעשה אדם": global verse 25.
-    assert!(bare.1.iter().any(|r| r[4] == 25), "Gn 1,26 manque parmi les occurrences de אדם");
+    assert!(bare.1.iter().any(|r| r[4] == 25), "Gen 1:26 missing from the occurrences of אדם");
 }
 
 /// The classic skip: "תורה" spelled from the ת of בראשית, every fiftieth
@@ -325,7 +325,7 @@ fn pointing_and_final_forms_do_not_change_the_search() {
 fn torah_is_read_every_fiftieth_letter_from_the_first_tav() {
     let first = records("תורה", 49, 49).1[0];
     assert_eq!(first, [5, 49, 0, 0, 0, 5, first[6]]);
-    assert!(first[6] > 0, "l'occurrence devrait deborder du premier verset");
+    assert!(first[6] > 0, "the occurrence should run past the first verse");
     assert!(records("תורה", 0, 100).1.contains(&first));
 }
 
@@ -336,8 +336,8 @@ fn an_occurrence_may_span_two_verses() {
     let at = verse_starts()[1] as usize - 1;
     let query: String = stream()[at..at + 3].iter().map(|&c| ALEPH_BET[c as usize]).collect();
     let (_, recs) = records(&query, 0, 0);
-    let hit = recs.iter().find(|r| r[0] as usize == at).expect("l'occurrence a cheval manque");
-    assert_eq!((hit[4], hit[6]), (0, 1), "le passage doit couvrir les versets 0 et 1");
+    let hit = recs.iter().find(|r| r[0] as usize == at).expect("the occurrence across verses is missing");
+    assert_eq!((hit[4], hit[6]), (0, 1), "the passage must cover verses 0 and 1");
 }
 
 // ----------------------------------------------------------------- records
@@ -353,22 +353,22 @@ fn every_record_places_its_hit_where_it_is() {
     for (query, skip0, skip1) in [("ה", 0u32, 0u32), ("יהוה", 0, 0), ("אדם", 0, 200), ("משה", 100, 1000), ("יה", 0, 400)] {
         let pattern = codes(query);
         let (total, recs) = records(query, skip0, skip1);
-        assert!(!recs.is_empty(), "{query} : aucune occurrence");
+        assert!(!recs.is_empty(), "{query}: no occurrence");
         assert!(recs.len() as u64 <= total && recs.len() <= CAP);
-        assert!(recs.windows(2).all(|w| (w[0][1], w[0][0]) < (w[1][1], w[1][0])), "{query} : ordre faux");
+        assert!(recs.windows(2).all(|w| (w[0][1], w[0][0]) < (w[1][1], w[1][0])), "{query}: wrong order");
         for r in &recs {
             let [letter, skip, book, chapter, verse, rank, last] = r.map(|w| w as usize);
             assert!((skip0 as usize..=skip1 as usize).contains(&skip));
             let step = skip + 1;
             let span = (pattern.len() - 1) * step;
             let verse_of = |l: usize| starts.partition_point(|&x| x as usize <= l) - 1;
-            assert_eq!(verse, verse_of(letter), "{query} : verset du debut faux");
-            assert_eq!(last, verse_of(letter + span), "{query} : verset de la fin faux");
+            assert_eq!(verse, verse_of(letter), "{query}: wrong first verse");
+            assert_eq!(last, verse_of(letter + span), "{query}: wrong last verse");
             assert_eq!(letter, starts[verse] as usize + rank);
             assert!(corpus::verses_of(chapter).contains(&verse));
             assert!(corpus::chapters_of(book).contains(&chapter));
             for (j, &c) in pattern.iter().enumerate() {
-                assert_eq!(text[letter + j * step], c, "{query} : la lettre {j} ne correspond pas");
+                assert_eq!(text[letter + j * step], c, "{query}: letter {j} does not match");
             }
         }
     }
@@ -380,7 +380,7 @@ fn every_record_places_its_hit_where_it_is() {
 #[test]
 fn a_flood_of_hits_is_capped_and_still_counted() {
     let (total, recs) = records("יה", 0, 1000);
-    assert!(total > CAP as u64, "le cas ne deborde pas : {total}");
+    assert!(total > CAP as u64, "the case does not overflow: {total}");
     assert_eq!(recs.len(), CAP);
     let mut engine = engine();
     let pattern = codes("יה");
@@ -401,7 +401,7 @@ fn a_range_search_runs_in_a_blink() {
     let start = std::time::Instant::now();
     engine().search("משיח", 0, 10_000, &mut out);
     let ms = start.elapsed().as_secs_f64() * 1000.0;
-    assert!(ms < 1500.0, "10 001 sauts demandent {ms:.1} ms");
+    assert!(ms < 1500.0, "10,001 skips take {ms:.1} ms");
 }
 
 /// The cost model picks, on the corpus, the method the benchmark measured
@@ -515,7 +515,7 @@ fn the_radix_sort_sorts() {
         let mut want = keys.clone();
         want.sort_unstable();
         radix_sort(&mut keys);
-        assert_eq!(keys, want, "{len} cles de {bits} bits");
+        assert_eq!(keys, want, "{len} keys of {bits} bits");
     }
 }
 
@@ -526,7 +526,7 @@ fn the_placement_tables_agree_with_the_corpus() {
     let engine = engine();
     let starts = verse_starts();
     for letter in (0..stream().len()).step_by(7).chain([stream().len() - 1]) {
-        assert_eq!(engine.verse_of(letter), starts.partition_point(|&x| x as usize <= letter) - 1, "lettre {letter}");
+        assert_eq!(engine.verse_of(letter), starts.partition_point(|&x| x as usize <= letter) - 1, "letter {letter}");
     }
     for c in 0..corpus::chapter_count() {
         for v in corpus::verses_of(c) {
@@ -548,15 +548,15 @@ fn a_repeated_query_is_answered_from_memory() {
     let mut first = Vec::new();
     let total = engine.search("אדם", 0, 50, &mut first);
     let mut again = Vec::new();
-    assert_eq!(engine.search("אָדָם", 0, 50, &mut again), total, "le total change");
-    assert_eq!(again, first, "la reponse change");
-    assert_eq!(engine.runs, 1, "la requete repetee a ete recherchee");
+    assert_eq!(engine.search("אָדָם", 0, 50, &mut again), total, "the total changes");
+    assert_eq!(again, first, "the answer changes");
+    assert_eq!(engine.runs, 1, "the repeated query was searched again");
     for k in 0..MEMO as u32 {
         engine.search("אדם", 1, 1 + k, &mut again);
     }
     engine.search("אדם", 0, 50, &mut again);
     assert_eq!(again, first);
-    assert_eq!(engine.runs, 2 + MEMO as u64, "la plus ancienne reponse n'a pas ete oubliee");
+    assert_eq!(engine.runs, 2 + MEMO as u64, "the oldest answer was not forgotten");
 }
 
 /// Two letters are counted without listing, and the count is the naive one —
@@ -581,3 +581,85 @@ fn two_letters_are_counted_exactly_without_listing() {
     }
 }
 
+
+/// `hits` is what `search` places: the same (start, skip) pairs, in the same
+/// order, with the same total — and one memory serves both, so a page asked
+/// through one is not searched again through the other.
+#[test]
+fn hits_are_the_records_unplaced() {
+    let mut engine = Engine::new();
+    let mut records = Vec::new();
+    let total = engine.search("משה", 10, 30, &mut records);
+    let (again, found) = engine.hits("משה", 10, 30);
+    assert_eq!(again, total);
+    let pairs: Vec<(u32, u32)> = records.chunks(STRIDE).map(|r| (r[0], r[1])).collect();
+    assert_eq!(found, &pairs[..]);
+    assert_eq!(engine.runs, 1, "hits searched what search had already found");
+}
+
+/// Every occurrence of `pattern` with a skip in `skip0..=skip1` whose every
+/// letter lies in `range`, found by trying them all.
+fn naive_in(text: &[u8], pattern: &[u8], skip0: u32, skip1: u32, range: std::ops::Range<usize>) -> Vec<(u32, u32)> {
+    let mut out = Vec::new();
+    for skip in skip0..=skip1 {
+        let step = skip as usize + 1;
+        for start in range.clone() {
+            let end = start + (pattern.len() - 1) * step;
+            if end < range.end && (0..pattern.len()).all(|k| text[start + k * step] == pattern[k]) {
+                out.push((start as u32, skip));
+            }
+        }
+    }
+    out
+}
+
+/// A search kept to a stretch finds exactly the occurrences lying wholly in
+/// it — tried one by one — given back as ranks in the whole stream.
+#[test]
+fn a_scoped_search_finds_what_lies_wholly_in_its_stretch() {
+    let mut engine = Engine::new();
+    let starts = verse_starts();
+    let text = stream();
+    let mut codes = Vec::new();
+    for (word, skip0, skip1, first, end) in
+        [("אל", 0, 30, 0, 31), ("יהוה", 0, 12, 50, 80), ("משה", 3, 40, 1533, 1600), ("ה", 2, 9, 7, 9)]
+    {
+        let range = starts[first] as usize..starts[end] as usize;
+        pattern(word, &mut codes);
+        let (total, found) = engine.hits_in(word, skip0, skip1, range.clone());
+        let expected = naive_in(text, &codes, skip0, if codes.len() == 1 { skip0 } else { skip1 }, range);
+        assert_eq!(total as usize, expected.len(), "{word}");
+        assert_eq!(found, &expected[..], "{word}");
+    }
+}
+
+/// The whole stream as a stretch is the plain search, and a stretch asked
+/// again is remembered like any query.
+#[test]
+fn the_whole_stretch_is_the_plain_search() {
+    let mut engine = Engine::new();
+    let (total, found) = engine.hits("שלום", 0, 20);
+    let found = found.to_vec();
+    let (again, scoped) = engine.hits_in("שלום", 0, 20, 0..stream().len());
+    assert_eq!((again, scoped), (total, &found[..]));
+    assert_eq!(engine.runs, 1);
+    engine.hits_in("שלום", 0, 20, 100..90_000);
+    engine.hits_in("שלום", 0, 20, 100..90_000);
+    assert_eq!(engine.runs, 2, "a passage asked again was searched again");
+}
+
+/// The estimate is read without searching, grows with the range of skips,
+/// and tells a light query from a flood by orders of magnitude.
+#[test]
+fn the_cost_is_estimated_without_searching() {
+    let mut engine = Engine::new();
+    let n = stream().len();
+    let light = engine.cost("משה", 49, 49, 0..n);
+    let wider = engine.cost("משה", 0, 500, 0..n);
+    let flood = engine.cost("את", 0, u32::MAX, 0..n);
+    let scoped = engine.cost("את", 0, u32::MAX, 0..n / 20);
+    assert_eq!(engine.runs, 0, "the estimate ran a search");
+    assert!(light < wider && wider < flood, "{light} {wider} {flood}");
+    assert!(flood > 1000.0 * light);
+    assert!(scoped < flood, "a passage costs as much as the whole text");
+}

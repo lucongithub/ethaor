@@ -84,7 +84,7 @@ pub struct Alphabet {
 
 impl Alphabet {
     fn new(chars: Vec<char>) -> Alphabet {
-        assert!(chars.len() <= 256, "trop de caracteres pour un octet");
+        assert!(chars.len() <= 256, "too many characters for one byte");
         let utf8 = chars
             .iter()
             .map(|c| {
@@ -97,7 +97,7 @@ impl Alphabet {
     }
 
     fn code(&self, c: char) -> u8 {
-        self.chars.binary_search(&c).expect("caractere hors alphabet") as u8
+        self.chars.binary_search(&c).expect("character outside the alphabet") as u8
     }
 
     /// Appends the UTF-8 of `code` to `out`.
@@ -116,7 +116,7 @@ impl Alphabet {
 
     fn read(r: &mut Reader) -> Alphabet {
         let n = r.get() as usize;
-        Alphabet::new((0..n).map(|_| char::from_u32(r.get()).expect("code invalide")).collect())
+        Alphabet::new((0..n).map(|_| char::from_u32(r.get()).expect("invalid code")).collect())
     }
 
     /// A string: its length in characters, then one code per character.
@@ -136,7 +136,7 @@ impl Alphabet {
     fn get_string(&self, r: &mut Reader) -> String {
         let mut out = Vec::new();
         self.get_str(r, &mut out);
-        String::from_utf8(out).expect("UTF-8 invalide")
+        String::from_utf8(out).expect("invalid UTF-8")
     }
 }
 
@@ -279,7 +279,7 @@ pub struct Packed {
 /// Reduces the working form to its information. Asserts, rather than
 /// trusts, that `unpack` gives it back.
 pub fn pack(blobs: &Blobs) -> Packed {
-    let text = std::str::from_utf8(&blobs.text).expect("texte non UTF-8");
+    let text = std::str::from_utf8(&blobs.text).expect("text not UTF-8");
     let idx = &blobs.index;
     let (nb, nc, nv) = (idx[0] as usize, idx[1] as usize, idx[2] as usize);
     let rest = &idx[3..];
@@ -327,7 +327,7 @@ pub fn pack(blobs: &Blobs) -> Packed {
     let mut verse_chars: Vec<char> = (0..nv).flat_map(|v| slice(verse_text, v).chars()).collect();
     verse_chars.sort_unstable();
     verse_chars.dedup();
-    assert!(verse_chars.len() < VERSE_END as usize, "trop de caracteres dans les versets");
+    assert!(verse_chars.len() < VERSE_END as usize, "too many characters in the verses");
     let verse_abc = Alphabet::new(verse_chars);
     let mut stream = Vec::with_capacity(text.len() / 2);
     for v in 0..nv {
@@ -367,7 +367,7 @@ pub fn pack(blobs: &Blobs) -> Packed {
         if i == 0 || verse != last_verse {
             shift = 0;
         }
-        let d = (0..n_display).find(|&k| vars[2 + k * 3] as usize == verse).expect("insertion sans verset");
+        let d = (0..n_display).find(|&k| vars[2 + k * 3] as usize == verse).expect("insertion without a verse");
         let display = &text[vars[2 + d * 3 + 1] as usize..][..vars[2 + d * 3 + 2] as usize];
         put(&mut body, (verse - last_verse) as u32);
         put(&mut body, (at - shift) as u32);
@@ -389,7 +389,7 @@ pub fn pack(blobs: &Blobs) -> Packed {
         .chain([body.len() as u32])
         .collect();
     let packed = Packed { map, text: body, books };
-    assert!(unpack(&packed.map, &packed.text) == *blobs, "le paquet ne redonne pas le corpus");
+    assert!(unpack(&packed.map, &packed.text) == *blobs, "the pack does not give the corpus back");
     packed
 }
 
@@ -504,8 +504,8 @@ impl Map {
 /// What a tile lands, and what the whole text lands chapter after chapter.
 pub fn lay_chapter(map: &Map, chapter: usize, codes: &[u8], out: &mut [u8], bounds: &mut [(u32, u32)]) {
     let span = map.chapters[chapter];
-    assert_eq!(codes.len(), span.stream.1, "tuile de taille fausse");
-    assert_eq!(out.len(), span.text.1, "place de taille fausse");
+    assert_eq!(codes.len(), span.stream.1, "tile of the wrong size");
+    assert_eq!(out.len(), span.text.1, "place of the wrong size");
     let (mut at, mut verse, mut start) = (0usize, 0usize, span.text.0);
     for &code in codes {
         if code == VERSE_END {
@@ -519,7 +519,7 @@ pub fn lay_chapter(map: &Map, chapter: usize, codes: &[u8], out: &mut [u8], boun
             at += len;
         }
     }
-    assert_eq!((verse, at), (bounds.len(), out.len()), "tuile mal formee");
+    assert_eq!((verse, at), (bounds.len(), out.len()), "malformed tile");
 }
 
 /// One insertion of the other edition's reading: where it falls in our

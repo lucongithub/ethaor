@@ -4,10 +4,13 @@
 	"version": "0.0.1",
 	"type": "module",
 	"scripts": {
+		"predev": "npm run wasm",
 		"dev": "vite dev",
 		"prebuild": "npm run wasm",
 		"build": "vite build",
 		"postbuild": "node scripts/preload.mjs",
+		"eth": "npm run build && npm run eth:run",
+		"eth:run": "cd .. && cargo run -p ethaor-server --release",
 		"preview": "vite preview",
 		"host": "vite preview --host 0.0.0.0 --port 8080",
 		"deploy": "npm run build && wrangler pages deploy build --project-name ethaor",
@@ -16,7 +19,8 @@
 		"format": "prettier --write .",
 		"pretest": "npm run wasm",
 		"test": "vitest run",
-		"verify": "cd .. && cargo test --quiet && cargo clippy --all-targets --quiet -- -D warnings && cargo clippy --release --target wasm32-unknown-unknown --no-default-features --features map --quiet -- -D warnings && cargo clippy --release --target wasm32-unknown-unknown --no-default-features --features search --quiet -- -D warnings && cd web && npm test && npm run check && prettier --check ."
+		"tests:map": "node scripts/tests-map.mjs",
+		"verify": "cd .. && cargo test --quiet && cargo clippy --all-targets --quiet -- -D warnings && cargo clippy -p ethaor --release --target wasm32-unknown-unknown --no-default-features --features map --quiet -- -D warnings && cargo clippy -p ethaor --release --target wasm32-unknown-unknown --no-default-features --features search --quiet -- -D warnings && cd web && npm test && npm run check && prettier --check . && node scripts/tests-map.mjs --check"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-static": "^3.0.10",

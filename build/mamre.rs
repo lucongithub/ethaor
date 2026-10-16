@@ -95,7 +95,7 @@ fn split_books(corpus: &mut Corpus) {
             continue;
         };
 
-        assert!(at < book.chapters.len(), "coupure hors limites pour {}", book.name);
+        assert!(at < book.chapters.len(), "cut out of bounds for {}", book.name);
 
         let mut chapters = book.chapters;
         let tail = chapters.split_off(at);
@@ -158,11 +158,11 @@ fn reorder(corpus: &mut Corpus) {
             .books
             .iter()
             .position(|book| book.name == name)
-            .unwrap_or_else(|| panic!("livre absent de la source : {name}"));
+            .unwrap_or_else(|| panic!("book missing from the source: {name}"));
         out.push(corpus.books.remove(found));
     }
 
-    assert!(corpus.books.is_empty(), "livres non classes : {:?}", corpus.books.iter().map(|b| &b.name).collect::<Vec<_>>());
+    assert!(corpus.books.is_empty(), "books not ordered: {:?}", corpus.books.iter().map(|b| &b.name).collect::<Vec<_>>());
     corpus.books = out;
 }
 

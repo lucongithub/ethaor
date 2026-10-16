@@ -22,6 +22,9 @@ mod text;
 
 
 use crate::*;
+pub(crate) use crate::map::*;
+pub(crate) use crate::treemap::{Rect, WORLD};
+pub(crate) use crate::wasm::map::*;
 
 /// Windows the suite sweeps: phone, tablet, laptop, desktop, and the two
 /// extreme shapes — very flat and very narrow.
@@ -132,7 +135,7 @@ impl Command {
 
 /// Reads the command list back into records.
 pub fn commands(app: &App) -> Vec<Command> {
-    assert_eq!(app.commands.len() % STRIDE, 0, "la liste n'est pas un multiple de STRIDE");
+    assert_eq!(app.commands.len() % STRIDE, 0, "the list is not a multiple of STRIDE");
     app.commands
         .chunks(STRIDE)
         .map(|c| Command {
@@ -170,5 +173,5 @@ pub fn assert_close(a: f32, b: f32, tol: f32, what: &str) {
 pub fn book_of(chapter: usize) -> usize {
     (0..corpus::book_count())
         .find(|&b| corpus::chapters_of(b).contains(&chapter))
-        .expect("chapitre hors de tout livre")
+        .expect("chapter outside every book")
 }

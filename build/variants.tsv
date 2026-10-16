@@ -1,13 +1,13 @@
-# Differences de lecture entre notre source (Mechon-Mamre) et Miqra
-# according to the Masorah, telle que Sefaria la publie. Mesuree mot a mot,
-# livre par livre : la numerotation n'entre pas en compte.
+# Readings where our source (Mechon-Mamre) and Miqra according to the
+# Masorah, as Sefaria publishes it, differ. Measured word by word, book by
+# book: numbering plays no part.
 #
-# Colonnes : rang du livre, chapitre, verset, index du premier mot dans le
-# verset, nombre de mots couverts, notre forme, la forme de MAM, nature de
-# l'ecart (division, letters, points, ketiv).
+# Columns: rank of the book, chapter, verse, index of the first word in the
+# verse, words covered, our form, the MAM form, kind of difference
+# (division, letters, points, ketiv).
 #
-# Chaque entree est verifiee au build : le mot ancre doit se trouver a cet
-# index, sinon la compilation s'arrete.
+# Every entry is checked at build time: the anchored word must stand at that
+# index, or the compilation stops.
 0	14	ב	15	1	צְבֹיִים	צביים צְבוֹיִם	ketiv
 0	14	ח	8	1	צְבֹיִים	צביים צְבוֹיִם	ketiv
 0	25	כג	4	1	גֹיִים	גיים גוֹיִם	ketiv

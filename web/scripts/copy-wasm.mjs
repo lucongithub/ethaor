@@ -29,7 +29,8 @@ import { gzipSync } from 'node:zlib';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
-const release = join(root, 'target/wasm32-unknown-unknown/release');
+// The `wasm` profile: release, aborting on panic (see Cargo.toml).
+const release = join(root, 'target/wasm32-unknown-unknown/wasm');
 const lib = resolve(here, '../src/lib');
 mkdirSync(lib, { recursive: true });
 
@@ -47,12 +48,11 @@ function copy(from, name) {
 			(e) => e.name
 		);
 		const stray = exported.filter((n) => FORBIDDEN[name].test(n));
-		if (stray.length)
-			throw new Error(`${name} exporte ce qui ne lui revient pas : ${stray.join(', ')}`);
+		if (stray.length) throw new Error(`${name} exports what is not its own: ${stray.join(', ')}`);
 	}
 	const to = join(lib, name);
 	copyFileSync(from, to);
-	console.log(`${name} -> src/lib/ (${Math.round(statSync(to).size / 1024)} Ko)`);
+	console.log(`${name} -> src/lib/ (${Math.round(statSync(to).size / 1024)} KB)`);
 }
 
 for (const [feature, name] of [
@@ -65,9 +65,14 @@ for (const [feature, name] of [
 			'build',
 			'--manifest-path',
 			join(root, 'Cargo.toml'),
+			// The workspace also holds the native server, which has no
+			// WebAssembly build.
+			'--package',
+			'ethaor',
 			'--target',
 			'wasm32-unknown-unknown',
-			'--release',
+			'--profile',
+			'wasm',
 			'--no-default-features',
 			'--features',
 			feature
@@ -93,7 +98,7 @@ const out = readdirSync(builds)
 	.sort(
 		(a, b) => statSync(join(b, 'text.plain')).mtimeMs - statSync(join(a, 'text.plain')).mtimeMs
 	)[0];
-if (!out) throw new Error('text.plain introuvable : le build Rust a-t-il tourne ?');
+if (!out) throw new Error('text.plain not found: did the Rust build run?');
 
 copy(join(out, 'text.plain'), 'ethaor-text.plain.bin');
 // The text cut into books, each gzipped on its own, then the readings: what
@@ -112,5 +117,5 @@ for (const block of blocks) starts.push(starts[starts.length - 1] + block.length
 writeFileSync(join(lib, 'ethaor-text.books.bin'), Buffer.concat(blocks));
 writeFileSync(join(lib, 'ethaor-text.books.json'), JSON.stringify(starts));
 console.log(
-	`ethaor-text.books.bin -> src/lib/ (${blocks.length} blocs, ${Math.round(starts.at(-1) / 1024)} Ko)`
+	`ethaor-text.books.bin -> src/lib/ (${blocks.length} blocks, ${Math.round(starts.at(-1) / 1024)} KB)`
 );

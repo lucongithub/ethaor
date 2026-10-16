@@ -20,10 +20,10 @@ fn the_width_of_a_fragment_is_deduced_from_its_words() {
     let words: Vec<&'static str> = verse.split(' ').collect();
     let sum: f32 = words.iter().map(|w| app.ratio(w)).sum();
     let expected = (sum + (words.len() - 1) as f32 * space) * 3.0;
-    assert_close(app.width_of(verse, 3.0), expected, 1e-3, "largeur deduite des mots");
+    assert_close(app.width_of(verse, 3.0), expected, 1e-3, "width deduced from the words");
     // Linear in the size: that is what lets `lay_out` try a size and scale.
     let one = app.width_of(verse, 1.0);
-    assert_close(app.width_of(verse, 7.0), one * 7.0, 1e-2, "la largeur n'est pas lineaire");
+    assert_close(app.width_of(verse, 7.0), one * 7.0, 1e-2, "the width is not linear");
     assert_eq!(app.width_of(verse, 0.0), 0.0);
 }
 
@@ -31,10 +31,10 @@ fn the_width_of_a_fragment_is_deduced_from_its_words() {
 fn a_space_is_measured_on_a_real_space_of_the_corpus() {
     let mut app = reference_app();
     let ratio = app.space_ratio();
-    assert!(ratio > 0.0, "une espace sans largeur");
-    let space = app.space.expect("l'espace retenue");
+    assert!(ratio > 0.0, "a space without width");
+    let space = app.space.expect("the space kept");
     assert_eq!(space, " ");
-    assert_eq!(app.space_ratio(), ratio, "l'espace est remesuree a chaque appel");
+    assert_eq!(app.space_ratio(), ratio, "the space is measured again at every call");
 }
 
 /// An unmeasured fragment is answered with an estimate **and** recorded: the
@@ -48,18 +48,18 @@ fn an_unknown_width_is_estimated_then_asked_for() {
         estimated,
         letter::letter_count(word).max(1) as f32 * GUESS,
         1e-6,
-        "l'estimation n'est pas celle de GUESS",
+        "the estimate is not GUESS's",
     );
     let (offset, len) = key_of(word);
     assert!(
         app.pending.chunks(2).any(|p| p == [offset, len]),
-        "le fragment n'a pas ete inscrit dans pending"
+        "the fragment was not written into pending"
     );
 
     app.ratios.insert((offset, len), 1.5);
     let before = app.pending.len();
-    assert_close(app.ratio(word), 1.5, 1e-6, "la mesure n'est pas reprise");
-    assert_eq!(app.pending.len(), before, "un fragment mesure est redemande");
+    assert_close(app.ratio(word), 1.5, 1e-6, "the measurement is not taken again");
+    assert_eq!(app.pending.len(), before, "a measured fragment is asked again");
 }
 
 /// **Wrapping keeps slices of the corpus**: the lines of a verse, joined back
@@ -75,9 +75,9 @@ fn wrapping_keeps_contiguous_slices_of_the_corpus() {
         for verse in corpus::verses_of(chapter) {
             let text = corpus::verse_text(verse);
             let parts = app.wrap(text, cell.w, size);
-            assert!(!parts.is_empty(), "verset {verse} sans ligne");
-            assert!(parts.iter().all(|p| !p.is_empty()), "verset {verse} a une ligne vide");
-            assert_eq!(parts.join(" "), text, "verset {verse} ne se recompose pas");
+            assert!(!parts.is_empty(), "verse {verse} without a line");
+            assert!(parts.iter().all(|p| !p.is_empty()), "verse {verse} has an empty line");
+            assert_eq!(parts.join(" "), text, "verse {verse} does not recompose");
             // Every slice really is a slice of the corpus, findable by its key.
             for part in &parts {
                 let (offset, len) = key_of(part);
@@ -103,7 +103,7 @@ fn a_line_fits_in_its_column() {
                 let single = !part.contains(' ');
                 assert!(
                     width <= cell.w * 1.001 || single,
-                    "la ligne {part:?} deborde sa colonne de {}",
+                    "line {part:?} overflows its column by {}",
                     width - cell.w
                 );
             }
@@ -132,39 +132,39 @@ fn a_chapter_lays_out_at_one_single_size() {
     for chapter in SAMPLE {
         let cell = column(app.layout.chapters[chapter]);
         let lines = app.chapter_lines(chapter);
-        assert!(!lines.is_empty(), "chapitre {chapter} sans ligne");
+        assert!(!lines.is_empty(), "chapter {chapter} without a line");
 
         let size = lines[0].size;
         assert!(size > 0.0);
         let width = cell.w - app.gutter(chapter, size);
         for line in &lines {
-            assert_close(line.size, size, 1e-6, "deux tailles dans le chapitre");
-            assert_close(line.rect.w, width, 1e-3, "une ligne n'a pas la largeur de sa colonne");
-            assert_close(line.rect.x, cell.x, 1e-3, "une ligne n'est pas calee sur sa colonne");
+            assert_close(line.size, size, 1e-6, "two sizes in the chapter");
+            assert_close(line.rect.w, width, 1e-3, "a line does not have its column's width");
+            assert_close(line.rect.x, cell.x, 1e-3, "a line is not aligned on its column");
         }
 
         // At least one line per verse, in order, stacked downwards.
-        assert!(lines.len() >= corpus::verses_of(chapter).len(), "des versets ont disparu");
+        assert!(lines.len() >= corpus::verses_of(chapter).len(), "verses vanished");
         for pair in lines.windows(2) {
-            assert!(pair[1].rect.y >= pair[0].rect.y - 1e-4, "une ligne est remontee");
-            assert!(pair[1].verse >= pair[0].verse, "les versets ne sont pas dans l'ordre");
+            assert!(pair[1].rect.y >= pair[0].rect.y - 1e-4, "a line went up");
+            assert!(pair[1].verse >= pair[0].verse, "the verses are not in order");
         }
         assert_eq!(lines[0].verse, corpus::verses_of(chapter).start);
         assert_eq!(lines.last().unwrap().verse, corpus::verses_of(chapter).end - 1);
 
         // The column stays inside its cell.
         let bottom = lines.last().unwrap().rect.y + lines.last().unwrap().rect.h;
-        assert!(bottom <= cell.y + cell.h + 0.01, "le chapitre {chapter} deborde sa case");
-        assert!(lines[0].rect.y >= cell.y - 1e-3, "le chapitre {chapter} commence trop haut");
+        assert!(bottom <= cell.y + cell.h + 0.01, "chapter {chapter} overflows its cell");
+        assert!(lines[0].rect.y >= cell.y - 1e-3, "chapter {chapter} starts too high");
 
         // The marks are paid on the layout: a header row for the chapter
         // number above the first line, a gutter for the verse numbers at the
         // right of every line, wide enough for the widest of them.
-        assert_close(lines[0].rect.y - cell.y, CHAPTER_MARK * LINE_K * size, 1e-3, "pas de rangee pour le numero");
+        assert_close(lines[0].rect.y - cell.y, CHAPTER_MARK * LINE_K * size, 1e-3, "no row for the number");
         let widest = corpus::verses_of(chapter)
             .map(|v| app.width_of(corpus::verse_label(v), size * VERSE_MARK))
             .fold(0.0_f32, f32::max);
-        assert!(cell.w - width > widest, "chapitre {chapter}: la gouttiere ne tient pas ses numeros");
+        assert!(cell.w - width > widest, "chapter {chapter}: the gutter does not hold its numbers");
     }
 }
 
@@ -188,12 +188,12 @@ fn a_breathing_space_separates_two_verses() {
             between.push(gap);
         }
     }
-    assert!(!inside.is_empty() && !between.is_empty(), "l'echantillon manque un des deux ecarts");
+    assert!(!inside.is_empty() && !between.is_empty(), "the sample lacks one of the two gaps");
     let widest_inside = inside.iter().copied().fold(f32::MIN, f32::max);
     let tightest_between = between.iter().copied().fold(f32::MAX, f32::min);
     assert!(
         tightest_between > widest_inside,
-        "les versets ne respirent pas plus que les lignes d'un meme verset"
+        "verses do not breathe more than the lines of one verse"
     );
 }
 
@@ -205,7 +205,7 @@ fn a_chapter_is_laid_out_once() {
     measure_all(&mut app);
     app.set_detail(true);
     let first = app.chapter_lines(3);
-    assert!(app.lines.contains_key(&3), "la mise en page n'est pas mise en cache");
+    assert!(app.lines.contains_key(&3), "the layout is not cached");
     let again = app.chapter_lines(3);
     assert_eq!(first.len(), again.len());
     for (a, b) in first.iter().zip(&again) {
@@ -227,21 +227,21 @@ fn the_letters_of_a_line_fill_it_right_to_left() {
         let cells = app.letter_cells(line.text, line.rect, line.size);
         let expected: usize =
             line.text.split(' ').map(|w| letter::letter_count(w).max(1)).sum();
-        assert_eq!(cells.len(), expected, "une lettre a ete perdue");
+        assert_eq!(cells.len(), expected, "a letter was lost");
 
         let drawn = app.width_of(line.text, line.size);
         let total: f32 = cells.iter().map(|c| c.w).sum();
-        assert_close(total, drawn, 1e-2, "les cellules ne couvrent pas la ligne");
+        assert_close(total, drawn, 1e-2, "the cells do not cover the line");
 
         for pair in cells.windows(2) {
-            assert!(pair[1].x < pair[0].x, "les lettres ne vont pas de droite a gauche");
+            assert!(pair[1].x < pair[0].x, "the letters do not go right to left");
         }
         let right = line.rect.x + line.rect.w;
-        assert_close(cells[0].x + cells[0].w, right, 1e-3, "la premiere lettre n'est pas au bord droit");
+        assert_close(cells[0].x + cells[0].w, right, 1e-3, "the first letter is not at the right edge");
         for cell in &cells {
-            assert_eq!(cell.y, line.rect.y, "une lettre a quitte sa ligne");
+            assert_eq!(cell.y, line.rect.y, "a letter left its line");
             assert_eq!(cell.h, line.rect.h);
-            assert!(cell.w > 0.0, "une lettre sans largeur");
+            assert!(cell.w > 0.0, "a letter without width");
         }
     }
 }
@@ -267,7 +267,7 @@ fn the_column_height_grows_with_the_size() {
     let mut previous = 0.0;
     for size in [0.05_f32, 0.1, 0.2, 0.4, 0.8] {
         let height = app.column_height(0, width, size);
-        assert!(height > previous, "la hauteur n'a pas cru de {previous} a {height}");
+        assert!(height > previous, "the height did not grow from {previous} to {height}");
         previous = height;
     }
 }
@@ -281,5 +281,5 @@ fn bigger_cells_give_bigger_verses() {
     let overview = app.chapter_lines(0)[0].size;
     app.set_detail(true);
     let detail = app.chapter_lines(0)[0].size;
-    assert!(detail > overview, "des cases plus grandes doivent grossir le texte");
+    assert!(detail > overview, "larger cells must grow the text");
 }

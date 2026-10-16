@@ -51,7 +51,7 @@ fn dive_to_text(app: &mut App) -> usize {
             return notch;
         }
     }
-    panic!("le verset n'arrive jamais sous le centre");
+    panic!("the verse never comes under the centre");
 }
 
 // ----------------------------------------------------------- depth by zoom
@@ -64,10 +64,10 @@ fn the_framing_names_a_portion_and_a_book() {
         let mut app = framed_app(w, h);
         measure_all(&mut app);
         let path = centre(&mut app);
-        assert!(path.section.is_some(), "{w}x{h}: aucune portion au cadrage");
-        assert!(path.book.is_some(), "{w}x{h}: aucun livre au cadrage");
-        assert_eq!(path.chapter, None, "{w}x{h}: un chapitre annonce avant d'etre visible");
-        assert_eq!(path.verse, None, "{w}x{h}: un verset annonce au cadrage");
+        assert!(path.section.is_some(), "{w}x{h}: no portion at the framing");
+        assert!(path.book.is_some(), "{w}x{h}: no book at the framing");
+        assert_eq!(path.chapter, None, "{w}x{h}: a chapter announced before it is visible");
+        assert_eq!(path.verse, None, "{w}x{h}: a verse announced at the framing");
     }
 }
 
@@ -82,10 +82,10 @@ fn the_chapter_arrives_with_the_numbers() {
         app.build_frame();
 
         let camera = app.camera;
-        assert!(app.chapters_ready(camera), "{w}x{h}: les numeros devaient etre la");
+        assert!(app.chapters_ready(camera), "{w}x{h}: the numbers should be there");
         let path = centre(&mut app);
-        assert!(path.chapter.is_some(), "{w}x{h}: pas de chapitre au premier cran");
-        assert_eq!(path.verse, None, "{w}x{h}: un verset des le premier cran");
+        assert!(path.chapter.is_some(), "{w}x{h}: no chapter at the first notch");
+        assert_eq!(path.verse, None, "{w}x{h}: a verse from the first notch");
     }
 }
 
@@ -97,11 +97,11 @@ fn the_verse_arrives_with_the_text() {
         let mut app = app_at(w, h);
         measure_all(&mut app);
         let notches = dive_to_text(&mut app);
-        assert!(notches <= 14, "{w}x{h}: {notches} crans avant le verset");
+        assert!(notches <= 14, "{w}x{h}: {notches} notches before the verse");
 
         let path = centre(&mut app);
         assert!(path.section.is_some() && path.book.is_some() && path.chapter.is_some());
-        let verse = path.verse.expect("un verset");
+        let verse = path.verse.expect("a verse");
         assert!(!verse.is_empty());
     }
 }
@@ -126,31 +126,31 @@ fn the_depth_never_exceeds_what_is_drawn() {
         let path = centre(&mut app);
 
         if path.chapter.is_some() {
-            assert!(ready, "cran {notch}: un chapitre annonce sans numero a l'ecran");
+            assert!(ready, "notch {notch}: a chapter announced with no number on screen");
         }
         if path.verse.is_some() {
             // A chapter number is only unique inside its book — א names 39
             // chapters — so the book comes first.
             let book = (0..corpus::book_count())
                 .find(|&b| Some(corpus::book_name(b)) == path.book)
-                .expect("le livre du verset");
+                .expect("the verse's book");
             let chapter = corpus::chapters_of(book)
                 .find(|&c| Some(corpus::chapter_label(c)) == path.chapter)
-                .expect("le chapitre du verset");
+                .expect("the verse's chapter");
             assert!(
                 app.line_height(chapter, camera) >= READABLE_LINE,
-                "cran {notch}: un verset annonce sans texte lisible"
+                "notch {notch}: a verse announced with no readable text"
             );
         }
         // A level is never filled without the one above it.
         if path.book.is_some() {
-            assert!(path.section.is_some(), "cran {notch}: un livre sans portion");
+            assert!(path.section.is_some(), "notch {notch}: a book without a portion");
         }
         if path.chapter.is_some() {
-            assert!(path.book.is_some(), "cran {notch}: un chapitre sans livre");
+            assert!(path.book.is_some(), "notch {notch}: a chapter without a book");
         }
         if path.verse.is_some() {
-            assert!(path.chapter.is_some(), "cran {notch}: un verset sans chapitre");
+            assert!(path.chapter.is_some(), "notch {notch}: a verse without a chapter");
         }
     }
 }
@@ -166,19 +166,19 @@ fn the_path_holds_together() {
     let path = centre(&mut app);
     let book = (0..corpus::book_count())
         .find(|&b| Some(corpus::book_name(b)) == path.book)
-        .expect("un livre nomme");
+        .expect("a book named");
     let section = treemap::SECTIONS
         .iter()
         .position(|&(_, first, last)| book >= first && book < last)
-        .expect("une portion pour ce livre");
+        .expect("a portion for this book");
     assert_eq!(path.section, Some(corpus::section_name(section)));
 
     let chapter = corpus::chapters_of(book)
         .find(|&c| Some(corpus::chapter_label(c)) == path.chapter)
-        .expect("le chapitre doit etre du livre");
+        .expect("the chapter must be of the book");
     assert!(
         corpus::verses_of(chapter).any(|v| Some(corpus::verse_label(v)) == path.verse),
-        "le verset doit etre du chapitre"
+        "the verse must be of the chapter"
     );
 }
 
@@ -189,9 +189,9 @@ fn the_verse_level_is_a_number() {
     let mut app = reference_app();
     measure_all(&mut app);
     dive_to_text(&mut app);
-    let verse = centre(&mut app).verse.expect("un verset");
-    assert!(verse.chars().count() <= 3, "le niveau du verset porte {verse:?}");
-    assert!(!verse.contains(' '), "le niveau du verset porte du texte");
+    let verse = centre(&mut app).verse.expect("a verse");
+    assert!(verse.chars().count() <= 3, "the verse level holds {verse:?}");
+    assert!(!verse.contains(' '), "the verse level holds text");
 }
 
 // -------------------------------------------------------- point by pointer
@@ -205,16 +205,16 @@ fn the_pointer_names_the_book_it_is_on() {
 
     let mut named = 0;
     for book in 0..corpus::book_count() {
-        let ink = app.book_ink(book, camera).expect("le titre du livre est dessine");
+        let ink = app.book_ink(book, camera).expect("the book title is drawn");
         let (px, py) = (ink.x + ink.w / 2.0, ink.y + ink.h / 2.0);
         if px < 0.0 || py < 0.0 || px > app.width || py > app.height {
             continue;
         }
-        let path = under(&mut app, px, py).expect("un titre de livre nomme son livre");
-        assert_eq!(path.book, Some(corpus::book_name(book)), "le pointeur nomme un autre livre");
+        let path = under(&mut app, px, py).expect("a book title names its book");
+        assert_eq!(path.book, Some(corpus::book_name(book)), "the pointer names another book");
         named += 1;
     }
-    assert_eq!(named, corpus::book_count(), "tous les livres sont a l'ecran au cadrage");
+    assert_eq!(named, corpus::book_count(), "every book is on screen at the framing");
 }
 
 /// **A portion is named by its own letters, and by nothing else.**
@@ -235,19 +235,19 @@ fn the_pointer_on_a_portion_title_names_the_portion_alone() {
         let camera = app.camera;
 
         for section in 0..3 {
-            let ink = app.section_ink(section, camera).expect("le nom de la portion est dessine");
+            let ink = app.section_ink(section, camera).expect("the portion's name is drawn");
             let (px, py) = (ink.x + ink.w / 2.0, ink.y + ink.h / 2.0);
-            let path = under(&mut app, px, py).expect("les lettres nomment leur portion");
+            let path = under(&mut app, px, py).expect("the letters name their portion");
             assert_eq!(path.section, Some(corpus::section_name(section)), "portion {section}");
-            assert_eq!(path.book, None, "un nom de portion nomme un livre");
-            assert_eq!(path.chapter, None, "un nom de portion nomme un chapitre");
+            assert_eq!(path.book, None, "a portion's name names a book");
+            assert_eq!(path.chapter, None, "a portion's name names a chapter");
 
             // The air at the left of the same letters: nothing.
             let beside = ink.x - ink.w;
             if beside > 0.0 {
                 assert!(
                     under(&mut app, beside, py).is_none(),
-                    "l'air a cote du nom de la portion {section} nomme quelque chose"
+                    "the air beside the name of portion {section} names something"
                 );
             }
         }
@@ -263,11 +263,11 @@ fn the_pointer_in_the_air_names_nothing() {
 
     let last = app.layout.books[corpus::book_count() - 1];
     let (px, py) = on_screen(&app, Rect { y: last.y + last.h + 20.0, h: 1.0, ..last });
-    assert!(under(&mut app, px, py).is_none(), "le blanc du bas nomme quelque chose");
+    assert!(under(&mut app, px, py).is_none(), "the blank at the bottom names something");
 
     // Left of the map, outside the centred book area.
     let (px, py) = (1.0, app.height * 0.5);
-    assert!(under(&mut app, px, py).is_none(), "le noir du bord nomme quelque chose");
+    assert!(under(&mut app, px, py).is_none(), "the black at the edge names something");
 
     // And the centre, asked for itself, still answers: that is what the page
     // falls back on when there is no pointer at all.
@@ -290,16 +290,16 @@ fn the_pointer_names_the_cell_it_is_on() {
         if px < 0.0 || py < 0.0 || px > app.width || py > app.height {
             continue;
         }
-        let path = under(&mut app, px, py).expect("une case nomme son chapitre");
+        let path = under(&mut app, px, py).expect("a cell names its chapter");
         assert_eq!(
             path.chapter,
             Some(corpus::chapter_label(chapter)),
-            "la case du chapitre {chapter} en nomme un autre"
+            "the cell of chapter {chapter} names another"
         );
         assert_eq!(path.book, Some(corpus::book_name(book_of(chapter))));
         seen.push(corpus::chapter_label(chapter));
     }
-    assert!(seen.len() > 100, "seulement {} cases a l'ecran", seen.len());
+    assert!(seen.len() > 100, "only {} cells on screen", seen.len());
 }
 
 /// Deep in a chapter, the pointer follows the **lines**: two lines of two
@@ -313,13 +313,13 @@ fn the_pointer_follows_the_verses_of_a_chapter() {
     let centre_path = centre(&mut app);
     let book = (0..corpus::book_count())
         .find(|&b| Some(corpus::book_name(b)) == centre_path.book)
-        .expect("un livre sous le centre");
+        .expect("a book under the centre");
     let chapter = corpus::chapters_of(book)
         .find(|&c| Some(corpus::chapter_label(c)) == centre_path.chapter)
-        .expect("un chapitre sous le centre");
+        .expect("a chapter under the centre");
 
     let lines = app.chapter_lines(chapter);
-    assert!(lines.len() >= 2, "il faut deux lignes pour comparer");
+    assert!(lines.len() >= 2, "two lines are needed to compare");
 
     // The cells of a book are a few units apart, so a point near the edge of a
     // line can fall nearer to the neighbouring chapter: we only keep the
@@ -332,18 +332,18 @@ fn the_pointer_follows_the_verses_of_a_chapter() {
         if path.chapter != Some(wanted) || path.book != centre_path.book {
             continue;
         }
-        let verse = path.verse.expect("une ligne du chapitre vise doit nommer son verset");
+        let verse = path.verse.expect("a line of the aimed chapter must name its verse");
         if verses.last() != Some(&verse) {
             verses.push(verse);
         }
     }
 
-    assert!(verses.len() >= 2, "le pointeur ne distingue pas deux versets : {verses:?}");
+    assert!(verses.len() >= 2, "the pointer does not tell two verses apart: {verses:?}");
     // In reading order, and each one really of that chapter.
     let order: Vec<&'static str> = corpus::verses_of(chapter).map(corpus::verse_label).collect();
     let ranks: Vec<usize> =
-        verses.iter().map(|v| order.iter().position(|o| o == v).expect("verset du chapitre")).collect();
-    assert!(ranks.windows(2).all(|p| p[0] < p[1]), "les versets ne descendent pas dans l'ordre");
+        verses.iter().map(|v| order.iter().position(|o| o == v).expect("verse of the chapter")).collect();
+    assert!(ranks.windows(2).all(|p| p[0] < p[1]), "the verses do not go down in order");
 }
 
 /// Hovering still changes nothing in the drawing: the breadcrumb is read
@@ -361,7 +361,7 @@ fn reading_the_breadcrumb_does_not_touch_the_drawing() {
         let _ = under(&mut app, width * (i as f32) / 20.0, middle);
     }
     let after = frame(&mut app);
-    assert_eq!(before, after, "lire le fil d'Ariane a change le dessin");
+    assert_eq!(before, after, "reading the breadcrumb changed the drawing");
 }
 
 /// **The pointer names what it is on, not what it is near.**
@@ -378,11 +378,11 @@ fn the_void_of_a_cell_names_no_chapter() {
     app.build_frame();
 
     let camera = app.camera;
-    assert!(app.chapters_ready(camera), "les numeros ne sont pas sortis");
+    assert!(app.chapters_ready(camera), "the numbers are not out");
 
     let mut tested = 0usize;
     for chapter in 0..corpus::chapter_count() {
-        assert!(!app.readable(chapter), "le chapitre {chapter} est deja lisible");
+        assert!(!app.readable(chapter), "chapter {chapter} is already readable");
         let cell = app.layout.chapters[chapter];
         let ink = app.numeral_box(chapter);
 
@@ -391,11 +391,11 @@ fn the_void_of_a_cell_names_no_chapter() {
         if px < 0.0 || py < 0.0 || px > app.width || py > app.height {
             continue;
         }
-        let on = under(&mut app, px, py).expect("le numero nomme son chapitre");
+        let on = under(&mut app, px, py).expect("the number names its chapter");
         assert_eq!(
             on.chapter,
             Some(corpus::chapter_label(chapter)),
-            "le numero du chapitre {chapter} en nomme un autre"
+            "the number of chapter {chapter} names another"
         );
 
         // The void at the left of the same cell, where no ink is: the book,
@@ -412,11 +412,11 @@ fn the_void_of_a_cell_names_no_chapter() {
         // book, so nothing is named and the centre of the view takes over.
         assert!(
             under(&mut app, vx, vy).is_none(),
-            "le vide de la case {chapter} nomme quelque chose"
+            "the void of cell {chapter} names something"
         );
         tested += 1;
     }
-    assert!(tested > 50, "seulement {tested} cases testees");
+    assert!(tested > 50, "only {tested} cells tested");
 }
 
 /// **The void of a book box names no book.** Once the numbers are out, the
@@ -432,7 +432,7 @@ fn the_void_of_a_book_box_names_no_book() {
     app.build_frame();
 
     let camera = app.camera;
-    assert!(app.chapters_ready(camera), "les numeros ne sont pas sortis");
+    assert!(app.chapters_ready(camera), "the numbers are not out");
 
     let on_screen_point = |app: &App, x: f32, y: f32| x >= 0.0 && y >= 0.0 && x <= app.width && y <= app.height;
     let mut named = 0usize;
@@ -446,9 +446,9 @@ fn the_void_of_a_book_box_names_no_book() {
         // to no cell.
         let (tx, ty) = (ink.x + ink.w / 2.0, ink.y + ink.h / 2.0);
         if on_screen_point(&app, tx, ty) {
-            let path = under(&mut app, tx, ty).expect("le titre nomme son livre");
-            assert_eq!(path.book, Some(corpus::book_name(book)), "le titre du livre {book}");
-            assert_eq!(path.chapter, None, "le titre du livre {book} nomme un chapitre");
+            let path = under(&mut app, tx, ty).expect("the title names its book");
+            assert_eq!(path.book, Some(corpus::book_name(book)), "the title of book {book}");
+            assert_eq!(path.chapter, None, "the title of book {book} names a chapter");
             named += 1;
         }
 
@@ -460,10 +460,10 @@ fn the_void_of_a_book_box_names_no_book() {
         }
         assert!(
             under(&mut app, vx, vy).is_none(),
-            "le vide du livre {book} nomme quelque chose"
+            "the void of book {book} names something"
         );
         voids += 1;
     }
-    assert!(named > 5, "seulement {named} titres testes");
-    assert!(voids > 5, "seulement {voids} vides testes");
+    assert!(named > 5, "only {named} titles tested");
+    assert!(voids > 5, "only {voids} voids tested");
 }

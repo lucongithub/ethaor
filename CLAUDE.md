@@ -10,7 +10,7 @@ its volume, and zooming reveals its contents inside it.
 
 **Rules here, numbers in tests.** This file states invariants, intent and
 rejected alternatives — the things a test cannot express. Every measurement,
-ratio, count and threshold lives in `cargo test` (248 tests, 5 s), which is the
+ratio, count and threshold lives in `cargo test` (334 tests, 7 s), which is the
 only place they stay true. Do not restate a measured value here; if a rule can
 be asserted, assert it and leave only the *why* in prose.
 
@@ -34,9 +34,10 @@ Rust draws first with an estimate, records unknown fragments in `pending`, the
 page measures them and asks for a new frame. Each fragment is measured once;
 convergence takes one frame.
 
-**No server**: a zoom gesture must answer under 16 ms; a round trip, even
-local, is 20–100 ms. Actix only makes sense once the dictionary needs data we
-cannot embed.
+**The page needs no server**: a zoom gesture must answer under 16 ms; a round
+trip, even local, is 20–100 ms. The browser never calls `server/` — its API
+is for whoever has no browser: scripts, other apps, agents (see *WebAssembly
+and API*).
 
 **No three.js / WebGL**: it would force a glyph atlas and a home-made text
 engine — no bidi, no combining marks, so the corpus' million niqqud points
@@ -47,7 +48,17 @@ would not render. Canvas 2D gives browser shaping for free.
 Same layout as check8ge: Rust crate at the root, SvelteKit app in `web/`.
 
 ```
-Cargo.toml, build.rs, src/      WebAssembly module — all computation
+Cargo.toml, build.rs, src/      WebAssembly module — all computation; also
+                                the workspace root (`server/` is a member)
+src/shared.rs, src/shared/      what both transports run: queries checked,
+                                answers paged, places named (OSIS, English)
+src/map.rs, src/map/            the map: `App`, one window's state, one file
+                                per subject — camera, measure, text (verse
+                                layout), hit (click, cursor, breadcrumb),
+                                landing, frame, settings
+src/wasm.rs, src/wasm/          WebAssembly exports only, no computation: els,
+                                map, landing (taken by both modules), fault
+                                (what a panic leaves for the page)
 build/mamre.rs                  source reading, included by build.rs
 build/variants.rs               the other edition's readings, same inclusion
 build/variants.tsv              their table, measured and versioned
@@ -55,16 +66,34 @@ src/pack.rs                     the corpus packed for transport, unpacked here
 src/{corpus,els,letter,pack,treemap,variant}/tests.rs   module-private tests
 src/tests/                      app tests: camera, frame, click, breadcrumb, …
 tests/builder.rs                corpus build tests
+TESTS.md                        every test along the file tree, generated
+                                (`npm run tests:map`), checked by `verify`
+server/                         axum: the static build, and the HTTP API
+  src/api.rs                    `GET /api`: every endpoint as a tool (MCP-ready)
+  src/api/<name>.rs             the HTTP twin of src/wasm/<name>.rs
+  src/api/pool.rs               engines lent one per search, panics caught
+  src/api/guard.rs              each client's budget, charged per request
+  src/api/logs.rs               `GET /api/logs`: the logs, live, for the operator
+  src/api/report.rs             `POST /api/report`: the page's faults, into the log
+  src/fault.rs                  faults: incident, code, place, escalation, answer
+  src/config.rs                 every setting, from the environment, defaulted
+  src/logs.rs                   structured logs: JSON, off-thread, to rolling
+                                files, read back and followed from them
+  src/files.rs                  web/build/ as a CDN serves it
+  src/tests/                    the service called in memory, parity with wasm
 web/                            SvelteKit 2 + Svelte 5 + Tailwind 4
   src/lib/ethaor.ts             bridge: gestures, painting, measurements
   src/lib/components/TanakhMap.svelte
   src/routes/+page.svelte
+  src/routes/logs/              the operator's logs, live (`/logs/?token=…`)
+  src/lib/logs-view.ts          that page's logic: token, events, bounds
   src/lib/ethaor.wasm           the map module, built and copied by `npm run wasm`
   src/lib/ethaor-search.wasm    the search module, likewise, loaded by the worker
   src/lib/ethaor-text.*         the corpus' text part: books gzipped (+ where they
                                 lie, JSON), and plain for tiles
   src/lib/search-worker.ts      the search module off the frame loop
   src/lib/search-core.ts        the search module: land the text, search
+  src/lib/fault.ts              the page's faults: numbered, escalated, reported
   src/lib/text-open.ts          Range requests, gzip opened natively, the lanes
   src/lib/*.test.ts             the page's own logic, on the real artifacts
   src/lib/tests/artifacts.ts    those artifacts read from disk, for the tests
@@ -75,6 +104,7 @@ web/                            SvelteKit 2 + Svelte 5 + Tailwind 4
   scripts/bench-load.mjs        the page timed on throttled networks
   scripts/bench-els.mjs         ELS methods timed in V8 (see ELS)
   scripts/tune-els.mjs          ELS cost model tuned on those times
+  scripts/tests-map.mjs         writes TESTS.md; `--check` holds it exhaustive
 ```
 
 **`adapter-static`**: `build/` is plain files, served by any host or CDN.
@@ -82,8 +112,9 @@ The app has no server code — map and search both run in the visitor's
 browser — so a Node process would only have sent files, and would have had
 to be sized, kept up and patched for it; static, any number of visitors costs
 the server one download each. Rejected: `adapter-node`, check8ge's choice,
-which had nothing to run here. Server code, if the dictionary ever needs it,
-goes in a separate service.
+which had nothing to run here. Server code goes in `server/`, a separate
+crate: the build stays static, and `server/` serves it beside its API —
+or a CDN serves it and `server/` keeps `/api` alone.
 `ssr = false` — canvas and module have no business on the server.
 
 CSS is Tailwind everywhere. `app.css` holds only the Tailwind import, the fonts
@@ -92,18 +123,26 @@ and two theme tokens (`--font-sans`, `--font-hebrew`).
 ## Build
 
 ```sh
-cargo test         # 248 tests, 5 s — before any commit
+cargo test         # 334 tests, 7 s, crate and server — before any commit
+cargo run -p ethaor-server --release   # web/build + /api on 127.0.0.1:8080
+                   # run from the repository root; settings from the
+                   # environment, else from `.env` there (see Settings)
 cd web
 npm install
 npm run wasm       # both modules (map, search) built and copied into src/lib/
-npm run dev        # 127.0.0.1:8095
+npm run dev        # runs `wasm` first (predev), then 127.0.0.1:8095
 npm run build      # runs `wasm` first (prebuild), then writes build/
+npm run eth        # build, then ethaor-server --release from the root: the app as in
+                   # production, page and /api on 127.0.0.1:8080, `.env` read
+npm run eth:run    # the same without the page build: start again after Ctrl-C
 npm run preview    # serves build/ on the dev port — to test, not to host
 npm run host       # same, on 0.0.0.0:8080
 npm run deploy     # build, then upload build/ to Cloudflare Pages (ethaor)
 npm test           # the page's own logic (vitest), modules rebuilt first
+npm run tests:map  # rewrite TESTS.md after adding or changing a test
 npm run verify     # the whole gate: cargo test, clippy on all three builds,
-                   # npm test, svelte-check, prettier — before any commit
+                   # npm test, svelte-check, prettier, TESTS.md up to date
+                   # and exhaustive — before any commit
 ```
 
 `build` recompiles the module itself: Vite only takes the file it finds, so a
@@ -123,6 +162,256 @@ Elsewhere, `build/` goes behind any static server — `.wasm` must be served as
 
 The map is welded into the module; the text is one more file, fetched once
 the first image is drawn (see *Transport*). No request afterwards.
+
+## Settings
+
+**Every setting is an environment variable, and a local `.env` may hold
+them** (`server/src/config.rs`). The process' environment always wins —
+a host's secrets override a local file — and the file is only read, never
+written into the environment. It is `.env` in the directory the server
+runs in (`ETHAOR_ENV` names another), **never versioned** (`.gitignore`):
+it holds `ETHAOR_LOGS_TOKEN`. Missing, the environment alone; malformed, it
+is ignored whole and the log says why — half a file is worse than none.
+
+| variable | default | what |
+|---|---|---|
+| `ETHAOR_ADDR` | `127.0.0.1:8080` | where it listens |
+| `ETHAOR_ROOT` | `web/build` | the static build it serves |
+| `ETHAOR_LOG` | `info` | log filter, `RUST_LOG` syntax |
+| `ETHAOR_LOG_FORMAT` | JSON | `pretty` for a terminal (standard output; files stay JSON) |
+| `ETHAOR_LOG_DIR` | `logs` | where the log files go, `off` for none |
+| `ETHAOR_LOG_MB` | 256 | the disk all log files take together |
+| `ETHAOR_LOGS_TOKEN` | unset: off | bearer token of `GET /api/logs`, 16 characters at least |
+| `ETHAOR_ENGINES` | one per core | searches at once |
+| `ETHAOR_WAIT_MS` | 2000 | queueing for an engine before `busy` |
+| `ETHAOR_CACHE_MB` | 256 | JSON answers kept |
+| `ETHAOR_MAX_COST_MS` | 300 | heaviest search admitted, estimated |
+| `ETHAOR_IP_BURST_MS`, `ETHAOR_IP_RATE_MS` | 3000, 300 | each client's budget, and per second back |
+| `ETHAOR_TRUST_PROXY` | off | client named by the proxy's headers |
+| `ETHAOR_VERBOSE` | off | faults log their whole escalation and stack |
+
+A new setting goes in this table, in `Config`, in `env.md` (every value and its effect, for whoever sets them), and in a test that reads it.
+
+## WebAssembly and API
+
+**A WebAssembly module generally gets its HTTP twin.** What the page computes
+in the browser, a script or an agent without a browser asks `server/` for:
+`src/wasm/<name>.rs` and `server/src/api/<name>.rs` go in pairs, and a new
+export comes with its endpoint unless there is a reason not to — the map's
+frames, which only a canvas reads, have none.
+
+- **The computation is written once, in `src/shared/`.** A transport moves
+  bytes and nothing else: the module records across its memory, the API
+  JSON. Checking a query, paging, naming a place — all in `shared`, so the
+  two can never disagree. The engines themselves (`els::Engine`, `corpus`)
+  stay in their modules; `shared` re-exports what a transport needs.
+- **The page keeps its module.** Once the text is in, nothing beats a search
+  with no round trip, and the page must not depend on a process. The API is
+  for callers with no browser; it answers at once, the text being welded
+  into the native build.
+- **Both sides are tested, always**: `shared` in `src/shared/tests.rs`, the
+  module's exports in `src/tests/api.rs`, the endpoint in
+  `server/src/tests/`. And **a parity test** drives the export exactly as
+  the page does and the endpoint as a client does, and asserts the same
+  hits — the one guarantee that the twin is a twin.
+- **The API's JSON is designed for a future MCP server**, so an agent can
+  call it with no guide. `GET /api` describes each endpoint as an MCP tool:
+  `name`, `description`, `input_schema` (a JSON Schema of its parameters,
+  `additionalProperties: false`) and its error codes (`errors`) — what an MCP
+  server declares, as is, so wrapping the API in MCP is a mapping, not a
+  rewrite. Unknown parameters are refused, never ignored. A refusal
+  is `{"error": {"code", "message"}}` with a stable code. A place is named
+  every way at once: OSIS (`Gen.1.1`), English (`Genesis 1:1`), Hebrew
+  (`בראשית א,א`), global index. Counts are exact (`total`), pages follow
+  `next_offset`, `limit=0` only counts. The description is tested against
+  what the endpoint really takes.
+- **`server/` serves `web/build/` as a CDN would**: Range honoured (tiles),
+  nothing compressed on the fly (the books are gzip already, and a
+  compressed range is no longer the range asked), `_app/immutable/` cached a
+  year as `_headers` says — and there a missing name is a 404, never the
+  page, or a stale page would keep HTML for a script for a year.
+- **Under `/api` every answer is JSON**: a wrong path is a `not_found`, a
+  wrong method a `method_not_allowed` (with `Allow`), `/api/` describes as
+  `/api` does — never the page, which an agent could not parse.
+- **The API places the page it returns, nothing more** (`Engine::hits`):
+  the engine keeps up to `CAP` hits, and placing all of them to hand back a
+  hundred made a repeated query cost more than its recall. The module, which
+  reads every record, still gets them all through `Engine::search`.
+- **Built for any number of callers, and the number is not ours to
+  guess.** One process scales up; replicas scale out. The service keeps no
+  state worth sharing — the corpus is frozen into the binary — so any
+  number of copies run behind a load balancer, and a CDN in front answers
+  repeated queries without reaching any of them.
+- **Fully async, never blocked** (`api/pool.rs`): a caller waits on a
+  semaphore, not a thread; the search itself runs on the blocking pool,
+  off the async threads. Rejected: one engine behind one lock — measured, a
+  wide search held every light query behind it for more than a hundred
+  milliseconds.
+- **Engines are lent, not shared**: an `Engine` caches what it builds, so a
+  search needs one alone. One per core (`ETHAOR_ENGINES`), built on first
+  need, lent to one search at a time and taken back **inside** the blocking
+  task — a caller gone mid-search does not take it along. Rejected: one
+  index behind concurrent caches — it would have reached into the method
+  code the page runs, for memory the pool does not spend (measured: the
+  whole service stays under a hundred megabytes, every engine warm).
+- **An answer is searched once for everyone** (`moka`): the corpus is
+  frozen, so a JSON answer is the same forever. Kept by query, weighed in
+  bytes (`ETHAOR_CACHE_MB`); the same query asked by many at once is
+  searched once while the others await it. A refusal is never kept, and a
+  bad query costs no engine.
+- **A full queue turns callers away**: past `ETHAOR_WAIT_MS` waiting for an
+  engine, a 503 `busy` with `Retry-After` — under a flood a quick refusal a
+  client retries beats a queue that never drains.
+- **Answers say they may be kept**: `Cache-Control: public` on every
+  success (an hour in a browser, a day in a shared cache), `no-store` on
+  every refusal.
+- `server/src/tests/load.rs` times the service in memory against one engine
+  with no cache, a pool, and a pool with its cache — run it after any change
+  to the pool or the cache:
+  `cargo test -p ethaor-server --release load -- --ignored --nocapture`.
+- **A search may be kept to a part of the text**: `portion` (`torah`,
+  `neviim`, `ketuvim`), `book` (`Gen`, `Genesis`), `chapter` (`Gen.1`), or
+  `from`/`to` (any book, chapter or verse, both ends included, either
+  open) — one way at a time. An occurrence counts only if **every** letter
+  lies there: the engine searches that stretch alone (`Engine::hits_in`),
+  so the first `CAP` kept are the stretch's own, not the remains of the
+  whole text's. References are read in OSIS or as a reader writes them,
+  in `shared::reference`; the module's twin is `els_search_in`, over global
+  verse indices.
+- **Many hits stream** (`GET /api/els/stream`): NDJSON, a head line, one
+  line per hit up to `CAP`, a closing `{"done": true}`. The engine is free
+  once the pairs are copied out; the placing runs apart and stops as soon
+  as the caller goes. A page stays bounded by `MAX_LIMIT`.
+- **A WebAssembly build names `-p ethaor`**: the workspace's default members
+  take the server, which has no WebAssembly build.
+
+## Robustness: degraded, never down
+
+**By design, nothing a caller sends takes the service down, and nothing
+takes it down at all short of losing its port.** Under too much it serves
+less — refuses, sheds, drops a log line — never nothing. Every one of these
+is a rule with a test; a new feature states which of them it leans on.
+
+- **A panic is a 500, not a crash.** `release` unwinds (`panic =
+  "unwind"`); the WebAssembly modules alone abort, in their own `wasm`
+  profile. `main.rs` refuses to compile with `panic = "abort"`. A handler's
+  panic is caught (`CatchPanicLayer`) and answered `internal`; a search's
+  is caught in its task, its engine dropped — half-written caches are never
+  lent again — and built anew at the next need.
+- **Every search is admitted on its cost before it runs**: the cost model
+  that picks the method also estimates its time (`els::cost`, V8
+  milliseconds); past `ETHAOR_MAX_COST_MS` a 400 `too_costly` says the
+  estimate and how to narrow it. The heaviest query is bounded, so the
+  worst a caller can do is known.
+- **Every client has a budget** (`api/guard.rs`): in the same milliseconds,
+  `ETHAOR_IP_BURST_MS` at once, `ETHAOR_IP_RATE_MS` earned back per
+  second; a request costs one, a search the cache does not hold its
+  estimate too. Past it, 429 `rate_limited` with `Retry-After`; another
+  client is not held. The client is the socket's address, or the proxy's
+  first one only with `ETHAOR_TRUST_PROXY` — else anyone picks a fresh
+  budget.
+- **Everything that grows is bounded**: answers by bytes, budgets by
+  clients (and forgotten when idle), engines by cores, the queue by
+  `ETHAOR_WAIT_MS` (then `busy`), the log files by `ETHAOR_LOG_MB` (then
+  the oldest is deleted), the log output by its queue (then lines are
+  dropped), what a log follower reads by a chunk at a time.
+- **A bad setting falls back**: unreadable, negative or infinite, it takes
+  its default and the log says so; a burst below the heaviest admitted
+  search is raised to it. Only a port that cannot be bound stops the
+  process.
+- **Missing pieces degrade the service, not stop it**: no `web/build` and
+  the API still answers; no `ETHAOR_LOGS_TOKEN` and `/api/logs` is off; a
+  log directory that cannot be written and the logs go to standard output
+  alone, `/api/logs` a 503. A log write that fails loses its line, never
+  the request.
+- **In the browser too**: a search the module fails on is answered by its
+  id with the error — the page's promise rejects, never hangs — and the
+  worker replaces the module, feeding it again the text it kept.
+- **Stopping lets requests finish** (Ctrl-C, SIGTERM).
+
+## Faults and incidents
+
+**Every error is numbered, escalated, logged once and told** — at every
+layer, Rust, server, page, worker, UI. The skill `.claude/skills/faults`
+is the playbook, and **it applies to every change**: read it before
+writing code that can fail.
+
+- **An incident number** (`ETH-7K3F92QD`) is given where an error is raised
+  and follows it to the user's message. Quoted, it finds the one log line.
+- **A code names its place**: each is in a catalogue (`CODES` in
+  `server/src/fault.rs`, `CATALOGUE` in `web/src/lib/fault.ts`) and raised
+  at one place only — a test on each side holds it. **`at`** gives the
+  `file:line` too: `#[track_caller]`, the JS stack, or the panic's own.
+- **Each layer adds a step** (`escalate`, `relay`); the fault is logged once,
+  where it is answered. Normal: incident, code, `at`, what the user read.
+  **Verbose** (`ETHAOR_VERBOSE=1`, the page with `?verbose`): every step and
+  the stack.
+- **The user reads plain words and the number**: `internal` and a sentence
+  for our faults (the precise code stays in the log), the API's code for a
+  refusal; in the page, the catalogue's message, a closable notice,
+  or — when the map cannot go on — the whole screen with a way back.
+- **The page's faults reach the same log** (`POST /api/report`, bounded,
+  charged to the client, never throwing in the page): one incident, one log,
+  whichever side raised it. Hosted without the service, reports are lost
+  and the page goes on.
+- **A WebAssembly panic is traced to Rust**: the hook (`src/wasm/fault.rs`)
+  leaves `file:line:col` and the message before the abort; the page reads
+  them after the trap (`readTraps`). `probe_panic` gives the tests a real
+  trap.
+- **A panic in the server** is caught (handler: `CatchPanicLayer`; search:
+  the pool) and traced the same way, by the hook `install_panic_hook`.
+
+## Logs
+
+**Professional logs are structured, correlated, cheap and followable.**
+
+- **One JSON object per event** on standard output and in the log files:
+  time, level, target, message, fields — no parsing needed by a log
+  platform.
+  `ETHAOR_LOG` filters (`RUST_LOG` syntax, `info` by default);
+  `ETHAOR_LOG_FORMAT=pretty` for a terminal.
+- **Every request has an id** (`x-request-id`, a UUID), carried by each of
+  its lines — the search's included, though it runs on another thread —
+  and one line once answered: method, path, status, milliseconds. 5xx are
+  `error`, 429 and 503 `warn`.
+- **Formatted once, written off-thread** (`tracing-appender`, lossy):
+  written by the answering thread, measured, a slow console cut the
+  throughput by most of itself; now a line waits for no output, and past
+  `LINES` waiting it is dropped. `server/src/tests/load.rs` runs with the
+  logs on, as in production.
+- **Kept on disk, bounded** (`ETHAOR_LOG_DIR`, `ETHAOR_LOG_MB`): numbered
+  files, a new one per start and per share of the budget written, the
+  oldest deleted past `FILES`. Rejected: rotation by day — a flood fills a
+  day's file without bound; by size the disk taken is known. Rejected: the
+  history in memory — lost at each restart, and a second copy of what the
+  files hold.
+- **A file is written in batches** (`BufWriter`): the writing thread
+  flushes once its queue is empty, so a line waits for no more than the
+  lines queued with it, and a burst costs one system call, not one per
+  line.
+- **`GET /api/logs` reads the files** (server-sent events): the last
+  `history` lines read back, then each new one as it lands, filtered by
+  `level`; it starts after the last whole line, so none is lost or sent
+  twice between the two. **Woken by the writer, not by a clock**: each
+  flush says so (`WRITTEN`) and a waiting follower reads at once; it looks
+  on its own only every `POLL`, the net under a word missed. Rejected:
+  watching the directory (`notify`) — the only writer is this process, and
+  a crate and the system's events to learn what it already knows. Off without
+  `ETHAOR_LOGS_TOKEN` (16 characters at least), and then only with
+  `Authorization: Bearer` — logs name clients by address. **`/logs/`** is
+  the page that reads it (black, white, monospaced): the token comes once
+  as `?token=`, is taken out of the address before anything else — the
+  history and a bookmark keep `/logs/` alone — and is kept for the tab
+  (`sessionStorage`); the stream is read with `fetch`, the token in the
+  header, since an `EventSource` cannot send one. Each row has a number of
+  its own (`rows`), so dropping the oldest moves no row kept — keyed by
+  position, every row was rewritten for each line added — and a row off
+  screen is neither laid out nor painted (`content-visibility`). The token is
+  compared in constant time. A follower only reads: the service never
+  waits for it; one so slow that files it had not read were deleted is
+  told how many (`event: lagged`). It is listed in
+  `GET /api` under `operator`, not among the tools: an agent has no use
+  for it.
 
 ## Fonts
 
@@ -792,7 +1081,7 @@ units.
 
 **Nothing is added to the computation without a test.** That is the counterpart
 of the guiding principle: if everything is computed here, everything is verified
-here. `cargo test` holds 248 tests and answers in 5 s, so there is no reason not
+here. `cargo test` holds 334 tests and answers in 7 s, so there is no reason not
 to run it at every step.
 
 ```sh
@@ -802,6 +1091,21 @@ cargo test --test builder         # corpus build
 cd web && npm test                # the page's logic, on the built artifacts
 cd web && npm run verify          # everything, Rust and page, plus lints
 ```
+
+### The map of the tests
+
+**`TESTS.md` lists every test, along the file tree** — what each test file
+covers, each module, each test with its nature and what it holds (its doc
+comment) — then **the functions no test names**. It is generated, never
+edited (`web/scripts/tests-map.mjs`), and `npm run verify` fails when it is
+stale or when a test that `cargo test -- --list` or `vitest list` reports is
+missing from it: it is exhaustive by construction.
+
+**The `tests` skill (`.claude/skills/tests`) applies to every change**: it
+inventories a feature's behaviours, maps each to a test or names the gap,
+writes and proves the missing tests, regenerates the map, reads it back,
+and loops. Without a feature in hand, it strengthens: undocumented tests
+first, then the functions no test names.
 
 ### What a test asserts here
 
@@ -822,19 +1126,40 @@ anywhere must be an assertion.
 | `src/tests/breadcrumb.rs` | depth bounded by what is drawn; portion and book at framing, chapter at the first notch, verse with the text; the pointer names the book, cell or line it is on; a portion band names the portion alone; the air names nothing and the centre takes over |
 | `src/tests/locate.rs` | every point of a book box names one of its chapters, none in the air between portions; hover says what the click will do |
 | `src/tests/text.rs` | one size per chapter; lines recompose the verse **byte for byte**; every line stays a corpus slice; letters right-to-left |
-| `src/tests/api.rs` | the interface the page really calls, global state under a lock: gestures, selection, breadcrumb at centre and under pointer, a mouse gone names nothing, forgetting measurements, probes; the search through the query buffer |
-| `src/els/tests.rs` | the stream is every verse read letter by letter; postings, residue lists and planes say what the stream says; **every method equals trying every start and every skip**, on random streams of every size and range; the cap keeps the first hits in (skip, start) order with the exact total; two letters counted without listing; the cost model picks the measured winner; radix sort; placement tables; memo; finals and pointing fold; an occurrence across two verses; every record placed where its hit is; `תורה` every fiftieth letter from the first tav; time budget |
+| `src/tests/api.rs` | the interface the page really calls, global state under a lock: gestures, selection, breadcrumb at centre and under pointer, a mouse gone names nothing, forgetting measurements, probes; the search through the query buffer; the landing exports take a tile as the page writes it; the page searches a stretch of verses (`els_search_in`); a panic leaves its place and message for the page |
+| `src/els/tests.rs` | the stream is every verse read letter by letter; postings, residue lists and planes say what the stream says; **every method equals trying every start and every skip**, on random streams of every size and range; the cap keeps the first hits in (skip, start) order with the exact total; two letters counted without listing; the cost model picks the measured winner; radix sort; placement tables; memo; finals and pointing fold; an occurrence across two verses; every record placed where its hit is; `תורה` every fiftieth letter from the first tav; time budget; `hits` is the records unplaced, from the same memory; a scoped search finds exactly what lies wholly in its stretch, tried one by one; the whole stretch is the plain search; the cost is estimated without searching and tells a flood from a light query |
 | `src/pack/tests.rs` | the packed corpus unpacks to the working form **byte for byte**; the map alone holds names, labels and counts and reserves the text's room; the packed form is a fraction of the working one; Hebrew numerals; label exceptions carry only what breaks the rule; varints |
 | `web/src/lib/text-open.test.ts` | gzip opened byte for byte, from a view too; a Range asks `from..to` end excluded, and a server ignoring it is read only as far as needed; the lanes take each item once, never more at once than their count, and choose each item when a lane frees — so the view's move is seen |
 | `web/src/lib/search-core.test.ts` | the books file: 39 books then the readings, in order, and opened they give back the plain text the tiles read; the search module answers -1 until the last book and the readings are in, in any order, then finds, its hits a copy |
-| `web/src/lib/search-worker.test.ts` | a search asked before the text is held, then answered by its id; the next one answers the same |
+| `web/src/lib/fault.test.ts` | an incident reads aloud and never repeats; a fault raised at its caller, keeping its number through every layer, made of anything thrown, crossing from a worker unchanged, sent bounded as the service reads it; a real WebAssembly trap traced to its Rust place; the reporter sends each incident once, a bounded number a minute, never throwing; what nothing caught becomes a fault, reported and shown; each code raised at one place |
+| `web/src/lib/logs-view.test.ts` | the token leaves the address, the rest of it stays; events whole across any cut of the stream; a log line read for the eye, a line not JSON shown as it is; each row numbered once, the survivors keeping their numbers; the page bounded to its newest lines; what was shown cleared at each opening, an empty history too; the token sent in the header, never the URL; a stream that ends or fails opened again, the history afresh; a refusal not retried and said with its code and incident; a page served without the service said, a bare 503 retried |
+| `web/src/lib/search-worker.test.ts` | a search asked before the text is held, then answered by its id; the next one answers the same; a failed search answered by its id, the next on a new module; a failure answered with its numbered fault, a real trap traced to its Rust place |
 | `src/tests/landing.rs` | the next book fetched is the nearest to the view, follows it when it moves, each book once; before the text lands the map stays whole — no black frame however deep, no verse drawn, clicked or named — and the verses come once it lands; the overview is identical with and without the text; a chapter's tile is asked two notches or more ahead of its reading level, once, only for chapters on screen, with its exact byte range |
 | `src/variant/tests.rs` | the welded table: taking the insertions out gives the verse back byte for byte, every range is a slice on a letter boundary, an offset is mapped back to the verse or refused |
 | `src/tests/readings.rs` | the other reading **in the flow, never over it**: the runs of a line tile it from the right and recompose it, the ink marks theirs and only theirs, a verse without a variant stays one command, a click never names the other edition |
+| `src/shared/tests.rs` | the English book table walks the corpus' books; numerals read as their values; every label is a numeral, chapters 1, 2, 3… and verses on from the last, joined ones included; a verse named every way; every letter placed back in its verse; refusals with distinct codes; a page is the engine's hits, letters spelling the word; pages tile the listed hits, `limit` 0 counts; a flood counted whole and listed to the cap, its last page closing the walk without searching again; bounds past any range (skips past the stream, offset at the top of its type) answer without panic; finals and marks fold, a word of marks alone has no letter; one letter is each of its occurrences; the portions are the map's; a book by OSIS, English or Hebrew; a reference names its book, chapter or verse, every verse found back from its OSIS; one scope way at a time; a scoped search stays in its verses; a query too costly refused before it runs |
+| `server/src/tests/` | the ELS answer names its place every way and is the shared page field for field; `next_offset` walks every listed hit; each refusal its code and a 400; `GET /api` lists tools whose schema is what the endpoint takes; the build served with ranges, no compression, a year of cache on hashed names and a 404 for a missing one, `/api` never shadowed; **the page's export and the API find the same hits**; a flood answers its total and last page; numbers past their type refused as `bad_param`; a missing text is a 503, a caller's mistake a 400; under `/api` a wrong path or method answers JSON, `/api/` describes, HEAD has no body; callers at once each get their own answer; no path climbs out of the build; a file asked again is a 304; searches run side by side, one engine each, never more than the pool, all back after; an answer searched once for everyone, at once or later; a refusal takes no engine; a full queue answers `busy` with `Retry-After` and is not kept; a caller gone gives its engine back; successes say `public`, refusals `no-store`; a scope keeps every letter inside, each scoping mistake its code; the page and the API keep to the same verses; a stream is the pages in one go, goes past a page, stops when left; a search too heavy refused before it runs; a client past its budget waits alone, a cached answer costs one; the proxy names the client only when trusted; a panic answered and the next request served; an engine that panicked replaced; a bad setting falls back; the logs closed without the token, a request found by its id, followed live and filtered by level; the log settings read and falling back; the files rolling within their budget, a new one per process, an unwritable directory refused at start; the history read back across files; a half-written line sent once whole; a follower reading across files, told what it missed; a flush writing the lines and waking a follower at once; no log file a 503; every answer has an id; a page of its own served at its directory, `/logs` sent there with its query whole; a settings file read, the environment winning over it and untouched, none the environment alone, a broken one ignored whole; an incident reads aloud and never repeats; an answer and its log share the incident, the log naming the code, the place and the user message; every refusal numbered; an escalation keeps its number and steps, verbose only adding chain and stack; a panic numbered at its own line; every code raised at one place; a page report logged under its number, bounded, a bad one refused |
 | `tests/builder.rs` | `build/mamre.rs` and `build/variants.rs` included, not copied: cp1255 and byte 0xCA, Hebrew numerals, cover page, document order, the four cuts, canonical order; a reading anchored by rank, the display string that gives the verse back |
 
 ### Rules for what comes next
 
+- **A new WebAssembly export comes with its endpoint**, its tests on both
+  sides and a parity test (see *WebAssembly and API*); what both compute
+  goes in `src/shared/` first.
+- **Every change follows the `tests` skill**: its behaviours inventoried,
+  each held by a test seen red, `TESTS.md` regenerated and read back.
+- **Every test has a doc comment** saying what it holds: `TESTS.md` shows
+  it, and flags the ones without.
+- **Every change follows the `faults` skill**: its failures are listed,
+  catalogued, escalated, told, tested — and each test seen red.
+- **A new feature says how it degrades**: what it refuses, what it bounds,
+  what it drops — and a test holds each (see *Robustness*).
+- **A test never waits on an endless answer**: a stream or event source read
+  in a test is read under a timeout, or a broken rule hangs the suite
+  instead of failing it.
+- **A new endpoint is declared in `GET /api` as an MCP tool** — `name`,
+  `description`, `input_schema`, `errors` — and a test holds that
+  description to what the endpoint really takes.
 - **One step = one test.** A computation function added or changed arrives with
   the test that holds it, in the same commit. `cargo test` must be green before
   the next step.
@@ -846,6 +1171,13 @@ anywhere must be an assertion.
   and the overlap, fill and empty-frame guarantees held nothing.
 - **A new test must fail on a deliberate break of the rule it holds** before it
   counts: break the code, see it red, restore. A test green on both is prose.
+- **`App` is split by subject, not by layer** (`src/map/`): a file holds one
+  subject's methods and keeps private what no other file calls. What a
+  sibling needs is `pub(super)`; `pub(crate)` only for what `wasm/map.rs`
+  or `src/tests/` reach — the compiler decides, not the habit. Moving code
+  between these files changes no computation: a refactor of the map must
+  leave every frame, click and breadcrumb bit-identical and the frame time
+  unchanged — check both before and after.
 - **Private-module tests live in the module** (`src/<mod>/tests.rs`, declared by
   `#[cfg(test)] mod tests;`) — the only place its private functions are visible.
   Everything else goes in `src/tests/`.
@@ -872,9 +1204,30 @@ anywhere must be an assertion.
 ## Forbidden
 
 - Computation added or changed without a test (see *Tests*).
+- Computation in a transport (`src/wasm/`, `server/src/api/`): it belongs in
+  `src/shared/`, or the twins drift apart.
+- On a request's path: a panic that is not caught, a wait that is not
+  bounded, a store that grows without bound, a log write on the answering
+  thread (see *Robustness*).
+- A search admitted without its estimated cost, or charged to no one.
 - Text alignment delegated to the engine: positions are computed here.
 - HTML parsing at run time: that is `build.rs`' job.
 - Allocation per letter, word or verse in the frame loop.
 - Layout recomputation on zoom.
 - Restating a measured value in this file instead of asserting it in a test.
-- **All code comments in English** — Rust, TypeScript, Svelte, build scripts.
+- **A comment or a note in another language than English** — whatever
+  language the conversation is held in. English, always: code comments and
+  doc comments (Rust, TypeScript, Svelte, CSS, scripts), **every Markdown
+  file** (`CLAUDE.md`, `env.md`, `rapports/`, skills, any note), comments in
+  configuration (`Cargo.toml`, `.env.example`, `.gitignore`, `*.tsv`), log
+  lines and API messages, and **every message a developer reads**: assertion
+  messages, `panic!`/`expect` texts, build and script output, test data
+  written as prose. A `should_panic(expected = …)` is translated with the
+  message it expects, or it stops matching.
+- **What the user is shown in another language than Hebrew or English.**
+  Hebrew is the Tanakh's own: its text, and the names that belong to it —
+  portions, books, chapter and verse numerals, the editions' names. English
+  is everything else the interface says: loading, buttons, labels, error
+  messages (`CATALOGUE` in `web/src/lib/fault.ts`). An English element of
+  the page carries `lang="en"` and `dir="ltr"`, the page itself being
+  `lang="he"`.

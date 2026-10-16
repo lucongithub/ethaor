@@ -25,9 +25,9 @@ const PLAIN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/text.plain"));
 fn the_packed_corpus_unpacks_byte_for_byte() {
     let want = reference();
     let got = unpack_text(unpack_map(MAP), PLAIN);
-    assert_eq!(got.index, want.index, "l'index deplie differe");
-    assert_eq!(got.variants, want.variants, "la table des lectures depliee differe");
-    assert!(got.text == want.text, "le texte deplie differe");
+    assert_eq!(got.index, want.index, "the unpacked index differs");
+    assert_eq!(got.variants, want.variants, "the unpacked readings table differs");
+    assert!(got.text == want.text, "the unpacked text differs");
 }
 
 /// The map alone already holds what the overview draws — every name and
@@ -39,17 +39,17 @@ fn the_map_alone_holds_names_labels_and_counts() {
     let map = unpack_map(MAP);
     let nv = want.index[2] as usize;
     let verse_text = want.index.len() - (nv + 1);
-    assert_eq!(map.index[..verse_text], want.index[..verse_text], "l'index de la carte differe");
+    assert_eq!(map.index[..verse_text], want.index[..verse_text], "the map's index differs");
     let names_end = want.index[verse_text] as usize;
-    assert_eq!(map.text, want.text[..names_end], "noms et numeros de la carte different");
-    assert_eq!(map.total, want.text.len(), "taille annoncee fausse");
+    assert_eq!(map.text, want.text[..names_end], "the map's names and numbers differ");
+    assert_eq!(map.total, want.text.len(), "wrong announced size");
     // Each chapter's place, as a tile lands it: its verses' bytes in the
     // working text, end to end from the map's strings.
     let offsets = &want.index[verse_text..];
     for (c, span) in map.chapters.iter().enumerate() {
         let verses = map.verses_of(c);
         let (from, to) = (offsets[verses.start] as usize, offsets[verses.end] as usize);
-        assert_eq!(span.text, (from, to - from), "place du chapitre {c}");
+        assert_eq!(span.text, (from, to - from), "place of chapter {c}");
     }
     assert_eq!(map.verses_end(), offsets[nv] as usize);
 }
@@ -61,8 +61,8 @@ fn the_packed_corpus_is_a_fraction_of_the_working_form() {
     let want = reference();
     let working = want.text.len() + want.index.len() * 4 + want.variants.len() * 4;
     let chars = std::str::from_utf8(&want.text).unwrap().chars().count();
-    assert!(MAP.len() * 100 < working, "la carte pese {} octets", MAP.len());
-    assert!(PLAIN.len() < chars, "le texte pese {} octets pour {chars} caracteres", PLAIN.len());
+    assert!(MAP.len() * 100 < working, "the map weighs {} bytes", MAP.len());
+    assert!(PLAIN.len() < chars, "the text weighs {} bytes for {chars} characters", PLAIN.len());
 }
 
 #[test]

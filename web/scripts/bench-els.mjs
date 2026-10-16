@@ -41,7 +41,7 @@ for (let b = 0; b < cuts.length - 2; b++) {
 	e.tile_load(map.book_first_chapter(b), map.book_end_chapter(b));
 }
 write(block(cuts.length - 2));
-if (e.readings_load() !== 1) throw new Error('le texte ne se pose pas dans le module de recherche');
+if (e.readings_load() !== 1) throw new Error('the text does not land in the search module');
 e.els_prepare();
 const encoder = new TextEncoder();
 

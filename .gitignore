@@ -9,3 +9,9 @@ archive/
 # ELS benchmark tables (see CLAUDE.md, ELS)
 /native.csv
 /v8.csv
+
+# Local settings of ethaor-server: secrets (see .env.example)
+/.env
+
+# ethaor-server's log files (ETHAOR_LOG_DIR): they name clients
+/logs/

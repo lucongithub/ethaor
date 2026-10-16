@@ -19,10 +19,10 @@ fn a_letter_is_a_consonant_and_its_marks() {
     assert_eq!(parts.len(), letter_count(word));
     assert_eq!(parts.len(), 6);
     for part in &parts {
-        assert!(is_base(part.chars().next().unwrap()), "{part:?} ne commence pas par une consonne");
-        assert_eq!(part.chars().filter(|&c| is_base(c)).count(), 1, "{part:?} a deux consonnes");
+        assert!(is_base(part.chars().next().unwrap()), "{part:?} does not start with a consonant");
+        assert_eq!(part.chars().filter(|&c| is_base(c)).count(), 1, "{part:?} has two consonants");
     }
-    assert_eq!(parts.concat(), word, "le decoupage perd des signes");
+    assert_eq!(parts.concat(), word, "the split loses marks");
 }
 
 /// Marks must stay stuck to their consonant: detaching them would break the
@@ -31,7 +31,7 @@ fn a_letter_is_a_consonant_and_its_marks() {
 fn the_marks_stay_with_their_consonant() {
     let parts: Vec<&str> = letters("אָ֣דָם").collect();
     assert_eq!(parts.len(), 3);
-    assert!(parts[0].chars().count() > 1, "le qamats a ete detache");
+    assert!(parts[0].chars().count() > 1, "the qamats was detached");
     assert!(parts.iter().all(|p| !p.is_empty()));
 }
 
@@ -47,10 +47,10 @@ fn a_string_without_consonant_is_one_chunk() {
 #[test]
 fn final_forms_count_as_consonants() {
     for c in ['ך', 'ם', 'ן', 'ף', 'ץ'] {
-        assert!(is_base(c), "{c} devrait etre une consonne");
+        assert!(is_base(c), "{c} should be a consonant");
     }
     for c in ['ְ', 'ָ', '֣', ' ', 'a'] {
-        assert!(!is_base(c), "{c:?} n'est pas une consonne");
+        assert!(!is_base(c), "{c:?} is not a consonant");
     }
 }
 
@@ -62,13 +62,13 @@ fn the_split_is_lossless_on_the_corpus() {
     for verse in (0..corpus::verse_count()).step_by(503) {
         for word in corpus::verse_text(verse).split(' ') {
             let parts: Vec<&str> = letters(word).collect();
-            assert_eq!(parts.concat(), word, "mot {word:?} perdu au decoupage");
-            assert_eq!(parts.len(), letter_count(word).max(1), "mot {word:?} mal compte");
+            assert_eq!(parts.concat(), word, "word {word:?} lost in the split");
+            assert_eq!(parts.len(), letter_count(word).max(1), "word {word:?} miscounted");
             assert!(parts.iter().all(|p| !p.is_empty()));
             words += 1;
         }
     }
-    assert!(words > 100, "l'echantillon est trop maigre : {words} mots");
+    assert!(words > 100, "the sample is too thin: {words} words");
 }
 
 /// `Clone` is part of the contract: `letter_cells` walks the letters twice,

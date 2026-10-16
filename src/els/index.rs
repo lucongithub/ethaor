@@ -50,7 +50,7 @@ pub struct Plane {
 
 impl<'t> Index<'t> {
     pub fn new(text: &'t [u8]) -> Index<'t> {
-        assert!(text.len() < 1 << 31, "le flux depasse l'adressage des index");
+        assert!(text.len() < 1 << 31, "the stream goes past the index addressing");
         let mut freq = [0u32; ALPHABET];
         for &c in text {
             freq[c as usize] += 1;

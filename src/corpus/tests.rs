@@ -20,7 +20,7 @@ fn counts_are_the_measured_ones() {
 #[test]
 fn index_follows_its_layout() {
     let expected = 3 + 4 + 2 * (BOOKS + 1) + 2 * (CHAPTERS + 1) + 2 * (VERSES + 1);
-    assert_eq!(index().len(), expected, "la taille de l'index ne suit pas sa disposition");
+    assert_eq!(index().len(), expected, "the size of the index does not follow its layout");
 }
 
 /// Every series of offsets is monotonic and stays inside the text: that is
@@ -34,11 +34,11 @@ fn every_series_of_offsets_is_monotonic_and_bounded() {
         ("chap_label", l.chap_label),
         ("verse_label", l.verse_label),
     ] {
-        assert!(series.windows(2).all(|w| w[0] <= w[1]), "{name} n'est pas croissant");
-        assert!(*series.last().unwrap() as usize <= text().len(), "{name} depasse le texte");
+        assert!(series.windows(2).all(|w| w[0] <= w[1]), "{name} is not increasing");
+        assert!(*series.last().unwrap() as usize <= text().len(), "{name} goes past the text");
     }
     for (name, series) in [("book_chap", l.book_chap), ("chap_verse", l.chap_verse)] {
-        assert!(series.windows(2).all(|w| w[0] <= w[1]), "{name} n'est pas croissant");
+        assert!(series.windows(2).all(|w| w[0] <= w[1]), "{name} is not increasing");
     }
     assert_eq!(l.book_chap[0], 0);
     assert_eq!(*l.book_chap.last().unwrap() as usize, CHAPTERS);
@@ -48,7 +48,7 @@ fn every_series_of_offsets_is_monotonic_and_bounded() {
     let mut at = verses_offset();
     for v in 0..VERSES {
         let verse = verse_text(v);
-        assert_eq!(offset_of(verse), at, "le verset {v} ne suit pas le precedent");
+        assert_eq!(offset_of(verse), at, "verse {v} does not follow the previous one");
         at += verse.len();
     }
 }
@@ -60,8 +60,8 @@ fn the_hierarchy_partitions_the_corpus() {
     let mut next = 0;
     for book in 0..book_count() {
         let range = chapters_of(book);
-        assert_eq!(range.start, next, "livre {book} ne suit pas le precedent");
-        assert!(!range.is_empty(), "livre {book} sans chapitre");
+        assert_eq!(range.start, next, "book {book} does not follow the previous one");
+        assert!(!range.is_empty(), "book {book} without a chapter");
         next = range.end;
     }
     assert_eq!(next, CHAPTERS);
@@ -69,8 +69,8 @@ fn the_hierarchy_partitions_the_corpus() {
     let mut next = 0;
     for chapter in 0..chapter_count() {
         let range = verses_of(chapter);
-        assert_eq!(range.start, next, "chapitre {chapter} ne suit pas le precedent");
-        assert!(!range.is_empty(), "chapitre {chapter} sans verset");
+        assert_eq!(range.start, next, "chapter {chapter} does not follow the previous one");
+        assert!(!range.is_empty(), "chapter {chapter} without a verse");
         next = range.end;
     }
     assert_eq!(next, VERSES);
@@ -88,7 +88,7 @@ fn the_canonical_order_is_the_one_displayed() {
     let mut sorted = names.clone();
     sorted.sort_unstable();
     sorted.dedup();
-    assert_eq!(sorted.len(), names.len(), "deux livres portent le meme nom");
+    assert_eq!(sorted.len(), names.len(), "two books bear the same name");
     assert!(names.iter().all(|n| !n.is_empty()));
 }
 
@@ -126,12 +126,12 @@ fn the_densest_book_is_the_hundred_and_fifty_psalms() {
 fn chapter_labels_restart_at_one_and_avoid_the_divine_name() {
     for book in 0..book_count() {
         let first = chapters_of(book).start;
-        assert_eq!(chapter_label(first), "א", "livre {book} ne commence pas a א");
+        assert_eq!(chapter_label(first), "א", "book {book} does not start at א");
     }
     for chapter in 0..chapter_count() {
         let label = chapter_label(chapter);
-        assert!(!label.is_empty(), "chapitre {chapter} sans numero");
-        assert!(label.chars().count() <= 3, "numero de plus de trois lettres : {label}");
+        assert!(!label.is_empty(), "chapter {chapter} without a number");
+        assert!(label.chars().count() <= 3, "number of more than three letters: {label}");
         assert_ne!(label, "יה");
         assert_ne!(label, "יו");
     }
@@ -146,8 +146,8 @@ fn chapter_labels_restart_at_one_and_avoid_the_divine_name() {
     for name in ["שמואל ב", "מלכים ב", "דברי הימים ב"] {
         let book = (0..book_count()).find(|&b| book_name(b) == name).expect(name);
         let first = chapters_of(book).start;
-        assert_eq!(chapter_label(first + 14), "טו", "{name} chapitre 15");
-        assert_eq!(chapter_label(first + 15), "טז", "{name} chapitre 16");
+        assert_eq!(chapter_label(first + 14), "טו", "{name} chapter 15");
+        assert_eq!(chapter_label(first + 15), "טז", "{name} chapter 16");
     }
 
     // And no two chapters of one book share a number.
@@ -156,7 +156,7 @@ fn chapter_labels_restart_at_one_and_avoid_the_divine_name() {
         let count = labels.len();
         labels.sort_unstable();
         labels.dedup();
-        assert_eq!(labels.len(), count, "deux chapitres du livre {book} portent le meme numero");
+        assert_eq!(labels.len(), count, "two chapters of book {book} bear the same number");
     }
 }
 
@@ -167,17 +167,17 @@ fn chapter_labels_restart_at_one_and_avoid_the_divine_name() {
 fn verse_texts_are_clean() {
     for verse in 0..verse_count() {
         let text = verse_text(verse);
-        assert!(!text.is_empty(), "verset {verse} vide");
-        assert!(!text.starts_with(' ') && !text.ends_with(' '), "verset {verse} borde d'espace");
-        assert!(!text.contains("  "), "verset {verse} a deux espaces de suite");
+        assert!(!text.is_empty(), "verse {verse} empty");
+        assert!(!text.starts_with(' ') && !text.ends_with(' '), "verse {verse} edged with a space");
+        assert!(!text.contains("  "), "verse {verse} has two spaces in a row");
         for c in text.chars() {
             assert!(
                 c == ' ' || ('\u{0590}'..='\u{05F4}').contains(&c),
-                "verset {verse} garde {c:?}"
+                "verse {verse} keeps {c:?}"
             );
-            assert_ne!(c, '\u{05BE}', "le maqaf devait devenir une espace");
-            assert_ne!(c, '{', "marqueur massoretique restant");
-            assert_ne!(c, '}', "marqueur massoretique restant");
+            assert_ne!(c, '\u{05BE}', "the maqaf should have become a space");
+            assert_ne!(c, '{', "masoretic marker left");
+            assert_ne!(c, '}', "masoretic marker left");
         }
     }
 }
@@ -192,7 +192,7 @@ fn the_holam_haser_of_mechon_mamre_survived() {
         .flat_map(str::chars)
         .filter(|&c| c == '\u{05BA}')
         .count();
-    assert_eq!(count, 414, "le correctif de l'octet 0xCA a bouge");
+    assert_eq!(count, 414, "the fix for byte 0xCA has moved");
 }
 
 /// `offset_of` is the only thing that crosses the boundary with the page: a
@@ -239,7 +239,7 @@ fn section_names_are_the_three_portions() {
 fn verse_labels_number_from_one() {
     for chapter in (0..chapter_count()).step_by(37) {
         let first = verses_of(chapter).start;
-        assert_eq!(verse_label(first), "א", "chapitre {chapter} ne commence pas au verset א");
+        assert_eq!(verse_label(first), "א", "chapter {chapter} does not start at verse א");
     }
 }
 
@@ -257,7 +257,7 @@ fn the_text_regions_follow_the_documented_order() {
     // another reading, after the verses themselves.
     let last = verse_text(verse_count() - 1);
     let shown: Vec<&str> = (0..verse_count()).filter_map(crate::variant::display).collect();
-    assert!(!shown.is_empty(), "aucune chaine d'affichage");
+    assert!(!shown.is_empty(), "no display string");
     assert!(offset_of(last) + last.len() <= offset_of(shown[0]));
     let tail = shown[shown.len() - 1];
     assert_eq!(offset_of(tail) + tail.len(), text().len());
@@ -299,20 +299,20 @@ fn chapters_land_in_any_order_then_the_whole_text() {
         landing.land_chapters(first..end, &stream[from - base..to - base]);
         landed[first..end].fill(true);
     }
-    assert!(std::str::from_utf8(landing.text().as_bytes()).is_ok(), "le texte n'est plus de l'UTF-8");
+    assert!(std::str::from_utf8(landing.text().as_bytes()).is_ok(), "the text is no longer UTF-8");
     for (c, &in_) in landed.iter().enumerate() {
-        assert_eq!(landing.chapter_ready(c), in_, "chapitre {c}");
+        assert_eq!(landing.chapter_ready(c), in_, "chapter {c}");
         for v in verses_of(c) {
             let want = if in_ { verse_text(v) } else { "" };
-            assert_eq!(landing.verse_text(v), want, "verset {v} du chapitre {c}");
+            assert_eq!(landing.verse_text(v), want, "verse {v} of chapter {c}");
         }
     }
     assert!(!landing.has_text());
 
     landing.land_text(PLAIN);
     assert!(landing.has_text());
-    assert!(landing.text() == text(), "le texte entier differe apres les tuiles");
-    assert_eq!(landing.readings.get().unwrap()[..], variant_table()[..], "les lectures different");
+    assert!(landing.text() == text(), "the whole text differs after the tiles");
+    assert_eq!(landing.readings.get().unwrap()[..], variant_table()[..], "the readings differ");
     for v in (0..VERSES).step_by(97) {
         assert_eq!(landing.verse_text(v), verse_text(v));
     }
@@ -326,7 +326,7 @@ fn a_tile_range_is_its_chapters_stretch() {
     let (start, _) = landing.tile_range(0..1);
     assert_eq!(start, landing.map.stream_base);
     for c in 0..CHAPTERS - 1 {
-        assert_eq!(landing.tile_range(c..c + 1).1, landing.tile_range(c + 1..c + 2).0, "chapitre {c}");
+        assert_eq!(landing.tile_range(c..c + 1).1, landing.tile_range(c + 1..c + 2).0, "chapter {c}");
     }
     let (from, to) = landing.tile_range(0..CHAPTERS);
     let total: usize = landing.map.chapters.iter().map(|s| s.stream.1).sum();
@@ -342,17 +342,17 @@ fn books_land_in_any_order_then_the_readings() {
     const PLAIN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/text.plain"));
     const BOOKS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/text.books"));
     let offsets: Vec<usize> = BOOKS.chunks_exact(4).map(|w| u32::from_le_bytes(w.try_into().unwrap()) as usize).collect();
-    assert_eq!(offsets.len(), book_count() + 2, "un decoupage par livre, puis les lectures");
+    assert_eq!(offsets.len(), book_count() + 2, "a cut by book, then the readings");
     let landing = Landing::new(MAP_PACK);
     let rest = &PLAIN[offsets[book_count()]..offsets[book_count() + 1]];
 
     for (k, b) in shuffled(book_count(), 7).into_iter().enumerate() {
-        assert!(!landing.land_readings(rest), "les lectures se posent avant le livre {b}");
+        assert!(!landing.land_readings(rest), "the readings land before book {b}");
         landing.land_chapters(chapters_of(b), &PLAIN[offsets[b]..offsets[b + 1]]);
-        assert!(chapters_of(b).all(|c| landing.chapter_ready(c)), "livre {b} (le {k}e) incomplet");
+        assert!(chapters_of(b).all(|c| landing.chapter_ready(c)), "book {b} (the {k}th) incomplete");
     }
     assert!(landing.land_readings(rest));
     assert!(landing.has_text());
-    assert!(landing.text() == text(), "le texte differe apres les livres");
+    assert!(landing.text() == text(), "the text differs after the books");
     assert_eq!(landing.readings.get().unwrap()[..], variant_table()[..]);
 }

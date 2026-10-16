@@ -17,7 +17,7 @@ fn sample() -> (usize, usize) {
             }
         }
     }
-    panic!("aucun verset porteur");
+    panic!("no carrying verse");
 }
 
 /// Lines of a chapter, laid out on measured widths.
@@ -38,10 +38,10 @@ fn draw_one(app: &mut App, line: Line, row: Rect) -> Vec<Command> {
 #[test]
 fn a_verse_with_another_reading_is_laid_out_from_the_display_string() {
     let (_, verse) = sample();
-    assert_eq!(drawn(verse), variant::display(verse).unwrap(), "le verset porteur");
+    assert_eq!(drawn(verse), variant::display(verse).unwrap(), "the carrying verse");
     // Every other verse is drawn from the corpus, untouched.
     let plain = (0..corpus::verse_count()).find(|&v| variant::display(v).is_none()).unwrap();
-    assert_eq!(drawn(plain), corpus::verse_text(plain), "un verset ordinaire");
+    assert_eq!(drawn(plain), corpus::verse_text(plain), "an ordinary verse");
 }
 
 /// **The runs of a line follow each other from the right**, and together they
@@ -57,23 +57,23 @@ fn the_runs_of_a_line_tile_it_from_the_right() {
     let mut seen = 0usize;
     for line in lines.into_iter().filter(|l| l.verse == verse) {
         let out = draw_one(&mut app, line, row);
-        assert!(!out.is_empty(), "une ligne sans commande");
+        assert!(!out.is_empty(), "a line without a command");
         seen += 1;
 
         let joined: String = out.iter().map(|c| c.text()).collect();
-        assert_eq!(joined, line.text, "les runs ne recomposent pas la ligne");
+        assert_eq!(joined, line.text, "the runs do not recompose the line");
 
         // The first slot of a text record is the right edge the page lays the
         // fragment on, and the fourth is its width: a run begins where the
         // previous one ended.
         let mut right = row.x + row.w;
         for c in &out {
-            assert_close(c.x, right, 1e-2, "un run ne touche pas le precedent");
-            assert!(c.w > 0.0, "un run sans largeur");
+            assert_close(c.x, right, 1e-2, "a run does not touch the previous one");
+            assert!(c.w > 0.0, "a run without width");
             right = c.x - c.w;
         }
     }
-    assert!(seen > 0, "le verset porteur n'a produit aucune ligne");
+    assert!(seen > 0, "the carrying verse produced no line");
 }
 
 /// **The ink says theirs or ours, and nothing else does.** The two runs are
@@ -92,7 +92,7 @@ fn only_the_other_reading_carries_the_other_ink() {
     let mut others = 0usize;
     for line in lines.into_iter().filter(|l| l.verse == verse) {
         for c in draw_one(&mut app, line, row) {
-            assert!(c.ink == INK_OURS || c.ink == INK_OTHER, "encre inconnue : {}", c.ink);
+            assert!(c.ink == INK_OURS || c.ink == INK_OTHER, "unknown ink: {}", c.ink);
             let at = c.offset as usize - base;
             let inside = variant::inserts_of(verse).any(|i| {
                 let (from, len) = i.other_range();
@@ -100,15 +100,15 @@ fn only_the_other_reading_carries_the_other_ink() {
             });
             if c.ink == INK_OTHER {
                 others += 1;
-                assert!(inside, "un run marque sans etre une autre lecture");
-                assert_close(c.alpha, 1.0, 1e-3, "l'autre lecture a ete atenuee");
+                assert!(inside, "a run marked without being another reading");
+                assert_close(c.alpha, 1.0, 1e-3, "the other reading was dimmed");
             } else {
-                assert!(!inside, "une autre lecture laissee a l'encre du texte");
-                assert_close(c.alpha, 1.0, 1e-3, "notre texte a ete atenue");
+                assert!(!inside, "another reading left in the text's ink");
+                assert_close(c.alpha, 1.0, 1e-3, "our text was dimmed");
             }
         }
     }
-    assert!(others > 0, "aucune autre lecture dessinee");
+    assert!(others > 0, "no other reading drawn");
 }
 
 /// A verse without a variant is still one command: the cut costs nothing to
@@ -117,14 +117,14 @@ fn only_the_other_reading_carries_the_other_ink() {
 fn a_verse_without_a_variant_stays_one_command() {
     let chapter = (0..corpus::chapter_count())
         .find(|&c| corpus::verses_of(c).all(|v| variant::display(v).is_none()))
-        .expect("un chapitre sans variante");
+        .expect("a chapter without a variant");
 
     let mut app = reference_app();
     let lines = lines_of(&mut app, chapter);
     let row = Rect { x: 0.0, y: 0.0, w: 900.0, h: 30.0 };
     for line in lines {
         let out = draw_one(&mut app, line, row);
-        assert_eq!(out.len(), 1, "une ligne ordinaire tient en une commande");
+        assert_eq!(out.len(), 1, "an ordinary line fits in one command");
         assert_eq!(out[0].ink, INK_OURS);
         assert_eq!(out[0].text(), line.text);
     }
@@ -140,7 +140,7 @@ fn the_counter_follows_what_is_drawn() {
 
     app.variant_runs = 0;
     app.build_frame();
-    assert_eq!(app.variant_runs, 0, "le cadrage ne montre aucune autre lecture");
+    assert_eq!(app.variant_runs, 0, "the framing shows no other reading");
 
     let row = Rect { x: 0.0, y: 0.0, w: 900.0, h: 30.0 };
     app.variant_runs = 0;
@@ -148,7 +148,7 @@ fn the_counter_follows_what_is_drawn() {
         let scale = (MIN_TEXT * 2.0) / line.size;
         app.draw_line(line, row, scale, 1.0);
     }
-    assert!(app.variant_runs > 0, "le compteur ignore les autres lectures");
+    assert!(app.variant_runs > 0, "the counter ignores the other readings");
 }
 
 /// **The navbar keeps naming our text.** A word of ours is given back without
@@ -159,12 +159,12 @@ fn a_click_never_names_the_other_edition() {
     let (chapter, verse) = sample();
     let mut app = reference_app();
     let lines = lines_of(&mut app, chapter);
-    let line = lines.into_iter().find(|l| l.verse == verse).expect("une ligne du verset");
+    let line = lines.into_iter().find(|l| l.verse == verse).expect("a line of the verse");
     let mine = corpus::verse_text(verse);
     let (from, len) = key_of(mine);
 
     let words = app.word_cells(line.text, line.rect, line.size);
-    assert!(!words.is_empty(), "aucun mot sur la ligne");
+    assert!(!words.is_empty(), "no word on the line");
 
     let shown = variant::display(verse).unwrap();
     let base = corpus::offset_of(shown);
@@ -174,13 +174,13 @@ fn a_click_never_names_the_other_edition() {
             // Ours: the span given back is inside the verse, and it is what the
             // corpus holds there.
             Some((start, kept)) => {
-                assert!(start + kept <= mine.len(), "un mot deborde du verset");
+                assert!(start + kept <= mine.len(), "a word runs past the verse");
                 assert_eq!(
                     &mine[start..start + kept],
                     &corpus::text()[(from as usize + start)..(from as usize + start + kept)],
-                    "le mot nomme n'est pas celui du corpus"
+                    "the word named is not the corpus' one"
                 );
-                assert!(kept <= size as usize, "la marque n'a pas ete retiree");
+                assert!(kept <= size as usize, "the mark was not removed");
             }
             // Theirs: nothing is named.
             None => {
@@ -190,7 +190,7 @@ fn a_click_never_names_the_other_edition() {
                         let (f, l) = i.range();
                         at >= f && at < f + l
                     }),
-                    "un mot refuse sans etre une autre lecture"
+                    "a word refused without being another reading"
                 );
             }
         }
@@ -213,7 +213,7 @@ fn focus_chapter(app: &mut App, chapter: usize) -> (f32, f32) {
         app.zoom_at(cx, cy, step);
         app.build_frame();
     }
-    panic!("les numeros n'apparaissent jamais");
+    panic!("the numbers never show");
 }
 
 /// Centre of a box on screen.
@@ -234,17 +234,17 @@ fn the_index_answers_for_the_chapter_pointed_at() {
     let (chapter, _) = sample();
     let empty = (0..corpus::chapter_count())
         .find(|&c| !variant::in_verses(corpus::verses_of(c)))
-        .expect("un chapitre sans autre lecture");
+        .expect("a chapter without another reading");
 
     let mut app = reference_app();
     measure_all(&mut app);
     let (cx, cy) = focus_chapter(&mut app, chapter);
-    assert!(asks(&mut app, cx, cy), "le chapitre porteur ne repond pas");
+    assert!(asks(&mut app, cx, cy), "the carrying chapter does not answer");
 
     let mut app = reference_app();
     measure_all(&mut app);
     let (cx, cy) = focus_chapter(&mut app, empty);
-    assert!(!asks(&mut app, cx, cy), "un chapitre sans ecart repond");
+    assert!(!asks(&mut app, cx, cy), "a chapter without a difference answers");
 }
 
 /// Verses of a stretch of books, as one range. Only the tests need it: the
@@ -262,14 +262,14 @@ fn verses_of_books(books: core::ops::Range<usize>) -> core::ops::Range<usize> {
 fn at_the_framing_the_index_says_nothing() {
     let full = (0..corpus::book_count())
         .find(|&b| variant::in_verses(verses_of_books(b..b + 1)))
-        .expect("un livre porteur");
+        .expect("a carrying book");
 
     let mut app = reference_app();
     measure_all(&mut app);
-    assert!(!app.chapters_ready(app.camera), "les numeros sont deja sortis au cadrage");
+    assert!(!app.chapters_ready(app.camera), "the numbers are already out at the framing");
 
     let (cx, cy) = centre(&app, app.layout.books[full]);
-    assert!(!asks(&mut app, cx, cy), "le cadrage repond pour un livre");
+    assert!(!asks(&mut app, cx, cy), "the framing answers for a book");
 }
 
 /// **Outside every box, nothing is promised.** The black around the map and
@@ -281,8 +281,8 @@ fn the_black_around_the_map_promises_nothing() {
     measure_all(&mut app);
 
     let far = app.camera.project(WORLD);
-    assert!(!asks(&mut app, far.x - 200.0, far.y + far.h / 2.0), "le noir a gauche repond");
-    assert!(!asks(&mut app, far.x + far.w + 200.0, far.y + far.h / 2.0), "le noir a droite repond");
+    assert!(!asks(&mut app, far.x - 200.0, far.y + far.h / 2.0), "the black on the left answers");
+    assert!(!asks(&mut app, far.x + far.w + 200.0, far.y + far.h / 2.0), "the black on the right answers");
 }
 
 /// A portion band names its portion and stops there, so the index stays shut:
@@ -296,11 +296,11 @@ fn a_portion_band_says_nothing() {
     for (section, &(_, first, last)) in treemap::SECTIONS.iter().enumerate() {
         assert!(
             variant::in_verses(verses_of_books(first..last)),
-            "la portion {section} ne porte aucune lecture, le test ne prouve rien"
+            "portion {section} holds no reading, the test proves nothing"
         );
         let band = app.layout.section_bands[section];
         let (cx, cy) = centre(&app, Rect { x: band.x, y: band.y, w: band.w, h: band.h * 0.5 });
-        assert!(!asks(&mut app, cx, cy), "la bande de la portion {section} repond");
+        assert!(!asks(&mut app, cx, cy), "the band of portion {section} answers");
     }
 }
 
@@ -313,15 +313,15 @@ fn the_void_of_a_cell_lights_no_index() {
     let mut app = reference_app();
     measure_all(&mut app);
     let (cx, cy) = focus_chapter(&mut app, chapter);
-    assert!(asks(&mut app, cx, cy), "le numero du chapitre porteur ne repond pas");
+    assert!(asks(&mut app, cx, cy), "the number of the carrying chapter does not answer");
 
     // In the world, where the geometry does not depend on the zoom: a cell is
     // far wider than its number, the stride being the densest book's.
     let cell = app.layout.chapters[chapter];
     let ink = app.numeral_box(chapter);
-    assert!(ink.x - cell.x > cell.w * 0.1, "la case n'a pas de vide a gauche de son numero");
+    assert!(ink.x - cell.x > cell.w * 0.1, "the cell has no void left of its number");
 
     let (vx, vy) = ((cell.x + ink.x) / 2.0, cell.y + cell.h / 2.0);
-    assert!(!app.readings_at(vx, vy), "le vide de la case allume l'index");
+    assert!(!app.readings_at(vx, vy), "the cell's void lights the index");
     let _ = cy;
 }

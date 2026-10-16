@@ -66,11 +66,11 @@ fn parse_variants(tsv: &str) -> Vec<Variant> {
             continue;
         }
         let f: Vec<&str> = line.split('\t').collect();
-        assert_eq!(f.len(), 8, "variants.tsv ligne {} : {} colonnes", n + 1, f.len());
+        assert_eq!(f.len(), 8, "variants.tsv line {}: {} columns", n + 1, f.len());
         let number = |i: usize| -> usize {
             f[i].trim()
                 .parse()
-                .unwrap_or_else(|e| panic!("variants.tsv ligne {} colonne {} : {e}", n + 1, i + 1))
+                .unwrap_or_else(|e| panic!("variants.tsv line {} column {}: {e}", n + 1, i + 1))
         };
         out.push(Variant {
             book: number(0),
@@ -83,7 +83,7 @@ fn parse_variants(tsv: &str) -> Vec<Variant> {
             kind: f[7].trim().to_string(),
         });
     }
-    assert!(!out.is_empty(), "variants.tsv est vide");
+    assert!(!out.is_empty(), "variants.tsv is empty");
     out
 }
 
@@ -93,7 +93,7 @@ fn parse_variants(tsv: &str) -> Vec<Variant> {
 /// the span is found by counting spaces, with no allocation and no ambiguity:
 /// an index, never a search for a form that may appear twice in the verse.
 fn word_span(text: &str, word: usize, count: usize) -> (usize, usize) {
-    assert!(count > 0, "une ancre couvre au moins un mot");
+    assert!(count > 0, "an anchor covers at least one word");
     let mut start = None;
     let mut seen = 0usize;
     let mut at = 0usize;
@@ -110,7 +110,7 @@ fn word_span(text: &str, word: usize, count: usize) -> (usize, usize) {
         }
         at += part.len() + 1; // the space
     }
-    panic!("mots {word}..{} hors du verset", word + count);
+    panic!("words {word}..{} outside the verse", word + count);
 }
 
 /// Our verse with the other readings inserted, and where each insertion sits.
@@ -124,8 +124,8 @@ fn display_of(text: &str, entries: &[Variant]) -> (String, Vec<Insert>) {
 
     for e in entries {
         let (at, len) = word_span(text, e.word, e.count);
-        assert_eq!(&text[at..at + len], e.ours, "ancre absente : {} {},{}", e.book, e.chapter, e.verse);
-        assert!(at >= cursor, "entrees non ordonnees : {} {},{}", e.book, e.chapter, e.verse);
+        assert_eq!(&text[at..at + len], e.ours, "anchor missing: {} {},{}", e.book, e.chapter, e.verse);
+        assert!(at >= cursor, "entries out of order: {} {},{}", e.book, e.chapter, e.verse);
 
         out.push_str(&text[cursor..at + len]);
         let mark_at = out.len();

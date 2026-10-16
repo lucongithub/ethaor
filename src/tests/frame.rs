@@ -62,7 +62,7 @@ fn a_frame_holds_nothing_but_text_and_clips() {
             for c in commands(app) {
                 assert!(
                     c.kind == KIND_TEXT || c.kind == KIND_CLIP || c.kind == KIND_UNCLIP,
-                    "{w}x{h} cran {notch}: commande de type {}",
+                    "{w}x{h} notch {notch}: command of kind {}",
                     c.kind
                 );
             }
@@ -84,10 +84,10 @@ fn clips_are_balanced() {
             } else if c.kind == KIND_UNCLIP {
                 depth -= 1;
             }
-            assert!(depth >= 0, "cran {notch}: un decoupage ferme sans etre ouvert");
-            assert!(depth <= 1, "cran {notch}: deux decoupages imbriques");
+            assert!(depth >= 0, "notch {notch}: a clip closed without being opened");
+            assert!(depth <= 1, "notch {notch}: two nested clips");
         }
-        assert_eq!(depth, 0, "cran {notch}: un decoupage reste ouvert");
+        assert_eq!(depth, 0, "notch {notch}: a clip left open");
     });
 }
 
@@ -100,7 +100,7 @@ fn no_frame_is_ever_without_text() {
         measure_all(&mut app);
         sweep(&mut app, 12, 60, |app, notch| {
             let texts = commands(app).into_iter().filter(Command::is_text).count();
-            assert!(texts > 0, "{w}x{h} cran {notch}: image sans texte");
+            assert!(texts > 0, "{w}x{h} notch {notch}: image without text");
         });
     }
 }
@@ -113,12 +113,12 @@ fn every_text_command_is_drawable() {
     measure_all(&mut app);
     sweep(&mut app, 8, 40, |app, notch| {
         for c in commands(app).into_iter().filter(Command::is_text) {
-            assert!(c.size > 0.0 && c.size.is_finite(), "cran {notch}: taille {}", c.size);
-            assert!(c.alpha > 0.01 && c.alpha <= 1.0, "cran {notch}: alpha {}", c.alpha);
-            assert!(c.len > 0, "cran {notch}: fragment vide");
+            assert!(c.size > 0.0 && c.size.is_finite(), "notch {notch}: size {}", c.size);
+            assert!(c.alpha > 0.01 && c.alpha <= 1.0, "notch {notch}: alpha {}", c.alpha);
+            assert!(c.len > 0, "notch {notch}: empty fragment");
             assert!(
                 (c.offset + c.len) as usize <= corpus::text().len(),
-                "cran {notch}: fragment hors du corpus"
+                "notch {notch}: fragment outside the corpus"
             );
             assert!(c.x.is_finite() && c.y.is_finite());
             assert!(!c.text().is_empty());
@@ -135,19 +135,19 @@ fn the_framing_shows_the_three_portions_and_the_thirty_nine_books() {
     let mut app = reference_framed();
     measure_all(&mut app);
     let texts = texts(&mut app);
-    assert_eq!(texts.len(), 3 + corpus::book_count(), "42 titres au cadrage");
+    assert_eq!(texts.len(), 3 + corpus::book_count(), "42 titles at the framing");
 
     let names: Vec<&str> = texts.iter().map(Command::text).collect();
     for section in 0..3 {
-        assert!(names.contains(&corpus::section_name(section)), "portion absente");
+        assert!(names.contains(&corpus::section_name(section)), "portion missing");
     }
     for book in 0..corpus::book_count() {
-        assert!(names.contains(&corpus::book_name(book)), "livre {book} absent");
+        assert!(names.contains(&corpus::book_name(book)), "book {book} missing");
     }
     // Two sizes only: the books, and the sections a quarter bigger.
     let sizes = distinct_sizes(&texts);
-    assert_eq!(sizes.len(), 2, "le cadrage doit montrer deux tailles, pas {}", sizes.len());
-    assert_close(sizes[1] / sizes[0], SECTION_OVER_BOOK, 1e-3, "rapport portion/livre");
+    assert_eq!(sizes.len(), 2, "the framing must show two sizes, not {}", sizes.len());
+    assert_close(sizes[1] / sizes[0], SECTION_OVER_BOOK, 1e-3, "portion/book ratio");
 }
 
 /// At the framing the title of a book **fills its whole box**: the chapter
@@ -161,9 +161,9 @@ fn an_overview_title_fills_its_box() {
     let title = texts(&mut app)
         .into_iter()
         .find(|c| c.text() == corpus::book_name(0))
-        .expect("titre du premier livre");
-    assert!(title.h > band.h, "le titre du cadrage reste confine dans sa bande");
-    assert_close(title.h, box_.h, 0.01, "le titre n'occupe pas toute la boite");
+        .expect("title of the first book");
+    assert!(title.h > band.h, "the framing's title stays within its band");
+    assert_close(title.h, box_.h, 0.01, "the title does not fill the whole box");
 }
 
 /// One notch in, the chapters are out: **three sizes, and three only** — the
@@ -177,17 +177,17 @@ fn the_chapter_level_shows_three_sizes_and_three_only() {
     let texts = texts(&mut app);
 
     let sizes = distinct_sizes(&texts);
-    assert_eq!(sizes.len(), 3, "tailles a l'ecran : {sizes:?}");
-    assert_close(sizes[0] / sizes[1], treemap::CHAPTER_OVER_BOOK, 1e-2, "rapport numero/livre");
-    assert_close(sizes[2] / sizes[1], SECTION_OVER_BOOK, 1e-2, "rapport portion/livre");
+    assert_eq!(sizes.len(), 3, "sizes on screen: {sizes:?}");
+    assert_close(sizes[0] / sizes[1], treemap::CHAPTER_OVER_BOOK, 1e-2, "number/book ratio");
+    assert_close(sizes[2] / sizes[1], SECTION_OVER_BOOK, 1e-2, "portion/book ratio");
 
     // And a number is the same size everywhere, whatever its book.
     let numbers: Vec<&Command> =
         texts.iter().filter(|c| close(c.size, sizes[0], 1e-3)).collect();
-    assert!(numbers.len() > 100, "seulement {} numeros a l'ecran", numbers.len());
+    assert!(numbers.len() > 100, "only {} numbers on screen", numbers.len());
     assert!(
         numbers.windows(2).all(|p| close(p[0].size, p[1].size, 1e-4)),
-        "deux numeros de taille differente"
+        "two numbers of different sizes"
     );
 }
 
@@ -210,19 +210,19 @@ fn the_rank_reads_in_the_intensity_of_the_white() {
     let section = (0..3)
         .map(corpus::section_name)
         .find(|n| names.contains(n))
-        .expect("une portion a l'ecran");
+        .expect("a portion on screen");
     let book = (0..corpus::book_count())
         .find(|&b| names.contains(&corpus::book_name(b)))
-        .expect("un livre a l'ecran");
+        .expect("a book on screen");
     let number = corpus::chapters_of(book)
         .map(corpus::chapter_label)
         .find(|l| names.contains(l))
-        .expect("un numero a l'ecran");
+        .expect("a number on screen");
 
-    assert_close(alpha_of(section), 1.0, 1e-6, "une portion est en blanc pur");
-    assert_close(alpha_of(corpus::book_name(book)), BOOK_INK, 1e-6, "encre du livre");
-    assert_close(alpha_of(number), CHAPTER_INK, 1e-6, "encre du numero");
-    const { assert!(CHAPTER_INK < BOOK_INK && BOOK_INK < 1.0, "la hierarchie des encres est inversee") };
+    assert_close(alpha_of(section), 1.0, 1e-6, "a portion is pure white");
+    assert_close(alpha_of(corpus::book_name(book)), BOOK_INK, 1e-6, "ink of the book");
+    assert_close(alpha_of(number), CHAPTER_INK, 1e-6, "ink of the number");
+    const { assert!(CHAPTER_INK < BOOK_INK && BOOK_INK < 1.0, "the hierarchy of inks is reversed") };
 }
 
 /// **One zoom-out notch, and the map is nothing but the three portions, large,
@@ -237,34 +237,34 @@ fn one_notch_out_leaves_the_three_portions_alone() {
     for notch in 1..=20 {
         app.zoom_at(app.width * 0.5, app.height * 0.5, 1.0 / step);
         let texts = texts(&mut app);
-        assert_eq!(texts.len(), 3, "cran -{notch}: {} textes au lieu de trois", texts.len());
+        assert_eq!(texts.len(), 3, "notch -{notch}: {} texts instead of three", texts.len());
 
         for (i, c) in texts.iter().enumerate() {
-            assert_eq!(c.text(), corpus::section_name(i), "cran -{notch}: mauvaise portion");
+            assert_eq!(c.text(), corpus::section_name(i), "notch -{notch}: wrong portion");
         }
         let sizes = distinct_sizes(&texts);
-        assert_eq!(sizes.len(), 1, "cran -{notch}: les trois mots doivent partager une taille");
+        assert_eq!(sizes.len(), 1, "notch -{notch}: the three words must share a size");
 
         // A single right edge, the one of the widest word.
         let right = texts[0].x;
         assert!(
             texts.iter().all(|c| close(c.x, right, 1.0)),
-            "cran -{notch}: les trois bords droits ne sont pas confondus"
+            "notch -{notch}: the three right edges are not one"
         );
 
         // Equal gaps, a share of the projected world; a size bounded by its
         // third of it.
         let gaps: Vec<f32> = texts.windows(2).map(|p| p[1].y - p[0].y).collect();
-        assert_close(gaps[0], gaps[1], 0.1, "les ecarts ne sont pas egaux");
+        assert_close(gaps[0], gaps[1], 0.1, "the gaps are not equal");
         let world = app.camera.project(WORLD);
-        assert_close(gaps[0], world.h * CARD_GAP, 0.1, "l'ecart n'est pas une part du monde");
-        assert!(sizes[0] <= world.h * SECTION_CARD / 3.0 + 1e-3, "cran -{notch}: portion trop grande");
-        assert!(gaps[0] > 0.0, "les portions ne descendent pas dans l'ordre");
+        assert_close(gaps[0], world.h * CARD_GAP, 0.1, "the gap is not a share of the world");
+        assert!(sizes[0] <= world.h * SECTION_CARD / 3.0 + 1e-3, "notch -{notch}: portion too large");
+        assert!(gaps[0] > 0.0, "the portions do not go down in order");
 
         // They shrink and draw closer at every notch, without end — until the
         // technical floor of the scale.
         if app.camera.z > app.floor_scale() * 1.001 {
-            assert!(sizes[0] < previous, "cran -{notch}: les mots ne rapetissent plus");
+            assert!(sizes[0] < previous, "notch -{notch}: the words no longer shrink");
         }
         previous = sizes[0];
     }
@@ -288,7 +288,7 @@ fn no_text_is_ever_laid_over_another() {
                 assert_eq!(
                     ox * oy,
                     0.0,
-                    "cran {notch}: {:?} recouvre {:?}",
+                    "notch {notch}: {:?} covers {:?}",
                     a.text(),
                     b.text()
                 );
@@ -314,8 +314,8 @@ fn the_verses_arrive_within_a_dozen_notches() {
                 break;
             }
         }
-        assert!(arrival > 0, "{w}x{h}: pas de verset en quatorze crans");
-        assert!(arrival >= 5, "{w}x{h}: versets des le cran {arrival}, c'est suspect");
+        assert!(arrival > 0, "{w}x{h}: no verse in fourteen notches");
+        assert!(arrival >= 5, "{w}x{h}: verses from notch {arrival}, which is suspicious");
     }
 }
 
@@ -332,7 +332,7 @@ fn a_cell_shows_its_text_or_its_number_but_not_both() {
     }
     let texts = texts(&mut app);
     let verses: Vec<&Command> = texts.iter().filter(|c| c.offset >= region).collect();
-    assert!(!verses.is_empty(), "aucun verset a ce zoom");
+    assert!(!verses.is_empty(), "no verse at this zoom");
 
     // Verse lines all come from the same chapters, hence share few sizes; the
     // important part is that no chapter number sits inside a cell already full
@@ -341,7 +341,7 @@ fn a_cell_shows_its_text_or_its_number_but_not_both() {
         for other in texts.iter().filter(|c| c.offset < region) {
             let same_place = (other.x - verse.x).abs() < verse.size
                 && (other.y - verse.y).abs() < verse.size;
-            assert!(!same_place, "un numero est pose sur du texte");
+            assert!(!same_place, "a number sits on text");
         }
     }
 }
@@ -383,9 +383,9 @@ fn the_text_carries_its_chapter_in_the_corner_and_its_verses_at_their_right() {
             let head = texts
                 .iter()
                 .find(|c| c.text() == label && in_column(c) && c.y <= first.y + 0.01 && c.y >= column.y)
-                .unwrap_or_else(|| panic!("chapitre {chapter}: pas de numero en tete"));
-            assert_close(head.x, column.x + column.w, 0.01, "le numero n'est pas cale a droite");
-            assert_close(head.alpha, CHAPTER_INK, 1e-6, "encre du numero en tete");
+                .unwrap_or_else(|| panic!("chapter {chapter}: no number at the head"));
+            assert_close(head.x, column.x + column.w, 0.01, "the number is not flush right");
+            assert_close(head.alpha, CHAPTER_INK, 1e-6, "ink of the number at the head");
 
             for line in lines.iter().filter(|l| corpus::offset_of(l.text) == corpus::offset_of(drawn(l.verse))) {
                 let row = camera.project(line.rect);
@@ -397,12 +397,12 @@ fn the_text_carries_its_chapter_in_the_corner_and_its_verses_at_their_right() {
                 let found = texts.iter().find(|c| {
                     c.text() == mark && close(c.x, column.x + column.w, 0.01) && c.y > row.y && c.y < row.y + row.h
                 });
-                let found = found.unwrap_or_else(|| panic!("verset {}: pas de numero a droite", line.verse));
-                assert!(found.x - found.w >= row.x + row.w - 0.01, "le numero mord sur le verset");
+                let found = found.unwrap_or_else(|| panic!("verse {}: no number on the right", line.verse));
+                assert!(found.x - found.w >= row.x + row.w - 0.01, "the number bites into the verse");
             }
         }
     }
-    assert!(seen > 0, "aucun chapitre lu dans le balayage");
+    assert!(seen > 0, "no chapter read in the sweep");
 }
 
 /// **A number is drawn once or not at all.** The centred number of a cell and
@@ -423,7 +423,7 @@ fn no_number_is_ever_drawn_twice() {
         let count = seen.len();
         seen.sort();
         seen.dedup();
-        assert_eq!(seen.len(), count, "cran {notch}: un numero ou un titre est dessine deux fois");
+        assert_eq!(seen.len(), count, "notch {notch}: a number or a title is drawn twice");
     });
 }
 
@@ -440,7 +440,7 @@ fn every_book_title_on_screen_shares_one_size() {
             .filter(|c| c.is_text() && names.contains(&c.text()))
             .collect();
         let sizes = distinct_sizes(&titles);
-        assert!(sizes.len() <= 1, "cran {notch}: titres de livre en {} tailles", sizes.len());
+        assert!(sizes.len() <= 1, "notch {notch}: book titles in {} sizes", sizes.len());
     });
 }
 
@@ -466,7 +466,7 @@ fn no_title_grows_past_its_ceiling() {
                 } else {
                     continue;
                 };
-                assert!(c.size <= limit * 1.0001, "{w}x{h} cran {notch}: {name} a {} > {limit}", c.size);
+                assert!(c.size <= limit * 1.0001, "{w}x{h} notch {notch}: {name} at {} > {limit}", c.size);
             }
         });
     }
@@ -485,7 +485,7 @@ fn a_book_title_sits_at_the_bottom_of_its_band() {
         app.zoom_at(app.width * 0.5, app.height * 0.5, step);
         let texts = texts(&mut app);
         let camera = app.camera;
-        assert!(app.chapters_ready(camera), "cran {notch}: les chapitres ne sont pas sortis");
+        assert!(app.chapters_ready(camera), "notch {notch}: the chapters are not out");
         for book in 0..corpus::book_count() {
             let Some(title) = texts.iter().find(|c| c.text() == corpus::book_name(book)) else { continue };
             let band = camera.project(app.layout.book_bands[book]);
@@ -493,11 +493,11 @@ fn a_book_title_sits_at_the_bottom_of_its_band() {
             let line = title.size * 1.35;
             // Baseline of a text centred on a line flush to the band bottom.
             let expected = bottom - line / 2.0 + title.size * 0.36;
-            assert_close(title.y, expected, 1e-2, "le titre n'est pas cale au bas de sa bande");
+            assert_close(title.y, expected, 1e-2, "the title is not at the bottom of its band");
             checked += 1;
         }
     }
-    assert!(checked > 0, "aucun titre de livre a l'ecran");
+    assert!(checked > 0, "no book title on screen");
 }
 
 // ------------------------------------------------------- the measurements
@@ -509,14 +509,14 @@ fn a_book_title_sits_at_the_bottom_of_its_band() {
 fn the_measurements_converge_in_one_frame() {
     let mut app = reference_app();
     app.build_frame();
-    assert!(!app.pending.is_empty(), "la premiere image doit reclamer des mesures");
-    assert_eq!(app.pending.len() % 2, 0, "pending est une suite de paires");
+    assert!(!app.pending.is_empty(), "the first image must ask for measurements");
+    assert_eq!(app.pending.len() % 2, 0, "pending is a sequence of pairs");
 
     let asked: Vec<u32> = app.pending.clone();
     for pair in asked.chunks(2) {
         let (offset, len) = (pair[0], pair[1]);
         let text = &corpus::text()[offset as usize..(offset + len) as usize];
-        assert!(!text.is_empty(), "une mesure est demandee pour un fragment vide");
+        assert!(!text.is_empty(), "a measurement is asked for an empty fragment");
         app.ratios.insert((offset, len), letter::letter_count(text).max(1) as f32 * MEASURED);
     }
     app.lines.clear();
@@ -534,7 +534,7 @@ fn the_measurements_converge_in_one_frame() {
     app.lines.clear();
     app.number = None;
     app.build_frame();
-    assert!(app.pending.is_empty(), "l'image ne converge pas : {} mesures encore", app.pending.len());
+    assert!(app.pending.is_empty(), "the image does not converge: {} measurements still", app.pending.len());
 }
 
 /// A measurement that contradicts the estimate rebuilds the layout **once**,
@@ -546,17 +546,17 @@ fn a_measured_numeral_rebuilds_the_layout_once_and_keeps_the_framing() {
         let mut app = app_at(w, h);
         let before = app.numeral;
         measure_all(&mut app);
-        assert!(app.numeral != before, "{w}x{h}: la mesure n'a pas remplace l'estimation");
+        assert!(app.numeral != before, "{w}x{h}: the measurement did not replace the estimate");
         // The map opens one notch below the framing, and a measured numeral
         // must leave it there.
         let opening = app.fit_scale() / app.zoom_step();
-        assert_close(app.camera.z, opening, opening * 1e-3, "l'ouverture a saute");
+        assert_close(app.camera.z, opening, opening * 1e-3, "the opening jumped");
 
         // Once converged, a frame no longer rebuilds anything.
         let numeral = app.numeral;
         let cell = app.layout.chapters[0];
         app.build_frame();
-        assert_eq!(app.numeral, numeral, "{w}x{h}: la disposition est reconstruite a chaque image");
+        assert_eq!(app.numeral, numeral, "{w}x{h}: the layout is rebuilt at every image");
         assert_eq!(app.layout.chapters[0], cell);
     }
 }
@@ -576,11 +576,11 @@ fn a_late_measurement_invalidates_the_caches() {
     app.ratios.insert(key, 9.0);
     app.lines.clear();
     app.number = None;
-    assert!(app.lines.is_empty(), "la mise en page devait etre jetee");
-    assert!(app.number.is_none(), "la taille des numeros devait etre jetee");
+    assert!(app.lines.is_empty(), "the layout should have been dropped");
+    assert!(app.number.is_none(), "the number size should have been dropped");
 
     // And the new width is the one used.
-    assert_close(app.ratio(corpus::verse_text(0)), 9.0, 1e-6, "la mesure n'est pas reprise");
+    assert_close(app.ratio(corpus::verse_text(0)), 9.0, 1e-6, "the measurement is not taken again");
 }
 
 /// Forgetting every measured width — what a font change calls for — must leave
@@ -593,8 +593,8 @@ fn forgetting_the_measurements_leaves_a_drawable_state() {
     app.lines.clear();
     app.number = None;
     let texts = texts(&mut app);
-    assert!(!texts.is_empty(), "image vide apres l'oubli des mesures");
-    assert!(!app.pending.is_empty(), "les mesures doivent etre redemandees");
+    assert!(!texts.is_empty(), "empty image after forgetting the measurements");
+    assert!(!app.pending.is_empty(), "the measurements must be asked again");
 }
 
 /// `pending` is bounded: a frame asking for the whole Tanakh must not grow
@@ -625,7 +625,7 @@ fn hovering_changes_nothing_in_the_drawing() {
         let _ = app.locate(wx, wy);
     }
     let after = frame(&mut app);
-    assert_eq!(before, after, "le survol a change le dessin");
+    assert_eq!(before, after, "the hover changed the drawing");
 }
 
 /// Two frames at the same camera give the same list: the rendering is a pure
@@ -640,7 +640,7 @@ fn two_frames_at_the_same_camera_are_identical() {
     }
     let first = frame(&mut app);
     let second = frame(&mut app);
-    assert_eq!(first, second, "deux images identiques divergent");
+    assert_eq!(first, second, "two identical images differ");
 }
 
 /// Panning does not reshape a book title: it keeps the right edge of its box,
@@ -657,7 +657,7 @@ fn a_book_title_keeps_the_right_edge_of_its_box() {
     let on_screen = texts(&mut app);
     let book = (0..corpus::book_count())
         .find(|&b| on_screen.iter().any(|c| c.text() == corpus::book_name(b)))
-        .expect("un livre a l'ecran");
+        .expect("a book on screen");
 
     let mut offsets = Vec::new();
     for _ in 0..3 {
@@ -668,9 +668,9 @@ fn a_book_title_keeps_the_right_edge_of_its_box() {
         }
         app.camera.x -= 150.0;
     }
-    assert!(offsets.len() >= 3, "le titre a disparu pendant le deplacement");
+    assert!(offsets.len() >= 3, "the title vanished during the move");
     for pair in offsets.windows(2) {
-        assert_close(pair[0], pair[1], 0.01, "le titre glisse dans sa boite pendant le deplacement");
+        assert_close(pair[0], pair[1], 0.01, "the title slides in its box during the move");
     }
 }
 
@@ -686,19 +686,19 @@ fn a_portion_title_is_pinned_to_the_screen() {
     let on_screen = texts(&mut app);
     let section = (0..3)
         .find(|&s| on_screen.iter().any(|c| c.text() == corpus::section_name(s)))
-        .expect("une portion a l'ecran");
+        .expect("a portion on screen");
 
     app.camera.x -= 400.0;
     let band = app.camera.project(app.layout.sections[section]);
-    assert!(band.x < 0.0, "la portion devait sortir de l'ecran a gauche");
+    assert!(band.x < 0.0, "the portion should leave the screen on the left");
 
     let texts = texts(&mut app);
     let title = texts
         .iter()
         .find(|c| c.text() == corpus::section_name(section))
-        .expect("le titre de la portion doit rester lisible");
-    assert!(title.x <= app.width + 1.0, "le titre epingle sort de l'ecran");
-    assert!(title.x - title.w >= -1.0, "le titre epingle est rabattu trop a gauche");
+        .expect("the portion's title must stay readable");
+    assert!(title.x <= app.width + 1.0, "the pinned title leaves the screen");
+    assert!(title.x - title.w >= -1.0, "the pinned title is pushed too far left");
 }
 
 /// **The frame is a short list, and it stays short.**
@@ -712,13 +712,13 @@ fn the_command_list_stays_short() {
     let mut app = reference_framed();
     measure_all(&mut app);
     let commands = frame(&mut app);
-    assert_eq!(commands.len(), 3 * (3 + corpus::book_count()), "126 commandes au cadrage");
+    assert_eq!(commands.len(), 3 * (3 + corpus::book_count()), "126 commands at the framing");
 
     let step = app.zoom_step();
     for notch in 1..=14 {
         app.zoom_at(app.width * 0.5, app.height * 0.5, step);
         let count = frame(&mut app).len();
-        assert!(count <= 4096, "cran {notch}: {count} commandes");
+        assert!(count <= 4096, "notch {notch}: {count} commands");
     }
 }
 
@@ -736,7 +736,7 @@ fn a_frame_is_built_in_a_blink() {
         app.build_frame();
     }
     let each = start.elapsed().as_secs_f64() * 1000.0 / 50.0;
-    assert!(each < 5.0, "la vue d'ensemble demande {each:.3} ms par image");
+    assert!(each < 5.0, "the overview takes {each:.3} ms per image");
 
     // And at the chapter level, where 900 cells are on screen.
     let step = app.zoom_step();
@@ -746,7 +746,7 @@ fn a_frame_is_built_in_a_blink() {
         app.build_frame();
     }
     let each = start.elapsed().as_secs_f64() * 1000.0 / 20.0;
-    assert!(each < 16.0, "le niveau des chapitres demande {each:.3} ms par image");
+    assert!(each < 16.0, "the chapter level takes {each:.3} ms per image");
 }
 
 /// **The layout of a record is a contract with the page.** `ethaor.ts` reads
@@ -754,7 +754,7 @@ fn a_frame_is_built_in_a_blink() {
 /// so any change here must be made there too. This test is the alarm.
 #[test]
 fn a_record_keeps_the_layout_the_page_reads() {
-    assert_eq!(STRIDE, 10, "le pas du enregistrement a change : prevenir ethaor.ts");
+    assert_eq!(STRIDE, 10, "the record's stride changed: tell ethaor.ts");
     assert_eq!((KIND_TEXT, KIND_CLIP, KIND_UNCLIP), (1.0, 2.0, 3.0));
 
     let mut app = reference_framed();
@@ -772,16 +772,16 @@ fn a_record_keeps_the_layout_the_page_reads() {
     assert!(
         (0..3).any(|s| corpus::section_name(s) == fragment)
             || (0..corpus::book_count()).any(|b| corpus::book_name(b) == fragment),
-        "le premier texte du cadrage doit etre un titre"
+        "the framing's first text must be a title"
     );
-    assert!(text[1].is_finite() && text[2].is_finite(), "x et y");
-    assert!(text[3] > 0.0 && text[4] > 0.0, "largeur et hauteur de la boite");
+    assert!(text[1].is_finite() && text[2].is_finite(), "x and y");
+    assert!(text[3] > 0.0 && text[4] > 0.0, "width and height of the box");
     assert!(text[5] > 0.0 && text[5] <= 1.0, "alpha en 5");
-    assert!(text[6] >= MIN_TEXT, "taille en 6");
-    assert_eq!(text[9], INK_OURS, "le dixieme mot porte l'encre");
+    assert!(text[6] >= MIN_TEXT, "size in 6");
+    assert_eq!(text[9], INK_OURS, "the tenth word carries the ink");
 
     // The clip is given as a box, and nothing else.
     let clip = &words[0..STRIDE];
     assert!(clip[3] > 0.0 && clip[4] > 0.0);
-    assert!(clip[5..].iter().all(|&v| v == 0.0), "un decoupage ne porte que sa boite");
+    assert!(clip[5..].iter().all(|&v| v == 0.0), "a clip carries only its box");
 }

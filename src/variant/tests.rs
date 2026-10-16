@@ -9,9 +9,9 @@ use super::*;
 /// so these two figures move only if the table or the source does.
 #[test]
 fn the_table_holds_what_was_measured() {
-    assert_eq!(verse_count(), 88, "versets porteurs");
+    assert_eq!(verse_count(), 88, "carrying verses");
     assert_eq!(count(), 94, "ecarts");
-    assert!(count() >= verse_count(), "un verset porte au moins un ecart");
+    assert!(count() >= verse_count(), "a verse carries at least one difference");
 }
 
 /// Both series are read by dichotomy, which only answers on a sorted table.
@@ -19,13 +19,13 @@ fn the_table_holds_what_was_measured() {
 fn the_series_are_sorted_by_verse() {
     let d = displays();
     for i in 1..verse_count() {
-        assert!(d[i * 3] > d[(i - 1) * 3], "versets non croissants en {i}");
+        assert!(d[i * 3] > d[(i - 1) * 3], "verses not increasing at {i}");
     }
 
     let v = inserts();
     for i in 1..count() {
         let (before, now) = ((v[(i - 1) * 4], v[(i - 1) * 4 + 1]), (v[i * 4], v[i * 4 + 1]));
-        assert!(now >= before, "insertions non ordonnees en {i}");
+        assert!(now >= before, "insertions out of order at {i}");
     }
 }
 
@@ -40,9 +40,9 @@ fn only_the_verses_of_the_table_are_drawn_otherwise() {
             None => continue,
         }
     }
-    assert_eq!(seen, verse_count(), "versets retrouves");
+    assert_eq!(seen, verse_count(), "verses found back");
     for i in 0..verse_count() {
-        assert!(display(d[i * 3] as usize).is_some(), "verset {} introuvable", d[i * 3]);
+        assert!(display(d[i * 3] as usize).is_some(), "verse {} not found", d[i * 3]);
     }
 }
 
@@ -65,8 +65,8 @@ fn removing_the_insertions_gives_the_verse_back() {
         }
         rebuilt.push_str(&shown[cursor..]);
 
-        assert_eq!(rebuilt, mine, "verset {verse} reconstruit");
-        assert!(shown.len() > mine.len(), "verset {verse} : rien n'a ete ajoute");
+        assert_eq!(rebuilt, mine, "verse {verse} rebuilt");
+        assert!(shown.len() > mine.len(), "verse {verse}: nothing was added");
     }
 }
 
@@ -80,21 +80,21 @@ fn every_range_is_a_slice_of_the_display() {
 
         for insert in inserts_of(verse) {
             let (at, len) = insert.range();
-            assert!(at + len <= shown.len(), "verset {verse} : insertion hors du texte");
-            assert!(shown.is_char_boundary(at), "verset {verse} : debut d'insertion sur une lettre");
-            assert!(shown.is_char_boundary(at + len), "verset {verse} : fin d'insertion sur une lettre");
+            assert!(at + len <= shown.len(), "verse {verse}: insertion outside the text");
+            assert!(shown.is_char_boundary(at), "verse {verse}: insertion starts inside a letter");
+            assert!(shown.is_char_boundary(at + len), "verse {verse}: insertion ends inside a letter");
 
             let (from, other) = insert.other_range();
-            assert!(other > 0, "verset {verse} : lecture autre vide");
-            assert!(shown.is_char_boundary(from), "verset {verse} : autre lecture sur une lettre");
-            assert!(insert.mark > 0, "verset {verse} : marque vide");
+            assert!(other > 0, "verse {verse}: empty other reading");
+            assert!(shown.is_char_boundary(from), "verse {verse}: other reading inside a letter");
+            assert!(insert.mark > 0, "verse {verse}: empty mark");
             // The other reading opens on the space that sets it apart from
             // ours, stands between brackets as both editions print an
             // alternative reading, and the mark closes it.
             let run = &shown[from..from + other];
-            assert!(run.starts_with(" ["), "verset {verse} : l'autre lecture n'est pas ouverte");
-            assert!(run.ends_with("]\u{00B2}"), "verset {verse} : l'autre lecture n'est pas fermee");
-            assert!(run.len() > 5, "verset {verse} : l'autre lecture est vide");
+            assert!(run.starts_with(" ["), "verse {verse}: the other reading is not opened");
+            assert!(run.ends_with("]\u{00B2}"), "verse {verse}: the other reading is not closed");
+            assert!(run.len() > 5, "verse {verse}: the other reading is empty");
         }
     }
 }
@@ -107,7 +107,7 @@ fn the_insertions_of_a_verse_follow_each_other() {
         let mut end = 0usize;
         for insert in inserts_of(verse) {
             let (at, len) = insert.range();
-            assert!(at >= end, "verset {verse} : insertions qui se chevauchent");
+            assert!(at >= end, "verse {verse}: overlapping insertions");
             end = at + len;
         }
     }
@@ -130,20 +130,20 @@ fn an_offset_is_mapped_back_or_refused() {
         for at in 0..shown.len() {
             let in_insert = inside.iter().any(|&(from, len)| at >= from && at < from + len);
             match to_corpus(verse, at) {
-                None => assert!(in_insert, "verset {verse} : offset {at} refuse a tort"),
+                None => assert!(in_insert, "verse {verse}: offset {at} wrongly refused"),
                 Some(mapped) => {
-                    assert!(!in_insert, "verset {verse} : offset {at} accepte a tort");
-                    assert_eq!(mapped, expected, "verset {verse} : offset {at} mal replace");
-                    assert!(mapped < mine.len(), "verset {verse} : offset hors du verset");
+                    assert!(!in_insert, "verse {verse}: offset {at} wrongly accepted");
+                    assert_eq!(mapped, expected, "verse {verse}: offset {at} put back wrong");
+                    assert!(mapped < mine.len(), "verse {verse}: offset outside the verse");
                     assert_eq!(
                         shown.as_bytes()[at],
                         mine.as_bytes()[mapped],
-                        "verset {verse} : octet {at} different"
+                        "verse {verse}: byte {at} different"
                     );
                     expected += 1;
                 }
             }
         }
-        assert_eq!(expected, mine.len(), "verset {verse} : octets replaces");
+        assert_eq!(expected, mine.len(), "verse {verse}: bytes put back");
     }
 }
