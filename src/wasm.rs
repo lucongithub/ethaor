@@ -3,6 +3,7 @@
 //! through `shared`, another transport. The map's exports have none — a
 //! frame is for a canvas.
 
+pub mod chapter;
 pub mod els;
 pub mod fault;
 pub mod landing;

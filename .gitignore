@@ -15,3 +15,11 @@ archive/
 
 # ethaor-server's log files (ETHAOR_LOG_DIR): they name clients
 /logs/
+
+# Impeccable (design skill): local development tooling only, never versioned —
+# the skill, its agents, its state, and the context files it reads and writes.
+/.claude/skills/impeccable/
+/.claude/agents/impeccable-*.md
+/.impeccable/
+/DESIGN.md
+/PRODUCT.md

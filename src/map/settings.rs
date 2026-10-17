@@ -117,6 +117,12 @@ pub(crate) const PORTIONS_UNDER: f32 = 0.95;
 /// so they are there by the time the lines are legible.
 pub(super) const TILE_AHEAD: i32 = 3;
 
+/// A chapter the book view hands back to the map (`show`): the share of the
+/// view it fills, and the margin its lines keep over the drawing's floors —
+/// on the floor itself, a rounding would leave it numbered and not read.
+pub(super) const SHOW_FILL: f32 = 0.92;
+pub(super) const SHOW_MARGIN: f32 = 1.25;
+
 /// Line height and breathing space between verses, as multiples of the
 /// character size of a chapter's text.
 pub(crate) const LINE_K: f32 = 1.30;

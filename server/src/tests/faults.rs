@@ -79,7 +79,7 @@ async fn an_answer_and_its_log_share_the_incident() {
 /// Every refusal under `/api` carries its number.
 #[tokio::test]
 async fn every_refusal_is_numbered() {
-    for uri in ["/api/els", "/api/els?word=abc", "/api/els?word=%D7%90&book=Matthew", "/api/nothing", "/api/logs"] {
+    for uri in ["/api/els", "/api/els?word=abc", "/api/els?word=%D7%90&book=Matthew", "/api/nothing", "/api/logs", "/api/chapter?ref=Gen"] {
         let json = get(api_only(), uri, &[]).await.json();
         assert!(Incident::parse(json["error"]["incident"].as_str().unwrap_or("")).is_some(), "{uri}");
     }

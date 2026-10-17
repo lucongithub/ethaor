@@ -52,3 +52,13 @@ export async function lanes(
 	};
 	await Promise.all(Array.from({ length: count }, lane));
 }
+
+/**
+ * Key of a corpus fragment in the page's cache of decoded strings: one per
+ * (offset, length), whatever both. Lengths take sixteen bits, so a verse of
+ * more than a kilobyte keys apart from its neighbour's fragments; with the
+ * corpus' offsets under 2^37 the key stays an exact integer.
+ */
+export function fragmentKey(offset: number, length: number): number {
+	return offset * 65536 + length;
+}

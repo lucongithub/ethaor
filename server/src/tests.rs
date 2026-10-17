@@ -1,6 +1,7 @@
 //! The service, called as a client calls it: a request in, status, headers
 //! and body out — no socket, the router answers in memory.
 
+mod chapter;
 mod describe;
 mod els;
 mod faults;

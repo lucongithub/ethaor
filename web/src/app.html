@@ -5,9 +5,14 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 		<meta name="color-scheme" content="dark" />
 		<meta name="theme-color" content="#000000" />
+		<!-- The mark, drawn by scripts/favicon.mjs in the Tanakh's own face. -->
+		<link rel="icon" type="image/png" sizes="32x32" href="%sveltekit.assets%/favicon-32.png" />
+		<link rel="apple-touch-icon" href="%sveltekit.assets%/apple-touch-icon.png" />
 		%sveltekit.head%
 	</head>
-	<body class="h-full overflow-hidden overscroll-none bg-black text-white antialiased">
+	<body
+		class="h-full overflow-hidden overscroll-none bg-black text-white antialiased caret-white selection:bg-white/30 selection:text-white"
+	>
 		<div style="display: contents">%sveltekit.body%</div>
 	</body>
 </html>

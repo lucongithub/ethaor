@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { gzipSync } from 'node:zlib';
-import { inflate, lanes, range } from './text-open';
+import { fragmentKey, inflate, lanes, range } from './text-open';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -96,5 +96,23 @@ describe('lanes', () => {
 		const take = vi.fn(async () => {});
 		await lanes(3, () => -1, take);
 		expect(take).not.toHaveBeenCalled();
+	});
+});
+
+describe('fragmentKey', () => {
+	// Two fragments never share a key: the cache once keyed on
+	// `offset * 1024 + length`, and a verse of 1100 bytes collided with the
+	// 76 bytes one further on, so the page could show another's text.
+	it('keys every fragment apart, long verses included', () => {
+		expect(fragmentKey(500, 1100)).not.toBe(fragmentKey(501, 76));
+		const seen = new Set<number>();
+		for (const offset of [0, 1, 1023, 1024, 4_700_000]) {
+			for (const length of [0, 1, 76, 1023, 1024, 1100, 4000, 65535]) {
+				const key = fragmentKey(offset, length);
+				expect(Number.isSafeInteger(key)).toBe(true);
+				seen.add(key);
+			}
+		}
+		expect(seen.size).toBe(5 * 8);
 	});
 });

@@ -26,7 +26,9 @@ import SearchWorker from './search-worker?worker';
 import type { Answer, Request } from './search-worker';
 import { escalate, Fault, readTraps, relay, reporter } from './fault';
 import { SearchCore, type Found } from './search-core';
-import { inflate, lanes, range } from './text-open';
+import { fragmentKey, inflate, lanes, range } from './text-open';
+import type { Command } from './keys';
+import { missing, readChapter, type Chapter } from './book-view';
 
 /**
  * Books fetched at once in the background. One at a time paid a round trip
@@ -113,6 +115,20 @@ interface Wasm {
 	book_end_chapter(book: number): number;
 	/** Probe: 1 when the last frame draws a line of a verse. */
 	probe_verse_drawn(): number;
+	/** The book view: chapters, their size before they land, their record. */
+	chapter_count(): number;
+	chapter_size(chapter: number): number;
+	chapter_landed(chapter: number): number;
+	chapter_tile_from(first: number, end: number): number;
+	chapter_tile_to(first: number, end: number): number;
+	/** Words of the chapter's record at `chapter_record_ptr`; 0 if not in. */
+	chapter_record(chapter: number): number;
+	chapter_record_ptr(): number;
+	/** Where the view is, for the book view; -1 for no verse. */
+	here_chapter(): number;
+	here_verse(): number;
+	/** Back to a chapter at its reading level, the verse at the centre. */
+	show(chapter: number, verse: number): void;
 }
 
 /**
@@ -151,11 +167,39 @@ export interface Focus {
 	hovered: boolean;
 }
 
+/** A place to hand between the map and the book view. */
+export interface Place {
+	chapter: number;
+	/** Global index of the verse, or -1 for none. */
+	verse: number;
+}
+
+/**
+ * The book view's side of the module: the chapters as text, read as they
+ * land, and fetched ahead of the whole text when the reader is there first.
+ */
+export interface Book {
+	readonly count: number;
+	/** Bytes of a chapter's verses, landed or not. */
+	size(chapter: number): number;
+	/** First chapters of the books: where a book's name is set. */
+	readonly opens: ReadonlySet<number>;
+	/** The chapter, or `null` while its verses are not in. */
+	read(chapter: number): Chapter | null;
+	/** Fetches the chapters of `from..to` not in yet; `onLanded` says when. */
+	want(from: number, to: number): void;
+}
+
 export interface TanakhMap {
 	/** Asks for a frame again. No effect if one is already scheduled. */
 	draw(): void;
 	/** Back to the overview. */
 	reset(): void;
+	/**
+	 * Carries out a key's command (`keys.ts`) at the centre of the view; a
+	 * selection it makes is told through `onSelect`, as a click's is.
+	 */
+	key(command: Command): void;
 	/** Detaches the listeners and releases the resize observer. */
 	destroy(): void;
 	/**
@@ -166,6 +210,11 @@ export interface TanakhMap {
 	 */
 	search(query: string, skip0: number, skip1: number): Promise<Found>;
 	readonly books: number;
+	/** Where the view is: the chapter at its centre, the verse once read. */
+	here(): Place;
+	/** Takes the map to a chapter at its reading level, the verse at the centre. */
+	show(place: Place): void;
+	readonly book: Book;
 }
 
 export type { Found };
@@ -192,13 +241,15 @@ export interface MapOptions {
 	 * lives through degrade in silence.
 	 */
 	onFault?: (fault: Fault) => void;
+	/** Verses have landed — a tile, a book, or the readings last. */
+	onLanded?: () => void;
 }
 
 export async function createTanakhMap(
 	canvas: HTMLCanvasElement,
 	options: MapOptions = {}
 ): Promise<TanakhMap> {
-	const { onSelect, onFocus, onReadings, onFault } = options;
+	const { onSelect, onFocus, onReadings, onFault, onLanded } = options;
 
 	const context = canvas.getContext('2d', { alpha: false });
 	if (!context) throw new Error('canvas 2d unavailable');
@@ -258,7 +309,7 @@ export async function createTanakhMap(
 
 	/** Corpus fragment, read straight from the module's memory. */
 	function fragment(offset: number, length: number): string {
-		const key = offset * 1024 + length;
+		const key = fragmentKey(offset, length);
 		let text = decoded.get(key);
 		if (text === undefined) {
 			const bytes = new Uint8Array(wasm.memory.buffer, wasm.text_ptr() + offset, length);
@@ -452,12 +503,17 @@ export async function createTanakhMap(
 					new Uint8Array(wasm.memory.buffer, at, bytes.length).set(bytes);
 					wasm.tile_load(first, end);
 					draw();
+					onLanded?.();
 				})
 				.catch((cause) =>
 					fault(cause, 'tile-unfetched', `fetching the tile of chapters ${first}..${end}`)
 				);
 		}
 	}
+
+	// A place the book view handed back: shown again once the frame has
+	// measured what it asked, since the widths move the lines it centred on.
+	let showing: Place | null = null;
 
 	let frame: number | null = null;
 	// Once a frame has failed the module may be half-written: the map stops,
@@ -480,6 +536,11 @@ export async function createTanakhMap(
 				mapDrawn();
 			}
 			fetchTiles();
+			if (showing && wasm.pending_len() === 0) {
+				wasm.show(showing.chapter, showing.verse);
+				showing = null;
+				draw();
+			}
 			if (!versed && wasm.probe_verse_drawn() === 1) {
 				versed = true;
 				performance.mark('ethaor:verse');
@@ -633,6 +694,26 @@ export async function createTanakhMap(
 		};
 	}
 
+	/**
+	 * A key, read for the centre of the view. The keyboard speaks for the
+	 * centre as a lifted finger does: the breadcrumb then names where the keys
+	 * went, not where a resting cursor was left. The next move of the mouse
+	 * takes it back.
+	 */
+	function onKey(command: Command) {
+		pointer = null;
+		wasm.leave(0);
+		if (command.kind === 'zoom') {
+			wasm.zoom(width / 2, height / 2, Math.pow(wasm.zoom_step(), command.steps));
+		} else if (command.kind === 'pan') {
+			// `pan` moves the world; the view goes the other way.
+			wasm.pan(-command.dx * width, -command.dy * height);
+		} else {
+			onSelect?.(selectionAt(width / 2, height / 2, false));
+		}
+		draw();
+	}
+
 	function onResize() {
 		measure();
 		wasm.resize(width, height);
@@ -693,6 +774,7 @@ export async function createTanakhMap(
 		new Uint8Array(wasm.memory.buffer, at, codes.length).set(codes);
 		wasm.tile_load(first, end);
 		draw();
+		onLanded?.();
 	}
 	firstImage
 		.then(async () => {
@@ -749,20 +831,69 @@ export async function createTanakhMap(
 				textLanded();
 				performance.mark('ethaor:text');
 				draw();
+				onLanded?.();
 			}
 			if (worker) ask({ readings });
 			else (await here!).readings(readings);
 		})
 		.catch((cause) => fault(cause, 'text-unfetched', 'fetching the books in the background'));
 
+	// The book view's chapters: read from the module's record as they land,
+	// and fetched as tiles when the reader is there before the books.
+	const opens = new Set<number>();
+	for (let b = 0; b < books; b++) opens.add(wasm.book_first_chapter(b));
+	const askedChapters = new Set<number>();
+	const book: Book = {
+		count: wasm.chapter_count(),
+		opens,
+		size: (chapter) => wasm.chapter_size(chapter),
+		read(chapter) {
+			const words = wasm.chapter_record(chapter);
+			if (words === 0) return null;
+			// Copied: a later record is written over this one.
+			const record = new Uint32Array(wasm.memory.buffer, wasm.chapter_record_ptr(), words).slice();
+			// Decoded afresh, not through `fragment`'s cache: a verse is read
+			// once per landing here, and the cache would end up holding the
+			// whole text.
+			const text = (offset: number, length: number) =>
+				decoder.decode(new Uint8Array(wasm.memory.buffer, wasm.text_ptr() + offset, length));
+			return readChapter(chapter, record, text);
+		},
+		want(from, to) {
+			const runs = missing(from, to, (c) => askedChapters.has(c) || wasm.chapter_landed(c) === 1);
+			for (const [first, end] of runs) {
+				for (let c = first; c < end; c++) askedChapters.add(c);
+				const [start, stop] = [
+					wasm.chapter_tile_from(first, end),
+					wasm.chapter_tile_to(first, end)
+				];
+				range(plainUrl, start, stop, 'high')
+					.then((bytes) => landHere(first, end, bytes))
+					.catch((cause) => {
+						// Asked again when the reader comes back to them.
+						for (let c = first; c < end; c++) askedChapters.delete(c);
+						fault(cause, 'book-unfetched', `fetching chapters ${first}..${end} for the book view`);
+					});
+			}
+		}
+	};
+
 	return {
 		books,
+		book,
 		search,
+		here: () => ({ chapter: wasm.here_chapter(), verse: wasm.here_verse() }),
+		show(place) {
+			wasm.show(place.chapter, place.verse);
+			showing = place;
+			draw();
+		},
 		draw,
 		reset() {
 			wasm.reset();
 			draw();
 		},
+		key: onKey,
 		destroy() {
 			observer.disconnect();
 			canvas.removeEventListener('pointerdown', onPointerDown);

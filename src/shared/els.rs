@@ -85,8 +85,8 @@ impl Refusal {
             Refusal::Limit(limit) => format!("limit ({limit}) is above {MAX_LIMIT}"),
             Refusal::TextMissing => "the text has not landed yet".into(),
             Refusal::UnknownReference { param, value } => format!(
-                "{param}={value:?} names no book, chapter or verse (use OSIS like Gen, Gen.1, Gen.1.1, \
-                 or English like Genesis 1:1; portions: torah, neviim, ketuvim)"
+                "{param}={value:?} names no book, chapter or verse: write OSIS — a book's code, then \
+                 .chapter and .verse (Gen, Gen.1, Gen.1.1, 1Sam.3.4, Ps.119); portions: torah, neviim, ketuvim"
             ),
             Refusal::ScopeConflict => "give one scope only: portion, book, chapter, or from/to".into(),
             Refusal::EmptyScope => "the scope holds no verse: `from` comes after `to`".into(),

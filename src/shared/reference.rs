@@ -1,5 +1,5 @@
-//! Places of the Tanakh in the words a reader — or an agent — uses: a book's
-//! English name and OSIS code, chapter and verse as numbers.
+//! Places of the Tanakh: read from OSIS (`Gen.1.1`), the one notation a
+//! caller writes, and named back every way — OSIS, English, Hebrew.
 //!
 //! The corpus speaks global indices and Hebrew numerals; this is the one
 //! place they become `Gen.1.1`. Numbers are read off the corpus' own labels,
@@ -205,16 +205,12 @@ pub fn portion(name: &str) -> Option<Range<usize>> {
     Some(PORTIONS[k].2.clone())
 }
 
-/// A book by its OSIS code or English name in any case (`gen`, `1 Samuel`,
-/// `song of songs`), or its Hebrew name as the corpus writes it.
-pub fn book(name: &str) -> Option<usize> {
-    let name = name.trim();
-    let folded = |s: &str| s.to_lowercase().replace(' ', "");
-    let wanted = folded(name);
-    BOOKS
-        .iter()
-        .position(|b| folded(b.osis) == wanted || folded(b.english) == wanted)
-        .or_else(|| (0..corpus::book_count()).find(|&b| corpus::book_name(b) == name))
+/// A book by its OSIS code, exactly as OSIS writes it (`Gen`, `1Sam`,
+/// `Ps`). **The one way a caller names a book**: names in any other
+/// script or spelling are what answers give back (English, Hebrew), never
+/// what is read — one spelling per book, nothing to guess.
+pub fn book(osis: &str) -> Option<usize> {
+    BOOKS.iter().position(|b| b.osis == osis)
 }
 
 /// The verses of a book, as global indices.
@@ -223,30 +219,30 @@ pub fn book_verses(book: usize) -> Range<usize> {
     corpus::verses_of(chapters.start).start..corpus::verses_of(chapters.end - 1).end
 }
 
-/// The verses a reference names, as global indices: a book (`Gen`,
-/// `Genesis`), a chapter (`Gen.1`, `Genesis 1`) or a verse (`Gen.1.1`,
-/// `Genesis 1:1`). A joined verse is named by either of its numbers.
+/// The verses an OSIS reference names, as global indices: a book (`Gen`),
+/// a chapter (`Gen.1`) or a verse (`Gen.1.1`) — dots between, numbers
+/// from 1, nothing else. A joined verse is named by either of its numbers.
 pub fn verses(reference: &str) -> Option<Range<usize>> {
-    let reference = reference.trim();
-    // The longest prefix that names a book, cut at a dot or a space.
-    let cuts = reference.char_indices().filter(|&(_, c)| c == '.' || c == ' ').map(|(i, _)| i);
-    let (b, rest) = cuts
-        .chain(std::iter::once(reference.len()))
-        .rev()
-        .find_map(|i| book(&reference[..i]).map(|b| (b, reference[i..].trim_start_matches(['.', ' ']))))?;
-    if rest.is_empty() {
-        return Some(book_verses(b));
-    }
-    let mut numbers = rest.split(['.', ':']).map(|n| n.trim().parse::<u32>());
-    let chapter_number = numbers.next()?.ok()?;
-    let chapter = corpus::chapters_of(b).nth((chapter_number as usize).checked_sub(1)?)?;
-    let Some(verse_number) = numbers.next() else {
-        return Some(corpus::verses_of(chapter));
+    let mut parts = reference.split('.');
+    let b = book(parts.next()?)?;
+    let number = |part: Option<&str>| -> Option<Option<u32>> {
+        match part {
+            None => Some(None),
+            Some(n) if !n.starts_with('0') && !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit()) => n.parse().ok().map(Some),
+            Some(_) => None,
+        }
     };
-    let verse_number = verse_number.ok()?;
-    if numbers.next().is_some() {
+    let (chapter_number, verse_number) = (number(parts.next())?, number(parts.next())?);
+    if parts.next().is_some() {
         return None;
     }
+    let Some(chapter_number) = chapter_number else {
+        return Some(book_verses(b));
+    };
+    let chapter = corpus::chapters_of(b).nth((chapter_number as usize).checked_sub(1)?)?;
+    let Some(verse_number) = verse_number else {
+        return Some(corpus::verses_of(chapter));
+    };
     let v = corpus::verses_of(chapter).find(|&v| {
         let place = verse(v);
         place.verse_number <= verse_number && verse_number <= place.verse_last

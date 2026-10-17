@@ -199,25 +199,38 @@ impl App {
         x >= ink.x && x <= ink.x + ink.w && y >= ink.y && y <= ink.y + ink.h
     }
 
-    /// Whether the chapter under the pointer holds another reading.
+    /// Whether the pointer is on a word the two editions read apart: our form,
+    /// marked `¹`, or theirs, `[…]²`.
     ///
-    /// **The chapter, and nothing above it.** A portion or a book would answer
-    /// yes nearly everywhere — a reading sits in almost every book — and an
-    /// index that is always lit says nothing. At the chapter, the answer tells
-    /// the reader something he can act on: there is a difference *here*. Above
-    /// that level, and outside every box, it says nothing, like the breadcrumb
-    /// and the click.
+    /// **The words themselves, and nothing around them** — the owner's rule.
+    /// The index explains two marks; lit for the whole chapter that holds
+    /// them, it spoke while the reader was lines away. So the point must be
+    /// on a drawn line, inside a word's box, and that word must touch an
+    /// insertion. A number, the void of a cell, a book or a portion name no
+    /// word, and say nothing.
     pub(crate) fn readings_at(&mut self, x: f32, y: f32) -> bool {
-        let camera = self.camera;
-        if !self.chapters_ready(camera) {
+        let Some((_, chapter, _, _)) = self.locate(x, y) else {
+            return false;
+        };
+        if !self.readable(chapter) {
             return false;
         }
-        match self.locate(x, y) {
-            Some((_, chapter, _, _)) => {
-                self.names_chapter(chapter, x, y) && variant::in_verses(corpus::verses_of(chapter))
-            }
-            None => false,
+        let Some(line) = self.line_at(chapter, y) else {
+            return false;
+        };
+        if y < line.rect.y || y > line.rect.y + line.rect.h {
+            return false;
         }
+        let Some(shown) = variant::display(line.verse) else {
+            return false;
+        };
+        let base = corpus::offset_of(shown);
+        let inserts: Vec<(usize, usize)> = variant::inserts_of(line.verse).map(|i| i.range()).collect();
+        self.word_cells(line.text, line.rect, line.size).into_iter().any(|(r, word)| {
+            let from = corpus::offset_of(word) - base;
+            let to = from + word.len();
+            x >= r.x && x <= r.x + r.w && inserts.iter().any(|&(at, len)| from < at + len && at < to)
+        })
     }
 
     /// Chapter nearest to a point, even if that point falls in a gap between two
@@ -339,6 +352,33 @@ impl App {
             put(&mut out[6..8], corpus::verse_label(verse));
         }
         Some(out)
+    }
+
+    /// Where the view is, for the book view to open there: the chapter at the
+    /// centre, and the verse when the text is read.
+    ///
+    /// **Never deeper than the image**, like the breadcrumb: at the opening —
+    /// three words — the Tanakh's beginning; with the books alone, the first
+    /// chapter of the book at the centre; with the numbers, that chapter; with
+    /// the text, its verse too.
+    pub(crate) fn here(&mut self) -> (usize, Option<usize>) {
+        let camera = self.camera;
+        if !self.books_drawn(camera) {
+            return (0, None);
+        }
+        let (x, y) = camera.to_world(self.width / 2.0, self.height / 2.0);
+        let Some(chapter) = self.chapter_at(x, y).or_else(|| self.nearest_chapter(x, y)) else {
+            return (0, None);
+        };
+        if !self.chapters_ready(camera) {
+            let book = (0..corpus::book_count()).find(|&b| corpus::chapters_of(b).contains(&chapter));
+            return (book.map_or(0, |b| corpus::chapters_of(b).start), None);
+        }
+        if !self.readable(chapter) {
+            return (chapter, None);
+        }
+        let verse = self.line_at(chapter, y).map(|line| line.verse);
+        (chapter, verse)
     }
 
     /// Full path under a point of the world.

@@ -63,6 +63,16 @@ export const CATALOGUE = {
 		level: 'warn',
 		message: 'The whole text could not be loaded; the map stays at the level of the chapters.'
 	},
+	'book-unfetched': {
+		show: true,
+		level: 'warn',
+		message: 'A passage could not be loaded; it will come with the whole text.'
+	},
+	'book-unread': {
+		show: true,
+		level: 'error',
+		message: 'This passage could not be shown. The rest of the book can still be read.'
+	},
 	'worker-failed': {
 		show: false,
 		level: 'warn',
@@ -322,6 +332,10 @@ export function watch(
 	report: Pick<Reporter, 'report'> = reporter
 ): () => void {
 	const onError = (event: ErrorEvent) => {
+		// Not an error: the browser says a ResizeObserver's notifications
+		// move to the next frame, as the specification has them do. Nothing
+		// failed, so nothing is numbered, reported or shown.
+		if (event.error == null && /^ResizeObserver loop/.test(event.message ?? '')) return;
 		const fault =
 			event.error instanceof Fault
 				? event.error

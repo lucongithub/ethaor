@@ -450,3 +450,78 @@ fn a_panic_leaves_its_place_and_message_for_the_page() {
     let text = std::str::from_utf8(unsafe { core::slice::from_raw_parts(at, len) }).unwrap();
     assert_eq!(text, "src/els.rs:412:9\nindex out of bounds");
 }
+
+/// A chapter's record, read word by word as `book-view.ts` reads it: the
+/// strings it points at are the chapter's number, its book's and portion's
+/// names, and per verse its number and its text as shown — the other
+/// edition's runs inside it. Every chapter; and nothing for one out of
+/// range.
+#[test]
+fn the_book_view_reads_every_chapter_from_its_record() {
+    use crate::shared::passage;
+    use crate::wasm::chapter::*;
+    let _hold = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    let text = corpus::text();
+    let at = |r: &[u32], i: usize| &text[r[i] as usize..(r[i] + r[i + 1]) as usize];
+    assert_eq!(chapter_count() as usize, corpus::chapter_count());
+    for c in 0..corpus::chapter_count() {
+        let read = passage::chapter(c).unwrap();
+        let words = chapter_record(c as u32) as usize;
+        let r = unsafe { core::slice::from_raw_parts(chapter_record_ptr(), words) };
+        assert_eq!((r[0] as usize, r[1] as usize), (read.book, read.section), "chapter {c}");
+        assert_eq!(at(r, 2), corpus::chapter_label(c));
+        assert_eq!(at(r, 4), corpus::book_name(read.book));
+        assert_eq!(at(r, 6), corpus::section_name(read.section));
+        assert_eq!(r[8] == 1, read.opens, "chapter {c}");
+        assert_eq!(r[9] as usize, read.verses.len());
+        let mut i = HEAD;
+        for verse in &read.verses {
+            assert_eq!(r[i] as usize, verse.place.verse, "chapter {c}");
+            assert_eq!(at(r, i + 1), corpus::verse_label(verse.place.verse));
+            assert_eq!(at(r, i + 3), verse.shown, "chapter {c}: a verse shown otherwise");
+            let runs = r[i + 5] as usize;
+            assert_eq!(runs, verse.others.len());
+            for k in 0..runs {
+                let (from, len) = (r[i + 6 + 2 * k] as usize, r[i + 7 + 2 * k] as usize);
+                let base = corpus::offset_of(verse.shown);
+                assert_eq!(from - base..from - base + len, verse.others[k], "chapter {c}: a run moved");
+            }
+            i += 6 + 2 * runs;
+        }
+        assert_eq!(i, words, "chapter {c}: the record runs past its verses");
+        assert_eq!(chapter_landed(c as u32), 1);
+        let size = chapter_size(c as u32) as usize;
+        assert_eq!(size, corpus::chapter_bytes(c), "chapter {c}: the size is not the corpus' own");
+        assert!(read.verses.iter().map(|v| v.text.len()).sum::<usize>() <= size, "chapter {c}: size");
+        let (from, to) = corpus::tile_range(c..c + 1);
+        assert_eq!((chapter_tile_from(c as u32, c as u32 + 1), chapter_tile_to(c as u32, c as u32 + 1)), (from as u32, to as u32));
+    }
+    let n = corpus::chapter_count() as u32;
+    assert_eq!(chapter_record(n), 0);
+    assert_eq!(chapter_record(u32::MAX), 0);
+    assert_eq!((chapter_size(n), chapter_landed(n)), (0, 0));
+    for (first, end) in [(5, 5), (6, 5), (0, n + 1), (u32::MAX, u32::MAX)] {
+        assert_eq!((chapter_tile_from(first, end), chapter_tile_to(first, end)), (0, 0), "{first}..{end}");
+    }
+}
+
+/// The hand-off as the page drives it: the map names where its centre is,
+/// and `show` takes it back to a chapter and verse — a verse of -1 is the
+/// chapter's top, a chapter out of range moves nothing.
+#[test]
+fn the_page_hands_the_place_back_and_forth() {
+    let _hold = hold(REFERENCE.0, REFERENCE.1);
+    converge();
+    assert_eq!((here_chapter(), here_verse()), (0, -1), "the opening names a place");
+    let psalm = corpus::chapters_of(26).start as u32 + 22;
+    let verse = corpus::verses_of(psalm as usize).start as i32 + 3;
+    show(psalm, verse);
+    converge();
+    show(psalm, verse);
+    assert_eq!((here_chapter(), here_verse()), (psalm, verse));
+    show(psalm, -1);
+    assert_eq!(here_chapter(), psalm);
+    let before = (cam_x(), cam_y(), cam_z());
+    show(u32::MAX, 0);
+    assert_eq!((cam_x(), cam_y(), cam_z()), before, "a chapter out of range moved the view");
+}

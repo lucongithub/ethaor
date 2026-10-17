@@ -227,42 +227,62 @@ fn asks(app: &mut App, px: f32, py: f32) -> bool {
     app.readings_at(wx, wy)
 }
 
-/// **The index answers for the chapter under the pointer**, once the numbers
-/// are out: that is the ensemble the reader has under his cursor.
-#[test]
-fn the_index_answers_for_the_chapter_pointed_at() {
-    let (chapter, _) = sample();
-    let empty = (0..corpus::chapter_count())
-        .find(|&c| !variant::in_verses(corpus::verses_of(c)))
-        .expect("a chapter without another reading");
-
-    let mut app = reference_app();
-    measure_all(&mut app);
-    let (cx, cy) = focus_chapter(&mut app, chapter);
-    assert!(asks(&mut app, cx, cy), "the carrying chapter does not answer");
-
-    let mut app = reference_app();
-    measure_all(&mut app);
-    let (cx, cy) = focus_chapter(&mut app, empty);
-    assert!(!asks(&mut app, cx, cy), "a chapter without a difference answers");
+/// Whether a stretch of verses holds another reading.
+fn carries(verses: core::ops::Range<usize>) -> bool {
+    verses.into_iter().any(|v| variant::display(v).is_some())
 }
 
-/// Verses of a stretch of books, as one range. Only the tests need it: the
-/// index itself never asks above the chapter.
+/// **The index answers on the two forms, and on nothing else** — the
+/// owner's rule. In a chapter holding another reading, read at its level:
+/// the pointer on our marked form or on any word of theirs lights it; on
+/// every other word of the chapter, the verses that carry them included, it
+/// stays shut. Which words are the forms is read off the marks the
+/// reader sees — `¹` on ours, theirs from `[` to `]²` — not off the table.
+#[test]
+fn the_index_answers_on_the_two_forms_alone() {
+    let (chapter, verse) = sample();
+    let mut app = reference_app();
+    app.show(chapter, Some(verse));
+    measure_all(&mut app);
+    app.show(chapter, Some(verse));
+    app.build_frame();
+    assert!(app.readable(chapter), "the chapter is not read");
+
+    let (mut lit, mut shut) = (0, 0);
+    let mut theirs = false;
+    for line in app.chapter_lines(chapter) {
+        let cells = app.word_cells(line.text, line.rect, line.size);
+        for (r, word) in cells {
+            if word.is_empty() {
+                continue;
+            }
+            let form = theirs || word.contains('¹') || word.starts_with('[');
+            if word.starts_with('[') {
+                theirs = true;
+            }
+            if word.contains(']') {
+                theirs = false;
+            }
+            let (x, y) = (r.x + r.w / 2.0, r.y + r.h / 2.0);
+            assert_eq!(app.readings_at(x, y), form, "{word:?} in verse {}", line.verse);
+            if form { lit += 1 } else { shut += 1 }
+        }
+    }
+    assert!(lit >= 2, "our form and theirs did not both light the index");
+    assert!(shut > lit, "the test met no word the index must ignore");
+}
+
+/// Verses of a stretch of books, as one range.
 fn verses_of_books(books: core::ops::Range<usize>) -> core::ops::Range<usize> {
     let chapters = corpus::chapters_of(books.start).start..corpus::chapters_of(books.end - 1).end;
     corpus::verses_of(chapters.start).start..corpus::verses_of(chapters.end - 1).end
 }
 
-/// **Above the chapter, nothing.** At the framing the numbers are not out, so
-/// there is no chapter under the pointer — and a book holds a reading almost
-/// always, so answering for it would light the index everywhere and say
-/// nothing.
+/// **At the framing, nothing.** No word is drawn, so none can be pointed at
+/// — and a book holds a reading almost always.
 #[test]
 fn at_the_framing_the_index_says_nothing() {
-    let full = (0..corpus::book_count())
-        .find(|&b| variant::in_verses(verses_of_books(b..b + 1)))
-        .expect("a carrying book");
+    let full = (0..corpus::book_count()).find(|&b| carries(verses_of_books(b..b + 1))).expect("a carrying book");
 
     let mut app = reference_app();
     measure_all(&mut app);
@@ -294,34 +314,22 @@ fn a_portion_band_says_nothing() {
     measure_all(&mut app);
 
     for (section, &(_, first, last)) in treemap::SECTIONS.iter().enumerate() {
-        assert!(
-            variant::in_verses(verses_of_books(first..last)),
-            "portion {section} holds no reading, the test proves nothing"
-        );
+        assert!(carries(verses_of_books(first..last)), "portion {section} holds no reading, the test proves nothing");
         let band = app.layout.section_bands[section];
         let (cx, cy) = centre(&app, Rect { x: band.x, y: band.y, w: band.w, h: band.h * 0.5 });
         assert!(!asks(&mut app, cx, cy), "the band of portion {section} answers");
     }
 }
 
-/// The index obeys the breadcrumb's rule: **the void of a cell names nothing**,
-/// so it promises nothing either. Pointing a few letters away from the number
-/// used to light the row.
+/// **A chapter's number lights no index**, though its chapter holds a
+/// reading: a number is not one of the two forms. It used to answer for the
+/// whole chapter.
 #[test]
-fn the_void_of_a_cell_lights_no_index() {
+fn a_chapter_number_lights_no_index() {
     let (chapter, _) = sample();
     let mut app = reference_app();
     measure_all(&mut app);
     let (cx, cy) = focus_chapter(&mut app, chapter);
-    assert!(asks(&mut app, cx, cy), "the number of the carrying chapter does not answer");
-
-    // In the world, where the geometry does not depend on the zoom: a cell is
-    // far wider than its number, the stride being the densest book's.
-    let cell = app.layout.chapters[chapter];
-    let ink = app.numeral_box(chapter);
-    assert!(ink.x - cell.x > cell.w * 0.1, "the cell has no void left of its number");
-
-    let (vx, vy) = ((cell.x + ink.x) / 2.0, cell.y + cell.h / 2.0);
-    assert!(!app.readings_at(vx, vy), "the cell's void lights the index");
-    let _ = cy;
+    assert!(!app.readable(chapter), "the chapter is read already, the test proves nothing");
+    assert!(!asks(&mut app, cx, cy), "the number of the carrying chapter lights the index");
 }

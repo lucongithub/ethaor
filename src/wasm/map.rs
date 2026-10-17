@@ -179,6 +179,26 @@ pub extern "C" fn leave(mouse: u32) {
     app().mouse_away = mouse != 0;
 }
 
+/// The chapter at the centre of the view, never deeper than the image: what
+/// the book view opens on. See `App::here`.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+pub extern "C" fn here_chapter() -> u32 {
+    app().here().0 as u32
+}
+
+/// The verse at the centre of the view when its text is read, -1 otherwise.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+pub extern "C" fn here_verse() -> i32 {
+    app().here().1.map_or(-1, |v| v as i32)
+}
+
+/// Brings `chapter` to its reading level, `verse` at the centre (-1: its
+/// top): where the book view hands the reader back. Out of range, nothing.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+pub extern "C" fn show(chapter: u32, verse: i32) {
+    app().show(chapter as usize, usize::try_from(verse).ok());
+}
+
 #[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn focus_ptr() -> *const u32 {
     app().focus.as_ptr()

@@ -108,6 +108,26 @@ pub const ERRORS: [&str; 12] = [
     "internal",
 ];
 
+/// An OSIS place, as a JSON Schema pattern: one of the 39 codes, then its
+/// chapter and verse, each optional, numbers from 1 with no leading zero.
+pub fn place_pattern() -> String {
+    osis_pattern(0)
+}
+
+/// An OSIS chapter, or a verse naming its chapter.
+pub fn chapter_pattern() -> String {
+    osis_pattern(1)
+}
+
+fn osis_pattern(least: usize) -> String {
+    format!(r"^({})(\.[1-9][0-9]*){{{least},2}}$", osis_codes().join("|"))
+}
+
+/// The 39 books' OSIS codes: the one way a caller names a book.
+pub fn osis_codes() -> Vec<&'static str> {
+    reference::BOOKS.iter().map(|b| b.osis).collect()
+}
+
 /// The parameters both endpoints take, as a JSON Schema.
 fn schema(max_limit: usize, default_limit: usize) -> Value {
     json!({
@@ -138,21 +158,22 @@ fn schema(max_limit: usize, default_limit: usize) -> Value {
                 "description": "Search only one portion of the Tanakh.",
             },
             "book": {
-                "type": "string",
-                "description": "Search only one book: OSIS code (Gen, 1Sam, Ps) or English name (Genesis, 1 Samuel).",
+                "type": "string", "enum": osis_codes(),
+                "description": "Search only one book, by its OSIS code.",
             },
             "chapter": {
-                "type": "string",
-                "description": "Search only one chapter: Gen.1, or Genesis 1.",
+                "type": "string", "pattern": chapter_pattern(),
+                "description": "Search only one chapter, in OSIS: Gen.1, Ps.119.",
             },
             "from": {
-                "type": "string",
-                "description": "Search from this book, chapter or verse on (Gen.12, Gen.12.1, Exodus); \
-                    with `to`, a stretch of passages, both ends included.",
+                "type": "string", "pattern": place_pattern(),
+                "description": "Search from this book, chapter or verse on, in OSIS (Gen.12, Gen.12.1, \
+                    Exod); with `to`, a stretch of passages, both ends included.",
             },
             "to": {
-                "type": "string",
-                "description": "Search up to this book, chapter or verse, included (Deut, Deut.34.12).",
+                "type": "string", "pattern": place_pattern(),
+                "description": "Search up to this book, chapter or verse, included, in OSIS (Deut, \
+                    Deut.34.12).",
             },
         },
         "required": ["word"],

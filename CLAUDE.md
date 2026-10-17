@@ -10,7 +10,7 @@ its volume, and zooming reveals its contents inside it.
 
 **Rules here, numbers in tests.** This file states invariants, intent and
 rejected alternatives — the things a test cannot express. Every measurement,
-ratio, count and threshold lives in `cargo test` (334 tests, 7 s), which is the
+ratio, count and threshold lives in `cargo test` (361 tests, 7 s), which is the
 only place they stay true. Do not restate a measured value here; if a rule can
 be asserted, assert it and leave only the *why* in prose.
 
@@ -24,7 +24,7 @@ because that is what keeps the rest verifiable long-term.
 **All computation is in Rust**: corpus, layout, camera, zoom folding, pruning,
 hit testing. The module emits a command list; the page only paints it.
 
-**Two things stay in the browser**, for one reason: pointed-Hebrew shaping
+**Two things stay in the browser** — on the map — for one reason: pointed-Hebrew shaping
 (bidi + combining marks) lives there and nothing else does it as well.
 
 1. measure the widths Rust asks for;
@@ -43,6 +43,11 @@ and API*).
 engine — no bidi, no combining marks, so the corpus' million niqqud points
 would not render. Canvas 2D gives browser shaping for free.
 
+**One exception: the book view** (see *Book view*). There the browser lays
+the text out — wraps, aligns, selects, finds — as on any web page; the
+module still gives what is laid (a chapter's record), and where the reader
+is hands over between the two views through it.
+
 ## Structure
 
 Same layout as check8ge: Rust crate at the root, SvelteKit app in `web/`.
@@ -57,7 +62,8 @@ src/map.rs, src/map/            the map: `App`, one window's state, one file
                                 layout), hit (click, cursor, breadcrumb),
                                 landing, frame, settings
 src/wasm.rs, src/wasm/          WebAssembly exports only, no computation: els,
-                                map, landing (taken by both modules), fault
+                                map, chapter (the book view's records),
+                                landing (taken by both modules), fault
                                 (what a panic leaves for the page)
 build/mamre.rs                  source reading, included by build.rs
 build/variants.rs               the other edition's readings, same inclusion
@@ -83,7 +89,11 @@ server/                         axum: the static build, and the HTTP API
   src/tests/                    the service called in memory, parity with wasm
 web/                            SvelteKit 2 + Svelte 5 + Tailwind 4
   src/lib/ethaor.ts             bridge: gestures, painting, measurements
-  src/lib/components/TanakhMap.svelte
+  src/lib/components/TanakhMap.svelte   the page: sidebar, map, book view
+  src/lib/components/Rail.svelte        the sidebar: a rail of icons, never opened
+  src/lib/components/Logo.svelte        the mark: two nuns and a point, as `[·]`
+  src/lib/components/BookView.svelte    the Tanakh read by scrolling
+  src/lib/book-view.ts          that view's logic: records read, heights, zoom
   src/routes/+page.svelte
   src/routes/logs/              the operator's logs, live (`/logs/?token=…`)
   src/lib/logs-view.ts          that page's logic: token, events, bounds
@@ -94,12 +104,15 @@ web/                            SvelteKit 2 + Svelte 5 + Tailwind 4
   src/lib/search-worker.ts      the search module off the frame loop
   src/lib/search-core.ts        the search module: land the text, search
   src/lib/fault.ts              the page's faults: numbered, escalated, reported
+  src/lib/keys.ts               the keyboard: which key does what, Escape's order
   src/lib/text-open.ts          Range requests, gzip opened natively, the lanes
   src/lib/*.test.ts             the page's own logic, on the real artifacts
   src/lib/tests/artifacts.ts    those artifacts read from disk, for the tests
   static/fonts/Baloo2-Regular.woff   UI only, Latin subset (see Fonts)
   static/_headers               cache rules for the host (Cloudflare, Netlify)
   scripts/copy-wasm.mjs
+  scripts/favicon.mjs           the tab's and home screen's icons, drawn from the
+                                mark by Chrome in the real font (static/*.png)
   scripts/preload.mjs           preload links in build/index.html (postbuild)
   scripts/bench-load.mjs        the page timed on throttled networks
   scripts/bench-els.mjs         ELS methods timed in V8 (see ELS)
@@ -123,7 +136,7 @@ and two theme tokens (`--font-sans`, `--font-hebrew`).
 ## Build
 
 ```sh
-cargo test         # 334 tests, 7 s, crate and server — before any commit
+cargo test         # 361 tests, 7 s, crate and server — before any commit
 cargo run -p ethaor-server --release   # web/build + /api on 127.0.0.1:8080
                    # run from the repository root; settings from the
                    # environment, else from `.env` there (see Settings)
@@ -270,18 +283,28 @@ frames, which only a canvas reads, have none.
   to the pool or the cache:
   `cargo test -p ethaor-server --release load -- --ignored --nocapture`.
 - **A search may be kept to a part of the text**: `portion` (`torah`,
-  `neviim`, `ketuvim`), `book` (`Gen`, `Genesis`), `chapter` (`Gen.1`), or
+  `neviim`, `ketuvim`), `book` (`Gen`), `chapter` (`Gen.1`), or
   `from`/`to` (any book, chapter or verse, both ends included, either
   open) — one way at a time. An occurrence counts only if **every** letter
   lies there: the engine searches that stretch alone (`Engine::hits_in`),
   so the first `CAP` kept are the stretch's own, not the remains of the
-  whole text's. References are read in OSIS or as a reader writes them,
-  in `shared::reference`; the module's twin is `els_search_in`, over global
-  verse indices.
+  whole text's. The module's twin is `els_search_in`, over global verse
+  indices.
+- **A caller names a place in OSIS, and in OSIS alone** (`Gen`, `Gen.1`,
+  `1Sam.3.4`; `shared::reference`): one spelling per book, case exact,
+  numbers from 1. **Answers name it every way** — OSIS, English, Hebrew.
+  Rejected, by the owner: English names, transliterations (`Bereshit`),
+  abbreviations and a trigram per book as input — every extra spelling is
+  one more to guess or to collide. `GET /api` declares the 39 codes (an
+  enum, a pattern), so an agent needs no other list.
 - **Many hits stream** (`GET /api/els/stream`): NDJSON, a head line, one
   line per hit up to `CAP`, a closing `{"done": true}`. The engine is free
   once the pairs are copied out; the placing runs apart and stops as soon
   as the caller goes. A page stays bounded by `MAX_LIMIT`.
+- **A chapter reads as the book view reads it** (`GET /api/chapter?ref=`):
+  every verse named every way, our text, and where the other edition reads
+  otherwise the verse as shown with its forms apart; `previous` and `next`
+  across books. No engine, no cache: a few lookups cost less than either.
 - **A WebAssembly build names `-p ethaor`**: the workspace's default members
   take the server, which has no WebAssembly build.
 
@@ -685,14 +708,13 @@ what is on screen. Everything follows:
   over, by the number and by the ink. The row reads right to left, like the map
   it explains.
 - **The index follows the pointer, not the frame** (`readings_at`), and it
-  lives **at the chapter and nowhere above**: it appears when the chapter under
-  the cursor holds another reading. A book or a portion would answer yes nearly
-  everywhere — a reading sits in almost every book — and an index always lit
-  says nothing; at the chapter the answer is actionable, there is a difference
-  *here*. Above that level, and outside every box, it says nothing, as the
-  breadcrumb and the click say nothing there. A reading can also be on screen
-  while the reader looks elsewhere: explaining a mark he is not looking at is
-  noise.
+  opens **on the two forms and nowhere else** — the owner's rule: the
+  pointer on our marked word (`¹`) or on a word of theirs (`[…]²`), drawn
+  at reading level. Rejected: the whole chapter holding a reading — the
+  index then spoke while the reader was lines away from any mark. A number,
+  the void of a cell, a book, a portion and the black say nothing, as the
+  breadcrumb and the click say nothing there. In the book view the same:
+  the pointer on either form (`data-form`), nothing for the chapter.
 - **The ink is the last slot of a text record**, and it is all the page is
   told: a run is ours or theirs, and which colour stands for which is the
   page's business. Both are drawn at the same strength — the colour alone sets
@@ -1037,11 +1059,65 @@ portion names, their size and gap come from the projected world
 its volume of books, and once the books are gone it says nothing.
 
 Gestures: wheel or pinch to zoom, drag to pan, click for the passage, double
-click for the word, Esc for the overview. **One wheel notch is `ZOOM_STEP`**:
+click for the word, Esc for the overview. **The keyboard does the same at the
+centre of the view** (`keys.ts`): `+`/`-` zoom, arrows pan (Shift farther),
+Enter reads the passage. **Esc closes before it leaves**: the open passage,
+then a notice, and only with nothing open the overview — closing a passage
+used to throw away the dive. A key held with Ctrl, Cmd or Alt is the
+browser's.
+
+**The sidebar** (`Rail.svelte`) is a rail of icons on the left, in a
+column of its own — the map is never covered — and it **does not open**:
+the owner removed its open/close button, so nothing takes more of the row.
+An icon shows its **name** on hover or keyboard focus (`Book mode`, `Map
+mode`): a name, not an instruction — the owner's choice, and the one
+tooltip there is.
+
+**No tutorial, in any form.** No hint line, tooltip, tour or overlay
+teaching the gestures: the map is the first thing to read, and its users
+learn it by diving. Tried — one line at the end of the breadcrumb row, then
+gone once used — and refused by the owner. The keys are named on the canvas
+for the screen reader (`aria-label`), and that is all the instruction there
+is. **The mark at the top of the sidebar leads home**: the map's opening,
+as Escape gives it with nothing open — the passage closed, the book left.
+**One wheel notch is `ZOOM_STEP`**:
 from overview to a chapter's text is about ten notches, already long; at a
 smaller step it took twice as many and felt like never arriving. A trackpad
 sends fractions of a notch, so fine control remains. `touch-action: none` on the
 canvas, or the mobile browser intercepts everything.
+
+### Book view
+
+**The same Tanakh, read by scrolling** — a button in the sidebar switches,
+and the button names where it goes (`Book mode`, `Map mode`, in its tip).
+
+- **The browser lays the text out.** A web page's reading is what is asked
+  for — reflow, selection, copy, find in page, the screen reader — and that
+  is the engine's job. The exception to *positions are computed here* is this
+  view's alone; the map keeps the rule.
+- **The module still says what is read** (`chapter_record`, a twin of
+  `GET /api/chapter`): a chapter's names, its verses as shown, the other
+  edition's runs by byte offset. The page cuts by bytes, never in a decoded
+  string.
+- **The map stays alive beneath**, inert: its text keeps landing, and the
+  book reads what has landed. A chapter not in is fetched as a tile, at once.
+- **The place is handed over, never lost.** Map to book: the chapter at the
+  centre, never deeper than the image (`here`) — the Tanakh's start at the
+  opening, a book's first chapter with the books alone, the verse once read.
+  Book to map: the verse at the middle of the column, brought to its reading
+  level (`show`), shown again once the frame has measured what it asked.
+- **Only the chapters near the screen are laid out**; the others keep a
+  height — measured once laid, estimated before — so the scroll never moves
+  under the reader. Rejected: every verse in the page at once — tens of
+  thousands of nodes of pointed Hebrew to lay before the first line.
+- **Zoom is the text's size, not a camera**: Ctrl and the wheel, a pinch,
+  `+`/`-`. The column reflows and the verse under the eye stays put. The
+  size is kept for the visitor's next visit (`localStorage`), nothing else.
+- **The breadcrumb speaks for the verse at the middle of the column**:
+  there is no pointer to read in a scroll. The readings' legend opens on the
+  two forms under the pointer alone, as on the map.
+- **Escape never leaves the book**: there is no overview to go back to, and
+  the reader's place is the scroll.
 
 ### The click
 
@@ -1081,7 +1157,7 @@ units.
 
 **Nothing is added to the computation without a test.** That is the counterpart
 of the guiding principle: if everything is computed here, everything is verified
-here. `cargo test` holds 334 tests and answers in 7 s, so there is no reason not
+here. `cargo test` holds 361 tests and answers in 7 s, so there is no reason not
 to run it at every step.
 
 ```sh
@@ -1126,19 +1202,22 @@ anywhere must be an assertion.
 | `src/tests/breadcrumb.rs` | depth bounded by what is drawn; portion and book at framing, chapter at the first notch, verse with the text; the pointer names the book, cell or line it is on; a portion band names the portion alone; the air names nothing and the centre takes over |
 | `src/tests/locate.rs` | every point of a book box names one of its chapters, none in the air between portions; hover says what the click will do |
 | `src/tests/text.rs` | one size per chapter; lines recompose the verse **byte for byte**; every line stays a corpus slice; letters right-to-left |
-| `src/tests/api.rs` | the interface the page really calls, global state under a lock: gestures, selection, breadcrumb at centre and under pointer, a mouse gone names nothing, forgetting measurements, probes; the search through the query buffer; the landing exports take a tile as the page writes it; the page searches a stretch of verses (`els_search_in`); a panic leaves its place and message for the page |
+| `src/tests/api.rs` | the interface the page really calls, global state under a lock: gestures, selection, breadcrumb at centre and under pointer, a mouse gone names nothing, forgetting measurements, probes; the search through the query buffer; the landing exports take a tile as the page writes it; the page searches a stretch of verses (`els_search_in`); a panic leaves its place and message for the page; every chapter read from its record as the book view reads it; the place handed back and forth |
+| `src/tests/handoff.rs` | every chapter shown is read and named back, its verse at the centre; on nine windows once measured; `here` never deeper than the image; a chapter out of range moves nothing |
+| `web/src/lib/book-view.test.ts` | every chapter read from the real module with its names and verses, the other reading cut out as its own parts; nothing read before a chapter lands; heights estimated from text, size and column; the text's size stepped within bounds; chapters not in grouped into runs; the window around the screen within the Tanakh |
 | `src/els/tests.rs` | the stream is every verse read letter by letter; postings, residue lists and planes say what the stream says; **every method equals trying every start and every skip**, on random streams of every size and range; the cap keeps the first hits in (skip, start) order with the exact total; two letters counted without listing; the cost model picks the measured winner; radix sort; placement tables; memo; finals and pointing fold; an occurrence across two verses; every record placed where its hit is; `תורה` every fiftieth letter from the first tav; time budget; `hits` is the records unplaced, from the same memory; a scoped search finds exactly what lies wholly in its stretch, tried one by one; the whole stretch is the plain search; the cost is estimated without searching and tells a flood from a light query |
 | `src/pack/tests.rs` | the packed corpus unpacks to the working form **byte for byte**; the map alone holds names, labels and counts and reserves the text's room; the packed form is a fraction of the working one; Hebrew numerals; label exceptions carry only what breaks the rule; varints |
-| `web/src/lib/text-open.test.ts` | gzip opened byte for byte, from a view too; a Range asks `from..to` end excluded, and a server ignoring it is read only as far as needed; the lanes take each item once, never more at once than their count, and choose each item when a lane frees — so the view's move is seen |
+| `web/src/lib/text-open.test.ts` | gzip opened byte for byte, from a view too; a Range asks `from..to` end excluded, and a server ignoring it is read only as far as needed; the lanes take each item once, never more at once than their count, and choose each item when a lane frees — so the view's move is seen; every decoded fragment keyed apart, a verse past a kilobyte included |
 | `web/src/lib/search-core.test.ts` | the books file: 39 books then the readings, in order, and opened they give back the plain text the tiles read; the search module answers -1 until the last book and the readings are in, in any order, then finds, its hits a copy |
-| `web/src/lib/fault.test.ts` | an incident reads aloud and never repeats; a fault raised at its caller, keeping its number through every layer, made of anything thrown, crossing from a worker unchanged, sent bounded as the service reads it; a real WebAssembly trap traced to its Rust place; the reporter sends each incident once, a bounded number a minute, never throwing; what nothing caught becomes a fault, reported and shown; each code raised at one place |
+| `web/src/lib/fault.test.ts` | an incident reads aloud and never repeats; a fault raised at its caller, keeping its number through every layer, made of anything thrown, crossing from a worker unchanged, sent bounded as the service reads it; a real WebAssembly trap traced to its Rust place; the reporter sends each incident once, a bounded number a minute, never throwing; what nothing caught becomes a fault, reported and shown — but the browser's ResizeObserver loop notice, which is none; each code raised at one place |
 | `web/src/lib/logs-view.test.ts` | the token leaves the address, the rest of it stays; events whole across any cut of the stream; a log line read for the eye, a line not JSON shown as it is; each row numbered once, the survivors keeping their numbers; the page bounded to its newest lines; what was shown cleared at each opening, an empty history too; the token sent in the header, never the URL; a stream that ends or fails opened again, the history afresh; a refusal not retried and said with its code and incident; a page served without the service said, a bare 503 retried |
+| `web/src/lib/keys.test.ts` | each key its command, Shift farther; a key held with Ctrl, Cmd or Alt left to the browser; Escape closes the passage, then the notice, and only then returns to the overview — never in the book view |
 | `web/src/lib/search-worker.test.ts` | a search asked before the text is held, then answered by its id; the next one answers the same; a failed search answered by its id, the next on a new module; a failure answered with its numbered fault, a real trap traced to its Rust place |
 | `src/tests/landing.rs` | the next book fetched is the nearest to the view, follows it when it moves, each book once; before the text lands the map stays whole — no black frame however deep, no verse drawn, clicked or named — and the verses come once it lands; the overview is identical with and without the text; a chapter's tile is asked two notches or more ahead of its reading level, once, only for chapters on screen, with its exact byte range |
 | `src/variant/tests.rs` | the welded table: taking the insertions out gives the verse back byte for byte, every range is a slice on a letter boundary, an offset is mapped back to the verse or refused |
-| `src/tests/readings.rs` | the other reading **in the flow, never over it**: the runs of a line tile it from the right and recompose it, the ink marks theirs and only theirs, a verse without a variant stays one command, a click never names the other edition |
-| `src/shared/tests.rs` | the English book table walks the corpus' books; numerals read as their values; every label is a numeral, chapters 1, 2, 3… and verses on from the last, joined ones included; a verse named every way; every letter placed back in its verse; refusals with distinct codes; a page is the engine's hits, letters spelling the word; pages tile the listed hits, `limit` 0 counts; a flood counted whole and listed to the cap, its last page closing the walk without searching again; bounds past any range (skips past the stream, offset at the top of its type) answer without panic; finals and marks fold, a word of marks alone has no letter; one letter is each of its occurrences; the portions are the map's; a book by OSIS, English or Hebrew; a reference names its book, chapter or verse, every verse found back from its OSIS; one scope way at a time; a scoped search stays in its verses; a query too costly refused before it runs |
-| `server/src/tests/` | the ELS answer names its place every way and is the shared page field for field; `next_offset` walks every listed hit; each refusal its code and a 400; `GET /api` lists tools whose schema is what the endpoint takes; the build served with ranges, no compression, a year of cache on hashed names and a 404 for a missing one, `/api` never shadowed; **the page's export and the API find the same hits**; a flood answers its total and last page; numbers past their type refused as `bad_param`; a missing text is a 503, a caller's mistake a 400; under `/api` a wrong path or method answers JSON, `/api/` describes, HEAD has no body; callers at once each get their own answer; no path climbs out of the build; a file asked again is a 304; searches run side by side, one engine each, never more than the pool, all back after; an answer searched once for everyone, at once or later; a refusal takes no engine; a full queue answers `busy` with `Retry-After` and is not kept; a caller gone gives its engine back; successes say `public`, refusals `no-store`; a scope keeps every letter inside, each scoping mistake its code; the page and the API keep to the same verses; a stream is the pages in one go, goes past a page, stops when left; a search too heavy refused before it runs; a client past its budget waits alone, a cached answer costs one; the proxy names the client only when trusted; a panic answered and the next request served; an engine that panicked replaced; a bad setting falls back; the logs closed without the token, a request found by its id, followed live and filtered by level; the log settings read and falling back; the files rolling within their budget, a new one per process, an unwritable directory refused at start; the history read back across files; a half-written line sent once whole; a follower reading across files, told what it missed; a flush writing the lines and waking a follower at once; no log file a 503; every answer has an id; a page of its own served at its directory, `/logs` sent there with its query whole; a settings file read, the environment winning over it and untouched, none the environment alone, a broken one ignored whole; an incident reads aloud and never repeats; an answer and its log share the incident, the log naming the code, the place and the user message; every refusal numbered; an escalation keeps its number and steps, verbose only adding chain and stack; a panic numbered at its own line; every code raised at one place; a page report logged under its number, bounded, a bad one refused |
+| `src/tests/readings.rs` | the other reading **in the flow, never over it**: the runs of a line tile it from the right and recompose it, the ink marks theirs and only theirs, a verse without a variant stays one command, a click never names the other edition ; the index opens on the two forms alone, never on the rest of their chapter nor on its number|
+| `src/shared/tests.rs` | the English book table walks the corpus' books; numerals read as their values; every label is a numeral, chapters 1, 2, 3… and verses on from the last, joined ones included; a verse named every way; every letter placed back in its verse; refusals with distinct codes; a page is the engine's hits, letters spelling the word; pages tile the listed hits, `limit` 0 counts; a flood counted whole and listed to the cap, its last page closing the walk without searching again; bounds past any range (skips past the stream, offset at the top of its type) answer without panic; finals and marks fold, a word of marks alone has no letter; one letter is each of its occurrences; the portions are the map's; a book by its exact OSIS code alone, no other case, name or notation; an OSIS reference names its book, chapter or verse, every verse found back from its OSIS, another notation naming nothing; one scope way at a time; a scoped search stays in its verses; a query too costly refused before it runs; every chapter reads back its verses, its book, portion and number; a shown verse is ours with the other forms inserted; a reference names its chapter or is refused; neighbours across books |
+| `server/src/tests/` | the ELS answer names its place every way and is the shared page field for field; `next_offset` walks every listed hit; each refusal its code and a 400; `GET /api` lists tools whose schema is what the endpoint takes; the build served with ranges, no compression, a year of cache on hashed names and a 404 for a missing one, `/api` never shadowed; **the page's export and the API find the same hits**; a flood answers its total and last page; numbers past their type refused as `bad_param`; a missing text is a 503, a caller's mistake a 400; under `/api` a wrong path or method answers JSON, `/api/` describes, HEAD has no body; callers at once each get their own answer; no path climbs out of the build; a file asked again is a 304; searches run side by side, one engine each, never more than the pool, all back after; an answer searched once for everyone, at once or later; a refusal takes no engine; a full queue answers `busy` with `Retry-After` and is not kept; a caller gone gives its engine back; successes say `public`, refusals `no-store`; a scope keeps every letter inside, each scoping mistake its code; the page and the API keep to the same verses; a stream is the pages in one go, goes past a page, stops when left; a search too heavy refused before it runs; a client past its budget waits alone, a cached answer costs one; the proxy names the client only when trusted; a panic answered and the next request served; an engine that panicked replaced; a bad setting falls back; the logs closed without the token, a request found by its id, followed live and filtered by level; the log settings read and falling back; the files rolling within their budget, a new one per process, an unwritable directory refused at start; the history read back across files; a half-written line sent once whole; a follower reading across files, told what it missed; a flush writing the lines and waking a follower at once; no log file a 503; every answer has an id; a page of its own served at its directory, `/logs` sent there with its query whole; a settings file read, the environment winning over it and untouched, none the environment alone, a broken one ignored whole; an incident reads aloud and never repeats; an answer and its log share the incident, the log naming the code, the place and the user message; every refusal numbered; an escalation keeps its number and steps, verbose only adding chain and stack; a panic numbered at its own line; every code raised at one place; a page report logged under its number, bounded, a bad one refused; a chapter read verse by verse and named every way, carrying the other reading, its neighbours across books; each chapter refusal its code; **the book view's record and `/api/chapter` read the same chapter** |
 | `tests/builder.rs` | `build/mamre.rs` and `build/variants.rs` included, not copied: cp1255 and byte 0xCA, Hebrew numerals, cover page, document order, the four cuts, canonical order; a reading anchored by rank, the display string that gives the verse back |
 
 ### Rules for what comes next
@@ -1210,7 +1289,8 @@ anywhere must be an assertion.
   bounded, a store that grows without bound, a log write on the answering
   thread (see *Robustness*).
 - A search admitted without its estimated cost, or charged to no one.
-- Text alignment delegated to the engine: positions are computed here.
+- Text alignment delegated to the engine on the map: positions are computed
+  here. The book view alone is laid out by the browser (see *Book view*).
 - HTML parsing at run time: that is `build.rs`' job.
 - Allocation per letter, word or verse in the frame loop.
 - Layout recomputation on zoom.

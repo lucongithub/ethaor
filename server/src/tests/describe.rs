@@ -78,3 +78,49 @@ async fn the_els_schemas_are_what_the_endpoints_take() {
         assert!(ERRORS.contains(&refusal.code()), "{} not declared", refusal.code());
     }
 }
+
+/// The chapter's tool declares what the endpoint takes — `ref`, and nothing
+/// else — and every code it can refuse with.
+#[tokio::test]
+async fn the_chapter_schema_is_what_the_endpoint_takes() {
+    use crate::api::chapter;
+    let json = get(api_only(), "/api", &[]).await.json();
+    let tools = json["endpoints"].as_array().unwrap();
+    let tool = tools.iter().find(|t| t["name"] == "chapter_read").expect("chapter_read not listed");
+    assert_eq!(tool["path"], "/api/chapter");
+    let properties = tool["input_schema"]["properties"].as_object().unwrap();
+    assert_eq!(properties.keys().collect::<Vec<_>>(), ["ref"]);
+    assert_eq!(get(api_only(), "/api/chapter?ref=Ps.119", &[]).await.status, StatusCode::OK);
+    // The pattern it declares is what it reads: every chapter's OSIS matches
+    // it and is read, a name in another notation matches it not.
+    let pattern = regex_lite(tool["input_schema"]["properties"]["ref"]["pattern"].as_str().unwrap());
+    for c in 0..ethaor::shared::reference::counts()[1] {
+        let osis = ethaor::shared::passage::chapter(c).unwrap().osis();
+        assert!(pattern(&osis), "{osis} does not match the declared pattern");
+    }
+    for other in ["Genesis.1", "Gen 1", "gen.1", "Gen.01", "Gen"] {
+        assert!(!pattern(other), "{other} matches the declared pattern");
+    }
+    let declared: Vec<&str> = tool["errors"].as_array().unwrap().iter().map(|e| e.as_str().unwrap()).collect();
+    assert_eq!(declared, chapter::ERRORS);
+    for refusal in [Refusal::UnknownReference { param: "ref", value: String::new() }, Refusal::TextMissing] {
+        assert!(chapter::ERRORS.contains(&refusal.code()), "{} not declared", refusal.code());
+    }
+}
+
+/// The declared OSIS pattern, read by hand: `^(codes)(\.[1-9][0-9]*){1,2}$`
+/// — its alternation must be the 39 codes, checked here without a regex
+/// crate.
+fn regex_lite(pattern: &str) -> impl Fn(&str) -> bool {
+    assert_eq!(pattern, crate::api::els::chapter_pattern(), "the tool declares another pattern");
+    let codes: Vec<String> = pattern["^(".len()..pattern.find(')').unwrap()].split('|').map(String::from).collect();
+    assert_eq!(codes, crate::api::els::osis_codes(), "the pattern's books are not the 39 codes");
+    move |s: &str| {
+        let mut parts = s.split('.');
+        let book = parts.next().unwrap_or("");
+        let numbers: Vec<&str> = parts.collect();
+        codes.iter().any(|c| c == book)
+            && (1..=2).contains(&numbers.len())
+            && numbers.iter().all(|n| n.starts_with(|c: char| ('1'..='9').contains(&c)) && n.bytes().all(|b| b.is_ascii_digit()))
+    }
+}

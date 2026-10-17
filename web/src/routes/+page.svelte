@@ -3,7 +3,7 @@
 </script>
 
 <svelte:head>
-	<title>ethaor</title>
+	<title>Ethaor</title>
 	<meta
 		name="description"
 		content="The Tanakh as a zoomable map: three sections, the books in order, the verses one per line."

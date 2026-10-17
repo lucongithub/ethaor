@@ -183,6 +183,31 @@ describe('what nothing caught', () => {
 		target.dispatchEvent(error);
 		expect(reported.length).toBe(2);
 	});
+
+	// The browser's notice that a ResizeObserver's deliveries move to the next
+	// frame is no error — it once reached the reader as "Something unexpected
+	// went wrong" (ETH-1VZG5BNF) — while an error that merely says so is one.
+	it('lets the ResizeObserver loop notice pass, and nothing else', () => {
+		const target = new EventTarget() as unknown as Window;
+		const reported: Fault[] = [];
+		const shown: Fault[] = [];
+		const undo = watch(target, (f) => shown.push(f), {
+			report: (f: Fault) => void reported.push(f)
+		});
+		for (const message of [
+			'ResizeObserver loop completed with undelivered notifications.',
+			'ResizeObserver loop limit exceeded'
+		]) {
+			target.dispatchEvent(Object.assign(new Event('error'), { error: null, message }));
+		}
+		expect([reported.length, shown.length]).toEqual([0, 0]);
+		const thrown = new Error('ResizeObserver loop completed with undelivered notifications.');
+		target.dispatchEvent(
+			Object.assign(new Event('error'), { error: thrown, message: thrown.message })
+		);
+		expect(reported.length).toBe(1);
+		undo();
+	});
 });
 
 /** Every source file of the page, tests aside. */

@@ -131,7 +131,7 @@ fn a_missing_text_is_unavailable_not_bad() {
 async fn a_scope_keeps_every_letter_inside() {
     let cases: [(super::Pairs, &str, &str); 4] = [
         (&[("portion", "torah")], "Gen.1.1", "Deut.34.12"),
-        (&[("book", "Genesis")], "Gen.1.1", "Gen.50.26"),
+        (&[("book", "Gen")], "Gen.1.1", "Gen.50.26"),
         (&[("chapter", "Ps.119")], "Ps.119.1", "Ps.119.176"),
         (&[("from", "Gen.12"), ("to", "Exod.3.6")], "Gen.12.1", "Exod.3.6"),
     ];

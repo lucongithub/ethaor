@@ -318,6 +318,12 @@ pub fn verses_of(chapter: usize) -> core::ops::Range<usize> {
     l.chap_verse[chapter] as usize..l.chap_verse[chapter + 1] as usize
 }
 
+/// Bytes a chapter's verses take in the working text, landed or not: what a
+/// page reserves for a chapter before its verses come.
+pub fn chapter_bytes(chapter: usize) -> usize {
+    landing().map.chapters[chapter].text.1
+}
+
 #[allow(dead_code)]
 pub fn verse_label(verse: usize) -> &'static str {
     slice(layout().verse_label, verse)

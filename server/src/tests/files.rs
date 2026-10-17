@@ -83,7 +83,7 @@ async fn the_api_wins_over_the_files() {
     std::fs::create_dir_all(root.join("api")).unwrap();
     std::fs::write(root.join("api/index.html"), "shadow").unwrap();
     let answer = get(super::app_at(&root), "/api", &[]).await;
-    assert_eq!(answer.json()["name"], "ethaor");
+    assert_eq!(answer.json()["name"], "Ethaor");
 }
 
 /// Nothing outside the build is ever served, however the path climbs.

@@ -8,6 +8,7 @@
 //! - Places are named every way at once: OSIS (`Gen.1.1`), English
 //!   (`Genesis 1:1`), Hebrew (`בראשית א,א`) and the corpus' global index.
 
+pub mod chapter;
 pub mod els;
 pub mod guard;
 pub mod logs;
@@ -48,6 +49,7 @@ pub fn router(api: Api) -> Router {
     Router::new()
         .route("/api", get(describe).fallback(not_allowed))
         .route("/api/", get(describe).fallback(not_allowed))
+        .route("/api/chapter", get(chapter::read).fallback(not_allowed))
         .route("/api/els", get(els::search).with_state(api.els.clone()).fallback(not_allowed))
         .route("/api/els/stream", get(els::stream).with_state(api.els.clone()).fallback(not_allowed))
         .route("/api/logs", get(logs::follow).fallback(not_allowed))
@@ -71,12 +73,12 @@ pub const PUBLIC: &str = "public, max-age=3600, s-maxage=86400";
 pub fn description() -> Value {
     let [books, chapters, verses] = ethaor::shared::reference::counts();
     json!({
-        "name": "ethaor",
+        "name": "Ethaor",
         "description": format!(
             "The Hebrew Bible (Tanakh, Mechon Mamre edition: {books} books, {chapters} chapters, \
-             {verses} verses), searched the way the ethaor map searches it in the browser."
+             {verses} verses), searched and read the way the Ethaor map does it in the browser."
         ),
-        "endpoints": els::tools(),
+        "endpoints": els::tools().into_iter().chain([chapter::tool()]).collect::<Vec<_>>(),
         "operator": [logs::endpoint(), report::endpoint()],
     })
 }

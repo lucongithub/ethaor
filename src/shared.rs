@@ -8,6 +8,7 @@
 //! it falls on, which is what every caller would otherwise redo apart.
 
 pub mod els;
+pub mod passage;
 pub mod reference;
 
 #[cfg(test)]

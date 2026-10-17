@@ -59,6 +59,51 @@ async fn the_page_and_the_api_find_the_same_hits() {
     }
 }
 
+/// The book view and the API read a chapter alike: what the page reads from
+/// the module's record (`src/wasm/chapter.rs`) and what `/api/chapter`
+/// answers are the same verses, shown the same, the same forms the other
+/// edition's — on chapters holding another reading, and a stride through
+/// the rest.
+#[tokio::test]
+async fn the_page_and_the_api_read_the_same_chapter() {
+    use ethaor::wasm::chapter::{HEAD, chapter_count, chapter_record, chapter_record_ptr};
+    use ethaor::wasm::map::text_ptr;
+    let text = |offset: u32, len: u32| -> &'static str {
+        let bytes = unsafe { core::slice::from_raw_parts(text_ptr().add(offset as usize), len as usize) };
+        std::str::from_utf8(bytes).unwrap()
+    };
+    let mut carrying = 0;
+    for c in (0..chapter_count()).filter(|c| c % 37 == 0 || *c == 13) {
+        let record: Vec<u32> = {
+            let _hold = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+            let n = chapter_record(c) as usize;
+            unsafe { core::slice::from_raw_parts(chapter_record_ptr(), n) }.to_vec()
+        };
+        let osis = ethaor::shared::passage::chapter(c as usize).unwrap().osis();
+        let json = super::get(super::api_only(), &format!("/api/chapter?ref={osis}"), &[]).await.json();
+        assert_eq!(json["chapter"]["index"], c, "chapter {c}");
+        let verses = json["verses"].as_array().unwrap();
+        assert_eq!(verses.len(), record[9] as usize, "chapter {c}");
+        let mut i = HEAD;
+        for v in verses {
+            assert_eq!(v["index"], record[i], "chapter {c}");
+            let shown = text(record[i + 3], record[i + 4]);
+            let runs = record[i + 5] as usize;
+            let forms: Vec<&str> = (0..runs).map(|k| text(record[i + 6 + 2 * k], record[i + 7 + 2 * k])).collect();
+            if runs == 0 {
+                assert_eq!(v["text"], shown, "chapter {c}");
+                assert!(v["other_reading"].is_null(), "chapter {c}");
+            } else {
+                carrying += 1;
+                assert_eq!(v["other_reading"]["shown"], shown, "chapter {c}");
+                assert_eq!(v["other_reading"]["forms"], serde_json::json!(forms), "chapter {c}");
+            }
+            i += 6 + 2 * runs;
+        }
+    }
+    assert!(carrying > 0, "no chapter compared carries another reading");
+}
+
 /// Scoped, too: the page's `els_search_in` over a stretch of verses and the
 /// API's scope over the same verses find the same hits.
 #[tokio::test]

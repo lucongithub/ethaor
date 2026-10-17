@@ -152,6 +152,45 @@ impl App {
         self.camera.y = (self.height - WORLD.h * self.camera.z) / 2.0;
     }
 
+    /// Brings a chapter to the screen at its reading level, a verse at the
+    /// centre: where the book view hands the reader back to the map.
+    ///
+    /// The chapter fills the view if its text reads there; a long chapter —
+    /// Psalm 119 — is taken closer, until its lines clear the drawing's own
+    /// floors with a margin, its right edge kept on the screen's, where
+    /// Hebrew starts. The depth of descent is kept: every nested Tanakh is the
+    /// same world.
+    pub(crate) fn show(&mut self, chapter: usize, verse: Option<usize>) {
+        if chapter >= self.layout.chapters.len() {
+            return;
+        }
+        // The chapter layout: the one in place once its numbers show.
+        self.set_detail(true);
+        let cell = self.layout.chapters[chapter];
+        let lines = self.chapter_lines(chapter);
+        let count = corpus::verses_of(chapter).len().max(1) as f32;
+
+        let fill = (self.width / cell.w).min(self.height / cell.h) * SHOW_FILL;
+        let mut z = fill.max(READABLE_LINE * SHOW_MARGIN * count / column(cell).h);
+        if let Some(size) = lines.first().map(|line| line.size) {
+            z = z.max(MIN_TEXT * SHOW_MARGIN / size);
+        }
+
+        let wanted = verse.and_then(|v| lines.iter().find(|line| line.verse == v));
+        let x = if cell.w * z <= self.width {
+            cell.x + cell.w / 2.0
+        } else {
+            cell.x + cell.w - self.width / 2.0 / z
+        };
+        let y = match wanted {
+            Some(line) => line.rect.y + line.rect.h / 2.0,
+            None if cell.h * z > self.height => cell.y + self.height / 2.0 / z,
+            None => cell.y + cell.h / 2.0,
+        };
+        self.camera = Camera { z, x: self.width / 2.0 - x * z, y: self.height / 2.0 - y * z };
+        self.sync_detail();
+    }
+
     pub(crate) fn nest_at(&mut self, x: f32, y: f32) -> Option<Rect> {
         self.locate(x, y)?.3.map(|cell| cell.shrink(NEST))
     }

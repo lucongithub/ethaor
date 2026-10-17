@@ -2,7 +2,7 @@
 
 use super::els::{self as search, CAP, Engine, MAX_LIMIT, Query, Refusal, STRIDE};
 use super::reference::{self, BOOKS, numeral_value};
-use crate::{corpus, els, letter, pack};
+use crate::{corpus, els, letter, pack, variant};
 
 fn query(word: &str, skip_min: u32, skip_max: u32, offset: usize, limit: usize) -> Query {
     Query { word: word.into(), skip_min, skip_max, offset, limit, scope: None }
@@ -227,39 +227,35 @@ fn the_portions_are_the_maps() {
     assert_eq!(reference::portion("gospels"), None);
 }
 
+/// A book is named by its OSIS code, exactly, and by nothing else: no
+/// other case, no English, no Hebrew, no transliteration or abbreviation —
+/// those are what answers give back, never what is read.
 #[test]
-fn a_book_is_found_by_any_of_its_names() {
-    for (name, b) in [
-        ("Gen", 0),
-        ("gen", 0),
-        ("Genesis", 0),
-        ("בראשית", 0),
-        ("1Sam", 7),
-        ("1 samuel", 7),
-        ("Song of Songs", 29),
-        ("2Chr", 38),
-    ] {
-        assert_eq!(reference::book(name), Some(b), "{name}");
+fn a_book_is_named_by_its_osis_code_alone() {
+    for (b, book) in BOOKS.iter().enumerate() {
+        assert_eq!(reference::book(book.osis), Some(b), "{}", book.osis);
+        assert_eq!(reference::book(&book.osis.to_lowercase()), None, "{} read in lower case", book.osis);
     }
-    assert_eq!(reference::book("Matthew"), None);
-    assert_eq!(reference::book(""), None);
+    for other in ["Genesis", "בראשית", "Bereshit", "Gn.", "1 Samuel", "Song of Songs", "Matthew", "", " Gen", "Gen "] {
+        assert_eq!(reference::book(other), None, "{other:?} read as a book");
+    }
 }
 
-/// A reference names a book, a chapter or a verse, in OSIS or as a reader
-/// writes it; anything past the text names nothing.
+/// An OSIS reference names a book, a chapter or a verse; anything else —
+/// another notation, a number past the text — names nothing.
 #[test]
 fn a_reference_names_its_verses() {
     let genesis = reference::book_verses(0);
-    assert_eq!(reference::verses("Gen"), Some(genesis.clone()));
-    assert_eq!(reference::verses("Genesis"), Some(genesis));
+    assert_eq!(reference::verses("Gen"), Some(genesis));
     assert_eq!(reference::verses("Gen.1"), Some(corpus::verses_of(0)));
-    assert_eq!(reference::verses("Genesis 1"), Some(corpus::verses_of(0)));
     assert_eq!(reference::verses("Gen.1.1"), Some(0..1));
-    assert_eq!(reference::verses("Genesis 1:1"), Some(0..1));
-    let samuel = reference::verses("1 Samuel 3:4").unwrap();
+    let samuel = reference::verses("1Sam.3.4").unwrap();
     assert_eq!(reference::verse(samuel.start).osis(), "1Sam.3.4");
     assert_eq!(reference::verses("Ps.119").map(|v| v.len()), Some(176));
-    for nothing in ["Gen.51", "Gen.0", "Gen.1.99", "Gen.1.1.1", "Gen.x", "Matt.1.1", ""] {
+    for nothing in [
+        "Gen.51", "Gen.0", "Gen.1.99", "Gen.1.1.1", "Gen.x", "Matt.1.1", "",
+        "Genesis", "Genesis 1", "Gen 1:1", "Gen.1:1", "Gen.01", "Gen.+1", "Gen.1.", "gen.1", "Bereshit.1",
+    ] {
         assert_eq!(reference::verses(nothing), None, "{nothing}");
     }
     // Every verse is found back from its own OSIS — joined ones by either
@@ -337,4 +333,97 @@ fn a_query_too_costly_is_refused_before_it_runs() {
     let narrowed = search::admit(&mut engine, &scoped, f64::MAX).unwrap();
     assert!(narrowed < whole / 100.0, "the passage does not lighten the estimate: {narrowed} {whole}");
     assert_eq!(engine.runs, 0);
+}
+
+// ------------------------------------------------------------------ passage
+
+use super::passage;
+
+/// Every chapter reads back whole: its verses in order, our text as the
+/// corpus holds it, its book, portion and number the reference's, opening
+/// its book exactly when it is the first, and found again by its OSIS name.
+#[test]
+fn every_chapter_reads_back_its_verses() {
+    for c in 0..corpus::chapter_count() {
+        let read = passage::chapter(c).expect("a landed chapter reads");
+        let verses: Vec<usize> = read.verses.iter().map(|v| v.place.verse).collect();
+        assert_eq!(verses, corpus::verses_of(c).collect::<Vec<_>>(), "chapter {c}: verses out of order");
+        for v in &read.verses {
+            assert_eq!(v.text, corpus::verse_text(v.place.verse), "chapter {c}: a verse is not ours");
+            assert_eq!(v.place.chapter, c);
+        }
+        assert!(corpus::chapters_of(read.book).contains(&c), "chapter {c} in the wrong book");
+        assert!(reference::PORTIONS[read.section].2.contains(&read.book), "chapter {c} in the wrong portion");
+        assert_eq!(read.opens, corpus::chapters_of(read.book).start == c, "chapter {c}: opening");
+        assert_eq!(read.number as usize, c - corpus::chapters_of(read.book).start + 1, "chapter {c}: number");
+        assert_eq!(passage::named(&read.osis()), Ok(c), "{} names another chapter", read.osis());
+        assert!(passage::named(&read.human()).is_err(), "{} read though not OSIS", read.human());
+    }
+}
+
+/// A verse shown with the other reading is ours with the other forms
+/// inserted: taking every insertion out gives our verse back byte for byte,
+/// and each run said to be theirs is a non-empty stretch of the shown verse
+/// on a character boundary, carrying their index mark and never ours.
+/// Elsewhere the shown verse is ours, with no run.
+#[test]
+fn a_shown_verse_is_ours_with_the_other_forms_inserted() {
+    let mut carrying = 0;
+    for c in 0..corpus::chapter_count() {
+        for v in passage::chapter(c).unwrap().verses {
+            if v.others.is_empty() {
+                assert_eq!(v.shown, v.text, "verse {} shown otherwise with no run", v.place.verse);
+                continue;
+            }
+            carrying += 1;
+            let mut back = String::new();
+            let mut at = 0;
+            for insert in variant::inserts_of(v.place.verse) {
+                let (from, len) = insert.range();
+                back.push_str(&v.shown[at..from]);
+                at = from + len;
+            }
+            back.push_str(&v.shown[at..]);
+            assert_eq!(back, v.text, "verse {}: the insertions out do not give ours back", v.place.verse);
+            for run in &v.others {
+                assert!(!run.is_empty() && run.end <= v.shown.len(), "verse {}: run {run:?}", v.place.verse);
+                assert!(v.shown.is_char_boundary(run.start) && v.shown.is_char_boundary(run.end));
+                // Theirs carries its own index and never ours: the mark that
+                // numbers our form is ours to paint.
+                let theirs = &v.shown[run.clone()];
+                assert!(theirs.contains('²') && !theirs.contains('¹'), "verse {}: run {theirs:?}", v.place.verse);
+            }
+        }
+    }
+    assert_eq!(carrying, crate::variant::verse_count(), "a verse with another reading was not shown so");
+}
+
+/// A reference names a chapter, or the chapter of a verse; a book, a
+/// chapter past its book, or nothing at all names none and is refused with
+/// its code.
+#[test]
+fn a_reference_names_its_chapter_or_is_refused() {
+    let ps = corpus::chapters_of(26).start;
+    assert_eq!(passage::named("Gen.1"), Ok(0));
+    assert_eq!(passage::named("Gen.50"), Ok(49));
+    assert_eq!(passage::named("Gen.1.3"), Ok(0));
+    assert_eq!(passage::named("Ps.119.176"), Ok(ps + 118));
+    for bad in ["Gen", "Gen.51", "Gen.0", "", "Nowhere 1", "Gen.1.1.1"] {
+        let refused = passage::named(bad).expect_err(bad);
+        assert_eq!(refused.code(), "unknown_reference", "{bad}");
+    }
+}
+
+/// Neighbours run across books and stop at the Tanakh's two ends; a chapter
+/// out of range reads nothing.
+#[test]
+fn neighbours_run_across_books_and_stop_at_the_ends() {
+    let last = corpus::chapter_count() - 1;
+    assert_eq!(passage::chapter(0).unwrap().previous(), None);
+    assert_eq!(passage::chapter(last).unwrap().next(), None);
+    assert_eq!(passage::chapter(49).unwrap().next(), Some(50), "Genesis 50 does not lead to Exodus 1");
+    assert_eq!(passage::chapter(50).unwrap().previous(), Some(49));
+    assert_eq!(passage::chapter(last + 1), None);
+    assert_eq!(passage::chapter(usize::MAX), None);
+    assert_eq!(passage::read("Gen.51").unwrap_err().code(), "unknown_reference");
 }

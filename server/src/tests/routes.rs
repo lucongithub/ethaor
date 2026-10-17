@@ -20,7 +20,7 @@ async fn a_trailing_slash_still_describes() {
 async fn a_wrong_path_or_method_answers_json() {
     let missing = get(api_only(), "/api/els/more", &[]).await;
     assert_eq!((missing.status, missing.json()["error"]["code"].clone()), (StatusCode::NOT_FOUND, "not_found".into()));
-    for (method, path) in [(Method::POST, "/api/els?word=%D7%90"), (Method::DELETE, "/api"), (Method::PUT, "/api/")] {
+    for (method, path) in [(Method::POST, "/api/els?word=%D7%90"), (Method::POST, "/api/chapter?ref=Gen.1"),(Method::DELETE, "/api"), (Method::PUT, "/api/")] {
         let response = api_only().oneshot(Request::builder().method(method.clone()).uri(path).body(Body::empty()).unwrap()).await.unwrap();
         assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED, "{method} {path}");
         assert_eq!(response.headers()["allow"], "GET, HEAD");

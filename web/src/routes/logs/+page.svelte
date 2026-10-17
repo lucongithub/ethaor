@@ -104,7 +104,7 @@
 </script>
 
 <svelte:head>
-	<title>ethaor logs</title>
+	<title>Ethaor logs</title>
 	<meta name="referrer" content="no-referrer" />
 	<meta name="robots" content="noindex" />
 </svelte:head>
