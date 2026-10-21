@@ -104,6 +104,49 @@ async fn the_page_and_the_api_read_the_same_chapter() {
     assert!(carrying > 0, "no chapter compared carries another reading");
 }
 
+/// The book view and the API list the same contents: what the page reads
+/// from `contents_record` and what `/api/contents` answers are the same
+/// portions, books and chapters, named alike.
+#[tokio::test]
+async fn the_page_and_the_api_list_the_same_contents() {
+    use ethaor::wasm::chapter::{CONTENTS_HEAD, contents_ptr, contents_record};
+    use ethaor::wasm::map::text_ptr;
+    let text = |offset: u32, len: u32| -> &'static str {
+        let bytes = unsafe { core::slice::from_raw_parts(text_ptr().add(offset as usize), len as usize) };
+        std::str::from_utf8(bytes).unwrap()
+    };
+    let record: Vec<u32> = {
+        let _hold = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+        let n = contents_record() as usize;
+        unsafe { core::slice::from_raw_parts(contents_ptr(), n) }.to_vec()
+    };
+    let json = super::get(super::api_only(), "/api/contents", &[]).await.json();
+    let portions = json["portions"].as_array().unwrap();
+    let (p, b) = (record[0] as usize, record[1] as usize);
+    assert_eq!(portions.len(), p);
+    let books_at = CONTENTS_HEAD + 2 * p;
+    let labels_at = books_at + 5 * b;
+    let mut book = 0;
+    for (s, portion) in portions.iter().enumerate() {
+        assert_eq!(portion["hebrew"], text(record[CONTENTS_HEAD + 2 * s], record[CONTENTS_HEAD + 2 * s + 1]));
+        for listed in portion["books"].as_array().unwrap() {
+            let r = &record[books_at + 5 * book..books_at + 5 * book + 5];
+            assert_eq!(r[0] as usize, s, "book {book}");
+            assert_eq!(listed["hebrew"], text(r[1], r[2]), "book {book}");
+            let chapters = listed["chapters"].as_array().unwrap();
+            assert_eq!(chapters.len(), (r[4] - r[3]) as usize, "book {book}");
+            for (k, c) in chapters.iter().enumerate() {
+                let index = r[3] as usize + k;
+                assert_eq!(c["index"], index, "book {book}");
+                let label = text(record[labels_at + 2 * index], record[labels_at + 2 * index + 1]);
+                assert_eq!(c["hebrew"], format!("{} {label}", text(r[1], r[2])), "chapter {index}");
+            }
+            book += 1;
+        }
+    }
+    assert_eq!(book, b);
+}
+
 /// Scoped, too: the page's `els_search_in` over a stretch of verses and the
 /// API's scope over the same verses find the same hits.
 #[tokio::test]

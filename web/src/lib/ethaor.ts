@@ -28,7 +28,8 @@ import { escalate, Fault, readTraps, relay, reporter } from './fault';
 import { SearchCore, type Found } from './search-core';
 import { fragmentKey, inflate, lanes, range } from './text-open';
 import type { Command } from './keys';
-import { missing, readChapter, type Chapter } from './book-view';
+import { PORTION_TEXT } from './portions';
+import { missing, readChapter, readContents, type Chapter, type Contents } from './book-view';
 
 /**
  * Books fetched at once in the background. One at a time paid a round trip
@@ -46,7 +47,8 @@ const REFERENCE = 100;
 
 /**
  * The one colour of the map, and it carries information: the reading of the
- * other publication of the edition, inserted after ours. Everything else is a
+ * other publication of the edition, inserted after ours — worn only while the
+ * pointer is on it or on our form, white otherwise. Everything else is a
  * shade of white. Tailwind's yellow-200, the same the index uses under the
  * canvas.
  */
@@ -99,8 +101,10 @@ interface Wasm {
 	clear_ratios(): void;
 	text_ptr(): number;
 	text_len(): number;
-	/** 1 when what the pointer names holds another reading. */
+	/** The other reading under the pointer: one past its first byte, 0 for none. */
 	readings_at(x: number, y: number): number;
+	/** End (excluded) of the reading `readings_at` last answered. */
+	readings_end(): number;
 	/** Tiles the view needs now: the number of runs at `tiles_ptr`. */
 	tiles_wanted(): number;
 	/** Per run: first chapter, end chapter, byte range in the opened text. */
@@ -125,8 +129,19 @@ interface Wasm {
 	chapter_record(chapter: number): number;
 	chapter_record_ptr(): number;
 	/** Where the view is, for the book view; -1 for no verse. */
+	/** Words of the contents' record at `contents_ptr`: portions, books, chapters. */
+	contents_record(): number;
+	contents_ptr(): number;
 	here_chapter(): number;
 	here_verse(): number;
+	/** How deep the image goes: 0 portions, 1 books, 2 chapters, 3 text. */
+	here_depth(): number;
+	/** Back to the framing: the portions and their books. */
+	frame_books(): void;
+	/** The book holding a chapter, at the chapters' level. */
+	show_book(chapter: number): void;
+	/** The size the book view gives the portions' names: the opening draws them at it. */
+	set_portion_size(px: number): void;
 	/** Back to a chapter at its reading level, the verse at the centre. */
 	show(chapter: number, verse: number): void;
 }
@@ -188,6 +203,8 @@ export interface Book {
 	read(chapter: number): Chapter | null;
 	/** Fetches the chapters of `from..to` not in yet; `onLanded` says when. */
 	want(from: number, to: number): void;
+	/** The portions, books and chapters' numbers: in from the start. */
+	readonly contents: Contents;
 }
 
 export interface TanakhMap {
@@ -212,6 +229,12 @@ export interface TanakhMap {
 	readonly books: number;
 	/** Where the view is: the chapter at its centre, the verse once read. */
 	here(): Place;
+	/** How deep the image goes: 0 the portions alone, 1 the books, 2 the chapters, 3 the text. */
+	depth(): number;
+	/** Back to the framing, the portions and their books: one notch in from the overview. */
+	frameBooks(): void;
+	/** Takes the map to the book holding a chapter, its chapters' numbers out. */
+	showBook(chapter: number): void;
 	/** Takes the map to a chapter at its reading level, the verse at the centre. */
 	show(place: Place): void;
 	readonly book: Book;
@@ -354,6 +377,10 @@ export async function createTanakhMap(
 		ctx.textBaseline = 'alphabetic';
 		ctx.direction = 'rtl';
 
+		// The reading under the pointer, asked of the frame just built: only its
+		// runs wear the colour, and only while it is pointed at.
+		const lit = litReading();
+
 		// Open clip depth, so it can be closed cleanly at the end of the frame if
 		// a command were missing.
 		let clips = 0;
@@ -395,11 +422,16 @@ export async function createTanakhMap(
 			}
 
 			// The last slot says what the run is: everything is white but the
-			// other edition's reading, which the module cut out as its own run.
-			const tint = commands[i + 9] > 0 ? OTHER_READING : '255,255,255';
+			// other edition's reading, which the module cut out as its own run —
+			// and that one wears its colour only while either form is pointed at.
+			const offset = commands[i + 7];
+			const tint =
+				commands[i + 9] > 0 && offset >= lit.from && offset < lit.to
+					? OTHER_READING
+					: '255,255,255';
 			ctx.font = `${commands[i + 6]}px ${HEBREW_FONT}`;
 			ctx.fillStyle = `rgba(${tint},${commands[i + 5]})`;
-			ctx.fillText(fragment(commands[i + 7], commands[i + 8]), x, y);
+			ctx.fillText(fragment(offset, commands[i + 8]), x, y);
 		}
 
 		while (clips > 0) {
@@ -408,20 +440,26 @@ export async function createTanakhMap(
 		}
 
 		reportFocus();
-		reportReadings();
+		reportReadings(lit.to > 0 ? 1 : 0);
 		measurePending();
 	}
 
+	/**
+	 * The other reading under the pointer, as a byte range of the text; empty
+	 * with no pointer on the canvas — a touch screen or the cursor gone — since
+	 * there is then nothing to explain.
+	 */
+	function litReading(): { from: number; to: number } {
+		const start = pointer === null ? 0 : wasm.readings_at(pointer.x, pointer.y);
+		return start === 0 ? { from: 0, to: 0 } : { from: start - 1, to: wasm.readings_end() };
+	}
+
 	let lastReadings = -1;
-	function reportReadings() {
+	function reportReadings(here: number) {
 		if (!onReadings) return;
 
-		// The index follows the pointer, not the frame: it explains the
-		// ensemble the reader has under the cursor — a chapter, a book, a
-		// portion — and not whatever happens to be on screen. With no pointer
-		// on the canvas, a touch screen or the cursor gone, there is nothing to
-		// explain.
-		const here = pointer === null ? 0 : wasm.readings_at(pointer.x, pointer.y);
+		// The index follows the pointer, not the frame: it opens on the two
+		// forms under the cursor, not on whatever happens to be on screen.
 		if (here === lastReadings) return;
 		lastReadings = here;
 		onReadings(here);
@@ -714,8 +752,20 @@ export async function createTanakhMap(
 		draw();
 	}
 
+	// The portions' names at the opening take the book view's size, read off
+	// its own classes: a breakpoint crossed changes it.
+	const portions = document.createElement('span');
+	portions.className = PORTION_TEXT;
+	portions.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none';
+	portions.setAttribute('aria-hidden', 'true');
+	document.body.append(portions);
+	function portionSize() {
+		wasm.set_portion_size(parseFloat(getComputedStyle(portions).fontSize));
+	}
+
 	function onResize() {
 		measure();
+		portionSize();
 		wasm.resize(width, height);
 		draw();
 	}
@@ -724,6 +774,7 @@ export async function createTanakhMap(
 
 	measure();
 	const books = wasm.init(width, height);
+	portionSize();
 
 	canvas.addEventListener('pointerdown', onPointerDown);
 	canvas.addEventListener('pointermove', onPointerMove);
@@ -843,9 +894,16 @@ export async function createTanakhMap(
 	const opens = new Set<number>();
 	for (let b = 0; b < books; b++) opens.add(wasm.book_first_chapter(b));
 	const askedChapters = new Set<number>();
+	const contentsWords = wasm.contents_record();
+	const contents = readContents(
+		new Uint32Array(wasm.memory.buffer, wasm.contents_ptr(), contentsWords).slice(),
+		(offset, length) =>
+			decoder.decode(new Uint8Array(wasm.memory.buffer, wasm.text_ptr() + offset, length))
+	);
 	const book: Book = {
 		count: wasm.chapter_count(),
 		opens,
+		contents,
 		size: (chapter) => wasm.chapter_size(chapter),
 		read(chapter) {
 			const words = wasm.chapter_record(chapter);
@@ -883,6 +941,15 @@ export async function createTanakhMap(
 		book,
 		search,
 		here: () => ({ chapter: wasm.here_chapter(), verse: wasm.here_verse() }),
+		depth: () => wasm.here_depth(),
+		frameBooks() {
+			wasm.frame_books();
+			draw();
+		},
+		showBook(chapter) {
+			wasm.show_book(chapter);
+			draw();
+		},
 		show(place) {
 			wasm.show(place.chapter, place.verse);
 			showing = place;
@@ -896,6 +963,7 @@ export async function createTanakhMap(
 		key: onKey,
 		destroy() {
 			observer.disconnect();
+			portions.remove();
 			canvas.removeEventListener('pointerdown', onPointerDown);
 			canvas.removeEventListener('pointermove', onPointerMove);
 			canvas.removeEventListener('pointerup', onPointerUp);

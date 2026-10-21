@@ -505,6 +505,74 @@ fn the_book_view_reads_every_chapter_from_its_record() {
     }
 }
 
+/// The contents' record, read as `book-view.ts` reads it: three portions
+/// named, the 39 books each under its portion with its name and chapters,
+/// the 929 chapters' numbers — the strings the corpus' own, and the record
+/// the same at every call.
+#[test]
+fn the_book_view_reads_the_contents_from_their_record() {
+    use crate::shared::contents;
+    use crate::wasm::chapter::{CONTENTS_HEAD, contents_ptr, contents_record};
+    let _hold = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    let text = corpus::text();
+    let at = |r: &[u32], i: usize| &text[r[i] as usize..(r[i] + r[i + 1]) as usize];
+    let words = contents_record() as usize;
+    let r = unsafe { core::slice::from_raw_parts(contents_ptr(), words) }.to_vec();
+    assert_eq!(contents_record() as usize, words, "the record changed between two calls");
+    let (portions, books, chapters) = (r[0] as usize, r[1] as usize, r[2] as usize);
+    assert_eq!((portions, books, chapters), (3, corpus::book_count(), corpus::chapter_count()));
+    let mut i = CONTENTS_HEAD;
+    for p in 0..portions {
+        assert_eq!(at(&r, i), corpus::section_name(p));
+        i += 2;
+    }
+    for (b, book) in contents::books().iter().enumerate() {
+        assert_eq!(r[i] as usize, book.section, "book {b}");
+        assert_eq!(at(&r, i + 1), corpus::book_name(b));
+        assert_eq!(r[i + 3] as usize..r[i + 4] as usize, corpus::chapters_of(b), "book {b}");
+        i += 5;
+    }
+    for c in 0..chapters {
+        assert_eq!(at(&r, i), corpus::chapter_label(c), "chapter {c}");
+        i += 2;
+    }
+    assert_eq!(i, words, "the record runs past its chapters");
+}
+
+/// The depth as the page reads it to hand a level over: the opening 0,
+/// `frame_books` 1 — after a chapter too — a book shown at its chapters 2,
+/// and a chapter shown 3.
+#[test]
+fn the_page_reads_the_depth_and_frames_the_books() {
+    let _hold = hold(REFERENCE.0, REFERENCE.1);
+    converge();
+    assert_eq!(here_depth(), 0, "the opening");
+    frame_books();
+    assert_eq!(here_depth(), 1, "the framing");
+    show_book(40);
+    assert_eq!(here_depth(), 2, "a book shown at its chapters");
+    show(40, -1);
+    assert_eq!(here_depth(), 3, "a chapter shown");
+    frame_books();
+    assert_eq!(here_depth(), 1, "back to the framing");
+    reset();
+    assert_eq!(here_depth(), 0, "back to the opening");
+}
+
+/// The book view's size as the page gives it: kept when it is one, a size
+/// not finite or not positive ignored.
+#[test]
+fn the_page_gives_the_portions_size() {
+    let _hold = hold(REFERENCE.0, REFERENCE.1);
+    set_portion_size(60.0);
+    assert_eq!(app().portion_size, 60.0);
+    for wrong in [f32::NAN, f32::INFINITY, 0.0, -48.0] {
+        set_portion_size(wrong);
+        assert_eq!(app().portion_size, 60.0, "{wrong} taken as a size");
+    }
+    app().portion_size = 0.0;
+}
+
 /// The hand-off as the page drives it: the map names where its centre is,
 /// and `show` takes it back to a chapter and verse — a verse of -1 is the
 /// chapter's top, a chapter out of range moves nothing.

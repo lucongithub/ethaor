@@ -305,6 +305,9 @@ frames, which only a canvas reads, have none.
   every verse named every way, our text, and where the other edition reads
   otherwise the verse as shown with its forms apart; `previous` and `next`
   across books. No engine, no cache: a few lookups cost less than either.
+- **The contents list every portion, book and chapter**
+  (`GET /api/contents`, no parameter): each named every way, so an agent
+  finds any chapter's OSIS without a guide. Twin of `contents_record`.
 - **A WebAssembly build names `-p ethaor`**: the workspace's default members
   take the server, which has no WebAssembly build.
 
@@ -715,10 +718,17 @@ what is on screen. Everything follows:
   the void of a cell, a book, a portion and the black say nothing, as the
   breadcrumb and the click say nothing there. In the book view the same:
   the pointer on either form (`data-form`), nothing for the chapter.
+- **Theirs is yellow only while its pair is pointed at** — the owner's rule:
+  every reading coloured at once lit the page with marks the reader was not
+  looking at. `readings_at` answers *which* reading (theirs' byte range), and
+  the page colours that one's runs alone; every other stays white, its
+  brackets and index still saying what it is. Same in the book view, the two
+  forms of a pair sharing their `reading`. No pointer — a touch screen — no
+  colour.
 - **The ink is the last slot of a text record**, and it is all the page is
   told: a run is ours or theirs, and which colour stands for which is the
   page's business. Both are drawn at the same strength — the colour alone sets
-  them apart. A line is therefore cut into runs at drawing time, laid from the
+  them apart, when it is worn. A line is therefore cut into runs at drawing time, laid from the
   right like everything else; a verse without a variant stays one single
   command.
 - **The breadcrumb and the click keep naming our text.** They read the corpus,
@@ -1035,7 +1045,8 @@ yet; the page only has the exports, all prefixed `els_` (`els_search`,
 
 Monochrome: black background, structures in shades of white — with **one
 exception, and it carries information**: the other publication's reading, in
-`yellow-200`, where its text and ours part ways. Rank, level and emphasis keep
+`yellow-200`, where its text and ours part ways — worn while the pointer is on
+one of the two forms, white otherwise (see *The other reading*). Rank, level and emphasis keep
 to the white; the colour says "another voice", which no shade of white says.
 Rejected: setting it apart by the intensity of the white alone — it read as a
 faded text rather than as a second reading.
@@ -1047,8 +1058,9 @@ chapter number a touch lower (`CHAPTER_INK`). The three parts of the Tanakh are
 told apart by the **air above their title** (`SECTION_LEAD`) and by that title
 in pure white.
 
-**Hover changes nothing in the drawing**; it only sets the cursor shape. The
-command list is bit-identical with and without hover.
+**Hover changes nothing in the drawing**; it sets the cursor shape, and the
+page colours the reading pointed at. The command list is bit-identical with
+and without hover.
 
 Structure labels (titles, numbers) are drawn in world coordinates, so they grow
 with the zoom — but `label` drops them as soon as their box exceeds the screen;
@@ -1078,7 +1090,9 @@ teaching the gestures: the map is the first thing to read, and its users
 learn it by diving. Tried — one line at the end of the breadcrumb row, then
 gone once used — and refused by the owner. The keys are named on the canvas
 for the screen reader (`aria-label`), and that is all the instruction there
-is. **The mark at the top of the sidebar leads home**: the map's opening,
+is. **The mark and its name, `Ethaor`, lead home** from the left of the top
+bar, over the sidebar's icons — the bar runs the whole width and the
+sidebar starts under it, so no two rules cross: the map's opening,
 as Escape gives it with nothing open — the passage closed, the book left.
 **One wheel notch is `ZOOM_STEP`**:
 from overview to a chapter's text is about ten notches, already long; at a
@@ -1111,8 +1125,57 @@ and the button names where it goes (`Book mode`, `Map mode`, in its tip).
   under the reader. Rejected: every verse in the page at once — tens of
   thousands of nodes of pointed Hebrew to lay before the first line.
 - **Zoom is the text's size, not a camera**: Ctrl and the wheel, a pinch,
-  `+`/`-`. The column reflows and the verse under the eye stays put. The
-  size is kept for the visitor's next visit (`localStorage`), nothing else.
+  `+`/`-`. The column reflows and the verse under the eye stays put.
+- **The whole book view is a traditional web page** — the owner's rule:
+  the verses take Tailwind's type scale (`text-lg`, `text-xl` from `sm`,
+  `text-2xl` from `lg`) times the reader's zoom (`--zoom`, a scale kept in
+  `localStorage`), the browser computing the pixels the page then reads.
+  The column is 34 of that size, so the zoom widens it with the text.
+- **A button at the bottom right goes up a level** (`up`), four in all:
+  the text; its book's chapters alone; the portions with every book's name;
+  the three portions alone, as the map opens. Each goes back down where it
+  is touched — a portion to its books, a book to its chapters, a chapter to
+  its text. Gone at the top. The names come from the module's map part
+  (`contents_record`, twin of `GET /api/contents`): no text waited for.
+- **The map's opening draws the three portions at the book view's size**
+  (`set_portion_size`): the size is the book's Tailwind steps
+  (`PORTION_TEXT` in `portions.ts`, one string for both), measured by the
+  bridge at each resize and handed to the module, which spaces them as the
+  book does (`CARD_LEAD`) and lets them shrink as the map recedes. The
+  map's zoom levels stay where they were: only the words change size.
+  Switching views shows the same three words, to the pixel.
+- **Above the text, too, it is a traditional web page**; the map stays
+  as it is. Its levels are sized with Tailwind's type scale, stepped up at
+  each breakpoint, never with sizes of their own. **The portions alone
+  render as the map's opening**: its size read off the map on common
+  screens and rounded to the nearest step (`text-5xl` to `text-9xl`, with
+  `min-[120rem]:` and `min-[160rem]:` past `2xl` — in `rem`, or Tailwind
+  sorts them before `2xl` and they never apply), one right edge, the three
+  centred, the space between two a little more than their size. The books
+  and a book's chapters step down from there, a portion's name a step above
+  its books', as the map's are. They sit on the verses' column, centred; a
+  long name wraps, a screen too short scrolls (its scrollbar hidden, its
+  gutter kept so the column stands where the verses' does) — nothing is
+  ever cut.
+- **A book's chapters scroll on into the books before and after it, one
+  book a screen**: each alone, centred, a scroll snapping to the next (a
+  book taller than the screen scrolls through first); opened on the book
+  asked for. A wheel turns one book a gesture: snapping alone took a notch
+  back to the book it left, and the wheel seemed stuck. A book taller than
+  the screen (the Psalms) is scrolled by the wheel itself, never past its
+  edges — left to the browser, the notch that crossed its end landed on the
+  next book and its last chapters were out of reach; only a new gesture at
+  an edge turns the book, and coming back up enters it by its end. Its end
+  is a snap point too, for touch and keys. The book at the middle of the screen is the one open, the one
+  the levels above mark and the map is handed.
+- **Switching views keeps the level** (`fromMap`, `toMap`, the map's
+  `here_depth`): the map's text opens the book's text, its chapters' numbers
+  and its framing the books — the owner's rule: the map's numbers span many
+  books, and so does that level — its opening the portions; and
+  back: the text on its passage (`show`), a book's chapters on that book at
+  the chapters' zoom (`show_book`: numbers out, text not read, its chapters
+  at the centre), the books on the framing (`frame_books`), the portions on
+  the opening.
 - **The breadcrumb speaks for the verse at the middle of the column**:
   there is no pointer to read in a scroll. The readings' legend opens on the
   two forms under the pointer alone, as on the map.
@@ -1204,7 +1267,7 @@ anywhere must be an assertion.
 | `src/tests/text.rs` | one size per chapter; lines recompose the verse **byte for byte**; every line stays a corpus slice; letters right-to-left |
 | `src/tests/api.rs` | the interface the page really calls, global state under a lock: gestures, selection, breadcrumb at centre and under pointer, a mouse gone names nothing, forgetting measurements, probes; the search through the query buffer; the landing exports take a tile as the page writes it; the page searches a stretch of verses (`els_search_in`); a panic leaves its place and message for the page; every chapter read from its record as the book view reads it; the place handed back and forth |
 | `src/tests/handoff.rs` | every chapter shown is read and named back, its verse at the centre; on nine windows once measured; `here` never deeper than the image; a chapter out of range moves nothing |
-| `web/src/lib/book-view.test.ts` | every chapter read from the real module with its names and verses, the other reading cut out as its own parts; nothing read before a chapter lands; heights estimated from text, size and column; the text's size stepped within bounds; chapters not in grouped into runs; the window around the screen within the Tanakh |
+| `web/src/lib/book-view.test.ts` | every chapter read from the real module with its names and verses, the other reading cut out as its own parts, the two forms of a pair sharing their reading; nothing read before a chapter lands; heights estimated from text, size and column; the text's size stepped within bounds; chapters not in grouped into runs; the window around the screen within the Tanakh |
 | `src/els/tests.rs` | the stream is every verse read letter by letter; postings, residue lists and planes say what the stream says; **every method equals trying every start and every skip**, on random streams of every size and range; the cap keeps the first hits in (skip, start) order with the exact total; two letters counted without listing; the cost model picks the measured winner; radix sort; placement tables; memo; finals and pointing fold; an occurrence across two verses; every record placed where its hit is; `תורה` every fiftieth letter from the first tav; time budget; `hits` is the records unplaced, from the same memory; a scoped search finds exactly what lies wholly in its stretch, tried one by one; the whole stretch is the plain search; the cost is estimated without searching and tells a flood from a light query |
 | `src/pack/tests.rs` | the packed corpus unpacks to the working form **byte for byte**; the map alone holds names, labels and counts and reserves the text's room; the packed form is a fraction of the working one; Hebrew numerals; label exceptions carry only what breaks the rule; varints |
 | `web/src/lib/text-open.test.ts` | gzip opened byte for byte, from a view too; a Range asks `from..to` end excluded, and a server ignoring it is read only as far as needed; the lanes take each item once, never more at once than their count, and choose each item when a lane frees — so the view's move is seen; every decoded fragment keyed apart, a verse past a kilobyte included |
@@ -1215,7 +1278,7 @@ anywhere must be an assertion.
 | `web/src/lib/search-worker.test.ts` | a search asked before the text is held, then answered by its id; the next one answers the same; a failed search answered by its id, the next on a new module; a failure answered with its numbered fault, a real trap traced to its Rust place |
 | `src/tests/landing.rs` | the next book fetched is the nearest to the view, follows it when it moves, each book once; before the text lands the map stays whole — no black frame however deep, no verse drawn, clicked or named — and the verses come once it lands; the overview is identical with and without the text; a chapter's tile is asked two notches or more ahead of its reading level, once, only for chapters on screen, with its exact byte range |
 | `src/variant/tests.rs` | the welded table: taking the insertions out gives the verse back byte for byte, every range is a slice on a letter boundary, an offset is mapped back to the verse or refused |
-| `src/tests/readings.rs` | the other reading **in the flow, never over it**: the runs of a line tile it from the right and recompose it, the ink marks theirs and only theirs, a verse without a variant stays one command, a click never names the other edition ; the index opens on the two forms alone, never on the rest of their chapter nor on its number|
+| `src/tests/readings.rs` | the other reading **in the flow, never over it**: the runs of a line tile it from the right and recompose it, the ink marks theirs and only theirs, a verse without a variant stays one command, a click never names the other edition ; the index opens on the two forms alone, never on the rest of their chapter nor on its number; the answer is the pointed pair's reading, theirs alone, the very runs the frame cuts out |
 | `src/shared/tests.rs` | the English book table walks the corpus' books; numerals read as their values; every label is a numeral, chapters 1, 2, 3… and verses on from the last, joined ones included; a verse named every way; every letter placed back in its verse; refusals with distinct codes; a page is the engine's hits, letters spelling the word; pages tile the listed hits, `limit` 0 counts; a flood counted whole and listed to the cap, its last page closing the walk without searching again; bounds past any range (skips past the stream, offset at the top of its type) answer without panic; finals and marks fold, a word of marks alone has no letter; one letter is each of its occurrences; the portions are the map's; a book by its exact OSIS code alone, no other case, name or notation; an OSIS reference names its book, chapter or verse, every verse found back from its OSIS, another notation naming nothing; one scope way at a time; a scoped search stays in its verses; a query too costly refused before it runs; every chapter reads back its verses, its book, portion and number; a shown verse is ours with the other forms inserted; a reference names its chapter or is refused; neighbours across books |
 | `server/src/tests/` | the ELS answer names its place every way and is the shared page field for field; `next_offset` walks every listed hit; each refusal its code and a 400; `GET /api` lists tools whose schema is what the endpoint takes; the build served with ranges, no compression, a year of cache on hashed names and a 404 for a missing one, `/api` never shadowed; **the page's export and the API find the same hits**; a flood answers its total and last page; numbers past their type refused as `bad_param`; a missing text is a 503, a caller's mistake a 400; under `/api` a wrong path or method answers JSON, `/api/` describes, HEAD has no body; callers at once each get their own answer; no path climbs out of the build; a file asked again is a 304; searches run side by side, one engine each, never more than the pool, all back after; an answer searched once for everyone, at once or later; a refusal takes no engine; a full queue answers `busy` with `Retry-After` and is not kept; a caller gone gives its engine back; successes say `public`, refusals `no-store`; a scope keeps every letter inside, each scoping mistake its code; the page and the API keep to the same verses; a stream is the pages in one go, goes past a page, stops when left; a search too heavy refused before it runs; a client past its budget waits alone, a cached answer costs one; the proxy names the client only when trusted; a panic answered and the next request served; an engine that panicked replaced; a bad setting falls back; the logs closed without the token, a request found by its id, followed live and filtered by level; the log settings read and falling back; the files rolling within their budget, a new one per process, an unwritable directory refused at start; the history read back across files; a half-written line sent once whole; a follower reading across files, told what it missed; a flush writing the lines and waking a follower at once; no log file a 503; every answer has an id; a page of its own served at its directory, `/logs` sent there with its query whole; a settings file read, the environment winning over it and untouched, none the environment alone, a broken one ignored whole; an incident reads aloud and never repeats; an answer and its log share the incident, the log naming the code, the place and the user message; every refusal numbered; an escalation keeps its number and steps, verbose only adding chain and stack; a panic numbered at its own line; every code raised at one place; a page report logged under its number, bounded, a bad one refused; a chapter read verse by verse and named every way, carrying the other reading, its neighbours across books; each chapter refusal its code; **the book view's record and `/api/chapter` read the same chapter** |
 | `tests/builder.rs` | `build/mamre.rs` and `build/variants.rs` included, not copied: cp1255 and byte 0xCA, Hebrew numerals, cover page, document order, the four cuts, canonical order; a reading anchored by rank, the display string that gives the verse back |

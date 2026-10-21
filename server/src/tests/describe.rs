@@ -108,6 +108,22 @@ async fn the_chapter_schema_is_what_the_endpoint_takes() {
     }
 }
 
+/// The contents' tool declares no parameter and refuses one, and its
+/// errors are the endpoint's.
+#[tokio::test]
+async fn the_contents_schema_is_what_the_endpoint_takes() {
+    use crate::api::contents;
+    let json = get(api_only(), "/api", &[]).await.json();
+    let tools = json["endpoints"].as_array().unwrap();
+    let tool = tools.iter().find(|t| t["name"] == "contents").expect("contents not listed");
+    assert_eq!(tool["path"], "/api/contents");
+    assert!(tool["input_schema"]["properties"].as_object().unwrap().is_empty());
+    assert_eq!(get(api_only(), "/api/contents", &[]).await.status, StatusCode::OK);
+    assert_eq!(get(api_only(), "/api/contents?x=1", &[]).await.status, StatusCode::BAD_REQUEST);
+    let declared: Vec<&str> = tool["errors"].as_array().unwrap().iter().map(|e| e.as_str().unwrap()).collect();
+    assert_eq!(declared, contents::ERRORS);
+}
+
 /// The declared OSIS pattern, read by hand: `^(codes)(\.[1-9][0-9]*){1,2}$`
 /// — its alternation must be the 39 codes, checked here without a regex
 /// crate.

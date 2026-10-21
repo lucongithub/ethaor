@@ -224,7 +224,7 @@ fn centre(app: &App, r: Rect) -> (f32, f32) {
 
 fn asks(app: &mut App, px: f32, py: f32) -> bool {
     let (wx, wy) = app.camera.to_world(px, py);
-    app.readings_at(wx, wy)
+    app.readings_at(wx, wy).is_some()
 }
 
 /// Whether a stretch of verses holds another reading.
@@ -264,12 +264,61 @@ fn the_index_answers_on_the_two_forms_alone() {
                 theirs = false;
             }
             let (x, y) = (r.x + r.w / 2.0, r.y + r.h / 2.0);
-            assert_eq!(app.readings_at(x, y), form, "{word:?} in verse {}", line.verse);
+            assert_eq!(app.readings_at(x, y).is_some(), form, "{word:?} in verse {}", line.verse);
             if form { lit += 1 } else { shut += 1 }
         }
     }
     assert!(lit >= 2, "our form and theirs did not both light the index");
     assert!(shut > lit, "the test met no word the index must ignore");
+}
+
+/// **The answer is the pointed pair's reading, theirs alone** — what the page
+/// colours, and only while it is pointed at. On a word of theirs the range
+/// holds that word; on our marked form it starts right after it, nothing but
+/// the space between. Either way it reads `[…]²` and is exactly the stretch
+/// the frame cuts out as `INK_OTHER`, so the page can tell that reading's runs
+/// from every other on screen.
+#[test]
+fn the_answer_is_the_pointed_pair_s_reading() {
+    let (chapter, verse) = sample();
+    let mut app = reference_app();
+    app.show(chapter, Some(verse));
+    measure_all(&mut app);
+    app.show(chapter, Some(verse));
+    app.build_frame();
+
+    let others: Vec<(usize, usize)> = commands(&app)
+        .iter()
+        .filter(|c| c.ink == INK_OTHER)
+        .map(|c| (c.offset as usize, c.offset as usize + c.len as usize))
+        .collect();
+    let text = corpus::text();
+    let (mut ours, mut theirs) = (0, 0);
+    for line in app.chapter_lines(chapter) {
+        for (r, word) in app.word_cells(line.text, line.rect, line.size) {
+            let Some((from, to)) = app.readings_at(r.x + r.w / 2.0, r.y + r.h / 2.0) else {
+                continue;
+            };
+            let reading = &text[from..to];
+            assert!(reading.trim_start().starts_with('[') && reading.ends_with('²'), "{reading:?}");
+            assert!(!reading.contains('¹'), "{reading:?} takes our form in");
+            let at = corpus::offset_of(word);
+            if word.contains('¹') {
+                assert!(text[at + word.len()..from].trim().is_empty(), "{word:?} is not right before {reading:?}");
+                ours += 1;
+            } else {
+                assert!(from <= at && at + word.len() <= to, "{word:?} lies outside {reading:?}");
+                theirs += 1;
+            }
+            // Every run the frame paints apart inside the range, and none
+            // straddling it: colouring by range colours this reading whole.
+            for &(a, b) in &others {
+                assert!(b <= from || a >= to || (a >= from && b <= to), "a run straddles {reading:?}");
+            }
+            assert!(others.iter().any(|&(a, b)| a >= from && b <= to), "no run of {reading:?} drawn");
+        }
+    }
+    assert!(ours >= 1 && theirs >= 1, "the test met only one of the two forms");
 }
 
 /// Verses of a stretch of books, as one range.

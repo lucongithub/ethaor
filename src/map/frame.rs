@@ -115,6 +115,47 @@ impl App {
     /// whatever their length.
     /// The legibility floor is the caller's choice: a title and a line of verse
     /// stop at `MIN_TEXT`, a chapter number at `MIN_NUMBER`.
+    /// Where the three portions' names lie when the map is nothing else.
+    ///
+    /// Everything is taken on the **projected** world: the three words are
+    /// born large at the first zoom-out notch, then shrink and draw closer
+    /// with it, endlessly. Freezing them at a screen size was tried: they read
+    /// well, but zooming out no longer did anything at all.
+    ///
+    /// **A single right edge for all three**, the one given by the widest
+    /// word: reading demands it, and three words each centred for themselves
+    /// went off in three directions. The block thus formed is itself centred
+    /// on the world. The drawing and the pointer both read it here.
+    ///
+    /// Once the page gives the book view's size (`portion_size`), the opening
+    /// draws the names at that very size, spaced as the book view spaces
+    /// them: switching views shows the same three words.
+    pub(crate) fn cards(&mut self, camera: Camera) -> Cards {
+        let widest = (0..3).map(|section| self.ratio(corpus::section_name(section))).fold(0.3_f32, f32::max);
+        let world = camera.project(WORLD);
+        let fits = world.w * 0.8 / widest;
+        let (mut size, mut gap) = if self.portion_size > 0.0 {
+            // The book view's size at the opening, and in proportion to the
+            // zoom on either side of it: they still shrink as the map recedes.
+            let size = (self.portion_size * camera.z / self.overview_scale()).min(fits);
+            (size, size * CARD_LEAD)
+        } else {
+            ((world.h * SECTION_CARD / 3.0).min(fits), world.h * CARD_GAP)
+        };
+        let tall = 2.0 * gap + size * 1.35;
+        if tall > self.height * CARD_ROOM {
+            let k = self.height * CARD_ROOM / tall;
+            (size, gap) = (size * k, gap * k);
+        }
+        Cards {
+            size,
+            gap,
+            middle: world.y + world.h / 2.0,
+            left: world.x,
+            span: (world.w + widest * size) / 2.0,
+        }
+    }
+
     fn emit_text(&mut self, content: &'static str, area: Rect, size: f32, alpha: f32) {
         self.emit_ink(content, area, size, alpha, INK_OURS);
     }
@@ -347,31 +388,10 @@ impl App {
         // screen, and judging on them made the three portions get painted giant
         // over the verses.
         if camera.z < self.fit_scale() * PORTIONS_UNDER {
-            let widest = (0..3)
-                .map(|section| self.ratio(corpus::section_name(section)))
-                .fold(0.3_f32, f32::max);
-
-            // Everything is taken on the **projected** world: the three words
-            // are born large at the first zoom-out notch, then shrink and draw
-            // closer with it, endlessly. Freezing them at a screen size was
-            // tried: they read well, but zooming out no longer did anything at
-            // all.
-            let world = camera.project(WORLD);
-            let size = (world.h * SECTION_CARD / 3.0).min(world.w * 0.8 / widest);
-            let line = size * 1.35;
-            let gap = world.h * CARD_GAP;
-            let middle = world.y + world.h / 2.0;
-
-            // **A single right edge for all three**, the one given by the widest
-            // word: reading demands it, and three words each centred for
-            // themselves went off in three directions. The block thus formed is
-            // itself centred on the world.
-            let right = (world.w + widest * size) / 2.0;
-
+            let cards = self.cards(camera);
             for section in 0..3 {
-                let y = middle + (section as f32 - 1.0) * gap;
-                let area = Rect { x: world.x, y: y - line / 2.0, w: right, h: line };
-                self.emit_text(corpus::section_name(section), area, size, alpha);
+                let area = cards.area(section);
+                self.emit_text(corpus::section_name(section), area, cards.size, alpha);
             }
             return;
         }
@@ -526,5 +546,26 @@ impl App {
         if cursor < end {
             self.emit_run(&shown[cursor..end], row, right, size, alpha, INK_OURS);
         }
+    }
+}
+
+/// The three portions' names alone, on screen: one size, a gap between
+/// their centres, the middle one's centre, and the box they are laid flush
+/// right in — from `left`, `span` wide.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Cards {
+    pub size: f32,
+    pub gap: f32,
+    pub middle: f32,
+    pub left: f32,
+    pub span: f32,
+}
+
+impl Cards {
+    /// The line a portion's name is laid in, flush right on the shared edge.
+    pub(crate) fn area(&self, section: usize) -> Rect {
+        let line = self.size * 1.35;
+        let y = self.middle + (section as f32 - 1.0) * self.gap;
+        Rect { x: self.left, y: y - line / 2.0, w: self.span, h: line }
     }
 }

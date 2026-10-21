@@ -10,7 +10,9 @@
 	import { escalate, reporter, watch, type Fault } from '$lib/fault';
 	import { command, escape } from '$lib/keys';
 	import Rail, { type View } from './Rail.svelte';
+	import Logo from './Logo.svelte';
 	import BookView, { type Reading } from './BookView.svelte';
+	import { fromMap, toMap, type Level } from '$lib/book-view';
 
 	let canvas: HTMLCanvasElement;
 	let reload = $state<HTMLButtonElement | null>(null);
@@ -30,6 +32,7 @@
 	// and each hands the other the place it is at.
 	let view = $state<View>('map');
 	let opened = $state<Place>({ chapter: 0, verse: -1 });
+	let openedLevel = $state<Level>('text');
 	let book = $state<BookView | null>(null);
 	let reading = $state<Reading | null>(null);
 	let landed = $state(0);
@@ -39,13 +42,21 @@
 		if (next === 'book') {
 			selection = null;
 			opened = map.here();
+			openedLevel = fromMap(map.depth());
 			reading = null;
 			onForm = false;
 			view = 'book';
 		} else {
-			const place = book?.here() ?? opened;
+			// Each level lands on the map's own: the text on its passage, a
+			// book's chapters on that book's chapters, the books on the
+			// framing, the portions alone on the overview.
+			const { place, level } = book?.where() ?? { place: opened, level: openedLevel };
 			view = 'map';
-			map.show(place);
+			const depth = toMap(level);
+			if (depth === 3) map.show(place);
+			else if (depth === 2) map.showBook(place.chapter);
+			else if (depth === 1) map.frameBooks();
+			else map.reset();
 			canvas.focus({ preventScroll: true });
 		}
 	}
@@ -149,12 +160,38 @@
 
 <svelte:window onkeydown={onWindowKeydown} />
 
-<!-- The sidebar sits on the left, whatever the page's direction: the row is
-     laid left to right, and the reading column takes Hebrew's back. -->
-<div dir="ltr" class="relative flex h-full bg-black">
-	<Rail {view} onview={switchTo} onhome={home} />
+<!-- The top bar runs the whole width, its rule unbroken; the sidebar and the
+     reading column share the row under it. The bar and that row are laid left
+     to right, whatever the page's direction, so the mark and the sidebar keep
+     the left and the breadcrumb takes Hebrew's right. -->
+<div dir="ltr" class="relative flex h-full flex-col bg-black">
+	<header
+		class="flex h-[calc(var(--nav)+env(safe-area-inset-top))] shrink-0 items-center
+	       border-b border-white/10 pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)]
+	       pl-[env(safe-area-inset-left)]"
+	>
+		<!-- The mark and its name lead home: the map's opening, as Escape gives
+		     it. The mark stands over the sidebar's icons, on their column; both
+		     brighten on hover like the items. -->
+		<div class="shrink-0 px-1 sm:px-2">
+			<button
+				type="button"
+				dir="ltr"
+				lang="en"
+				class="group flex h-10 cursor-pointer items-center gap-2.5 rounded pr-3 pl-[0.6875rem]
+				       text-white/58 transition-colors duration-150 hover:text-white
+				       focus-visible:text-white focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-white/60"
+				aria-label="Ethaor — back to the overview"
+				onclick={home}
+			>
+				<Logo class="h-5 w-5 text-[1.25rem]" />
+				<span
+					class="pt-0.5 text-[0.9375rem] leading-none tracking-wide sm:text-base"
+					aria-hidden="true">Ethaor</span
+				>
+			</button>
+		</div>
 
-	<div dir="rtl" class="flex min-w-0 flex-1 flex-col">
 		<!-- Breadcrumb. The title bands stay inside the map and therefore never
 	     cover anything; when they leave the screen, it is this that says where
 	     one is. It takes its own row: not one pixel of map lost.
@@ -163,10 +200,10 @@
 	     chapter once the numbers are out, the verse once the lines are read.
 	     Its place is the pointer as soon as there is one — hovering a title, a
 	     chapter or a line says where **that** is. -->
-		<header
-			class="flex h-[calc(var(--nav)+env(safe-area-inset-top))] shrink-0 items-center gap-2
-		       border-b border-white/10 px-3 pt-[env(safe-area-inset-top)]
-		       text-sm sm:px-4 sm:text-base 2xl:text-lg"
+		<div
+			dir="rtl"
+			class="flex min-w-0 flex-1 items-center gap-2 overflow-hidden px-3 text-sm whitespace-nowrap
+		       sm:px-4 sm:text-base 2xl:text-lg"
 		>
 			{#if crumbs}
 				<span class="font-hebrew text-white">{crumbs.section}</span>
@@ -183,66 +220,74 @@
 					<span class="font-hebrew text-white">{crumbs.verse}</span>
 				{/if}
 			{/if}
-		</header>
-		<p class="sr-only" aria-live="polite">{spoken}</p>
+		</div>
+	</header>
 
-		<!-- `touch-action: none` is indispensable: without it the mobile browser
+	<div class="flex min-h-0 flex-1">
+		<Rail {view} onview={switchTo} />
+
+		<div dir="rtl" class="flex min-w-0 flex-1 flex-col">
+			<p class="sr-only" aria-live="polite">{spoken}</p>
+
+			<!-- `touch-action: none` is indispensable: without it the mobile browser
 	     intercepts the pinch and the drag before we do. Focusable, and named
 	     with its keys: without that the whole map is silent to a keyboard and
 	     a screen reader. -->
-		<!-- The map and the book share the room under the breadcrumb: the book
+			<!-- The map and the book share the room under the breadcrumb: the book
 	     lies over the map, which waits beneath it, inert. -->
-		<div class="relative min-h-0 flex-1">
-			<canvas
-				bind:this={canvas}
-				inert={view === 'book'}
-				tabindex="0"
-				aria-label="Map of the Tanakh. Plus and minus zoom, the arrows move, Enter reads the passage at the centre, Escape closes it or returns to the overview."
-				lang="en"
-				onkeydown={onCanvasKeydown}
-				class="absolute inset-0 size-full touch-none bg-black outline-none
+			<div class="relative min-h-0 flex-1">
+				<canvas
+					bind:this={canvas}
+					inert={view === 'book'}
+					tabindex="0"
+					aria-label="Map of the Tanakh. Plus and minus zoom, the arrows move, Enter reads the passage at the centre, Escape closes it or returns to the overview."
+					lang="en"
+					onkeydown={onCanvasKeydown}
+					class="absolute inset-0 size-full touch-none bg-black outline-none
 		       focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-white/25"
-			></canvas>
-			{#if view === 'book' && map}
-				<div class="absolute inset-0">
-					<BookView
-						bind:this={book}
-						book={map.book}
-						start={opened}
-						{landed}
-						onreading={(next) => (reading = next)}
-						onform={(on) => (onForm = on)}
-						onfault={shown}
-					/>
-				</div>
-			{/if}
-		</div>
+				></canvas>
+				{#if view === 'book' && map}
+					<div class="absolute inset-0">
+						<BookView
+							bind:this={book}
+							book={map.book}
+							start={opened}
+							startLevel={openedLevel}
+							{landed}
+							onreading={(next) => (reading = next)}
+							onform={(on) => (onForm = on)}
+							onfault={shown}
+						/>
+					</div>
+				{/if}
+			</div>
 
-		<!-- Index of the readings. Where another publication of the same edition
+			<!-- Index of the readings. Where another publication of the same edition
 	     reads otherwise, the map shows our form then theirs, and this row says
 	     which is which. It appears only while there is one on screen, and it
 	     takes its own row: nothing is ever covered. -->
-		{#if legend}
-			<footer
-				class="flex shrink-0 flex-wrap items-center justify-center gap-x-5 gap-y-1 border-t border-white/10
+			{#if legend}
+				<footer
+					class="flex shrink-0 flex-wrap items-center justify-center gap-x-5 gap-y-1 border-t border-white/10
 			       px-3 py-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] text-xs text-white
 			       sm:px-4 sm:text-sm"
-				dir="rtl"
-			>
-				<span>
-					¹
-					<span class="font-hebrew" dir="rtl">נוסח ברויאר</span>
-					<span class="font-hebrew" dir="rtl">(מכון ממרא)</span>
-				</span>
-				<!-- The second entry wears the colour of the reading it names, the
+					dir="rtl"
+				>
+					<span>
+						¹
+						<span class="font-hebrew" dir="rtl">נוסח ברויאר</span>
+						<span class="font-hebrew" dir="rtl">(מכון ממרא)</span>
+					</span>
+					<!-- The second entry wears the colour of the reading it names, the
 			     one the map paints in the text. -->
-				<span class="text-yellow-200">
-					²
-					<span class="font-hebrew" dir="rtl">מקרא על פי המסורה</span>
-					<span dir="ltr">(sefaria.org)</span>
-				</span>
-			</footer>
-		{/if}
+					<span class="text-yellow-200">
+						²
+						<span class="font-hebrew" dir="rtl">מקרא על פי המסורה</span>
+						<span dir="ltr">(sefaria.org)</span>
+					</span>
+				</footer>
+			{/if}
+		</div>
 	</div>
 </div>
 

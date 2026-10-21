@@ -117,21 +117,11 @@ impl App {
         let name = corpus::section_name(section);
 
         if !self.books_drawn(camera) {
-            let widest = (0..3)
-                .map(|s| self.ratio(corpus::section_name(s)))
-                .fold(0.3_f32, f32::max);
-            let world = camera.project(WORLD);
-            let size = (world.h * SECTION_CARD / 3.0).min(world.w * 0.8 / widest);
-            if size < MIN_TEXT {
+            let cards = self.cards(camera);
+            if cards.size < MIN_TEXT {
                 return None;
             }
-            let line = size * 1.35;
-            let gap = world.h * CARD_GAP;
-            let middle = world.y + world.h / 2.0;
-            let right = (world.w + widest * size) / 2.0;
-            let y = middle + (section as f32 - 1.0) * gap;
-            let area = Rect { x: world.x, y: y - line / 2.0, w: right, h: line };
-            return Some(self.ink_of(name, area, size));
+            return Some(self.ink_of(name, cards.area(section), cards.size));
         }
 
         let band = camera.project(self.layout.sections[section]);
@@ -208,28 +198,35 @@ impl App {
     /// on a drawn line, inside a word's box, and that word must touch an
     /// insertion. A number, the void of a cell, a book or a portion name no
     /// word, and say nothing.
-    pub(crate) fn readings_at(&mut self, x: f32, y: f32) -> bool {
-        let Some((_, chapter, _, _)) = self.locate(x, y) else {
-            return false;
-        };
+    ///
+    /// The answer is **which** reading: the corpus byte range of theirs, mark
+    /// excluded — exactly what `draw_line` cuts out as `INK_OTHER` runs. The
+    /// page colours that reading alone, and only while it is pointed at; the
+    /// frame itself stays the same with and without the pointer.
+    pub(crate) fn readings_at(&mut self, x: f32, y: f32) -> Option<(usize, usize)> {
+        let (_, chapter, _, _) = self.locate(x, y)?;
         if !self.readable(chapter) {
-            return false;
+            return None;
         }
-        let Some(line) = self.line_at(chapter, y) else {
-            return false;
-        };
+        let line = self.line_at(chapter, y)?;
         if y < line.rect.y || y > line.rect.y + line.rect.h {
-            return false;
+            return None;
         }
-        let Some(shown) = variant::display(line.verse) else {
-            return false;
-        };
+        let shown = variant::display(line.verse)?;
         let base = corpus::offset_of(shown);
-        let inserts: Vec<(usize, usize)> = variant::inserts_of(line.verse).map(|i| i.range()).collect();
-        self.word_cells(line.text, line.rect, line.size).into_iter().any(|(r, word)| {
+        let inserts: Vec<_> = variant::inserts_of(line.verse).collect();
+        self.word_cells(line.text, line.rect, line.size).into_iter().find_map(|(r, word)| {
+            if x < r.x || x > r.x + r.w {
+                return None;
+            }
             let from = corpus::offset_of(word) - base;
             let to = from + word.len();
-            x >= r.x && x <= r.x + r.w && inserts.iter().any(|&(at, len)| from < at + len && at < to)
+            let insert = inserts.iter().find(|i| {
+                let (at, len) = i.range();
+                from < at + len && at < to
+            })?;
+            let (at, len) = insert.other_range();
+            Some((base + at, base + at + len))
         })
     }
 
@@ -361,6 +358,23 @@ impl App {
     /// three words — the Tanakh's beginning; with the books alone, the first
     /// chapter of the book at the centre; with the numbers, that chapter; with
     /// the text, its verse too.
+    /// How deep the image goes, as the book view's levels count it: 0 the
+    /// three portions alone, 1 the books, 2 the chapters' numbers, 3 the text
+    /// at the centre. The same tests `here` takes, so the two never disagree.
+    pub(crate) fn depth(&mut self) -> u32 {
+        let camera = self.camera;
+        if !self.books_drawn(camera) {
+            return 0;
+        }
+        if !self.chapters_ready(camera) {
+            return 1;
+        }
+        match self.here() {
+            (chapter, _) if self.readable(chapter) => 3,
+            _ => 2,
+        }
+    }
+
     pub(crate) fn here(&mut self) -> (usize, Option<usize>) {
         let camera = self.camera;
         if !self.books_drawn(camera) {

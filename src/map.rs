@@ -53,6 +53,9 @@ pub(crate) struct App {
     /// Runs of the other edition's reading drawn at the last frame. The page
     /// shows the index at the bottom only when there is one on screen.
     pub(crate) variant_runs: u32,
+    /// Corpus range of the other reading last found under the pointer
+    /// (`readings_at`), (0, 0) for none: read back by the page with its end.
+    pub(crate) reading_lit: (u32, u32),
     /// One space from the corpus, to measure its width once and for all.
     pub(crate) space: Option<&'static str>,
     /// Layout of the chapters already visited. Invalidated as soon as a
@@ -83,6 +86,10 @@ pub(crate) struct App {
     /// drawing it, clicking it, naming it — is asked. Always on in the
     /// module; the tests turn it off to stand for a corpus with no verse in.
     pub(crate) text: bool,
+    /// Size the three portions' names take at the opening, in pixels: the
+    /// book view's own (`set_portion_size`), so the two views show them
+    /// alike. 0 until the page gives it: the projected world's share then.
+    pub(crate) portion_size: f32,
     /// Chapters whose tile has been asked for already.
     asked: Vec<bool>,
     /// Books whose text has been asked for, in the background.
@@ -113,6 +120,7 @@ impl App {
             commands: Vec::new(),
             last_nests: 0,
             variant_runs: 0,
+            reading_lit: (0, 0),
             space: None,
             lines: HashMap::new(),
             number: None,
@@ -121,6 +129,7 @@ impl App {
             focus: [0; 8],
             mouse_away: false,
             text: true,
+            portion_size: 0.0,
             asked: vec![false; corpus::chapter_count()],
             books_asked: vec![false; corpus::book_count()],
             tiles: Vec::new(),

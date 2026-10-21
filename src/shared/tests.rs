@@ -427,3 +427,31 @@ fn neighbours_run_across_books_and_stop_at_the_ends() {
     assert_eq!(passage::chapter(usize::MAX), None);
     assert_eq!(passage::read("Gen.51").unwrap_err().code(), "unknown_reference");
 }
+
+/// The contents walk the Tanakh whole and in order: the 39 books each once,
+/// each under the portion `PORTIONS` puts it in, named as the corpus names
+/// it, its chapters running on from the last book's with no gap or overlap
+/// to the 929th, each numbered as the corpus numbers it.
+#[test]
+fn the_contents_walk_every_book_and_chapter_in_order() {
+    use super::contents::{books, portion_hebrew};
+    let books = books();
+    assert_eq!(books.len(), corpus::book_count());
+    let mut next = 0;
+    for (b, book) in books.iter().enumerate() {
+        assert_eq!(book.book, b, "book {b} out of order");
+        assert!(reference::PORTIONS[book.section].2.contains(&b), "book {b} under portion {}", book.section);
+        assert_eq!(book.hebrew, corpus::book_name(b));
+        assert_eq!(book.chapters, corpus::chapters_of(b));
+        assert_eq!(book.chapters.start, next, "a gap or an overlap before book {b}");
+        assert!(!book.chapters.is_empty(), "book {b} has no chapter");
+        next = book.chapters.end;
+        let labels: Vec<_> = book.labels().collect();
+        assert_eq!(labels.len(), book.chapters.len());
+        for (label, c) in labels.iter().zip(book.chapters.clone()) {
+            assert_eq!(*label, corpus::chapter_label(c));
+        }
+    }
+    assert_eq!(next, corpus::chapter_count());
+    assert_eq!([portion_hebrew(0), portion_hebrew(1), portion_hebrew(2)], ["תורה", "נביאים", "כתובים"]);
+}

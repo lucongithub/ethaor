@@ -9,6 +9,7 @@
 //   node scripts/favicon.mjs        (Chrome at CHROME, or its usual place)
 //
 // Writes static/favicon-32.png and static/apple-touch-icon.png, versioned.
+// Then bump their `?v=` in src/app.html, or browsers keep showing the old ones.
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -39,11 +40,11 @@ const ICONS = [
 ];
 
 /**
- * The icon inverts the menu's mark: a white tile, and the two nuns and the
- * point in black — the owner's choice, so it stands out in a tab.
+ * The icon is the menu's mark as the page shows it: a black tile, and the two
+ * nuns and the point in white — the owner's choice.
  */
-const TILE = '#fff';
-const INK = '#000';
+const TILE = '#000';
+const INK = '#fff';
 
 const page = (size, weight, scale) => `<!doctype html><meta charset="utf-8">
 <style>

@@ -192,6 +192,38 @@ pub extern "C" fn here_verse() -> i32 {
     app().here().1.map_or(-1, |v| v as i32)
 }
 
+/// How deep the image goes: 0 the portions alone, 1 the books, 2 the
+/// chapters' numbers, 3 the text. See `App::depth`.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+pub extern "C" fn here_depth() -> u32 {
+    app().depth()
+}
+
+/// Back to the framing — the portions and their books — at the top world,
+/// as `reset` goes back to the opening one notch above.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+pub extern "C" fn frame_books() {
+    let app = app();
+    app.level = 0;
+    app.frame_books();
+}
+
+/// Brings the book holding `chapter` to the chapters' level, its box filling
+/// the view. Out of range, nothing. See `App::show_book`.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+pub extern "C" fn show_book(chapter: u32) {
+    app().show_book(chapter as usize);
+}
+
+/// The size, in pixels, the book view gives the three portions' names: the
+/// map's opening draws them at it. Not finite or not positive, ignored.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+pub extern "C" fn set_portion_size(px: f32) {
+    if px.is_finite() && px > 0.0 {
+        app().portion_size = px;
+    }
+}
+
 /// Brings `chapter` to its reading level, `verse` at the centre (-1: its
 /// top): where the book view hands the reader back. Out of range, nothing.
 #[cfg_attr(feature = "map", unsafe(no_mangle))]
@@ -344,16 +376,25 @@ pub extern "C" fn probe_verse_drawn() -> u32 {
     app().draws_a_verse() as u32
 }
 
-/// 1 when the chapter under the pointer holds another reading, 0 otherwise.
+/// The other reading under the pointer: one past the corpus offset where
+/// theirs starts, 0 when the pointer is on neither form. Its end is then at
+/// `readings_end`.
 ///
-/// The page shows the index under the canvas on that answer alone. Only at the
-/// chapter: higher up the answer would be yes almost everywhere, and an index
-/// always lit explains nothing.
+/// The page opens the index under the canvas on that answer, and colours that
+/// reading — and no other — in the text.
 #[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn readings_at(x: f32, y: f32) -> u32 {
     let app = app();
     let (wx, wy) = app.camera.to_world(x, y);
-    u32::from(app.readings_at(wx, wy))
+    let lit = app.readings_at(wx, wy);
+    app.reading_lit = lit.map_or((0, 0), |(from, to)| (from as u32, to as u32));
+    lit.map_or(0, |(from, _)| from as u32 + 1)
+}
+
+/// End (excluded) of the reading `readings_at` last answered.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+pub extern "C" fn readings_end() -> u32 {
+    app().reading_lit.1
 }
 
 /// Diagnostic: geometry of a book in the world (0=x 1=y 2=w 3=h).

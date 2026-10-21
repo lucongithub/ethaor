@@ -9,6 +9,7 @@
 //!   (`Genesis 1:1`), Hebrew (`בראשית א,א`) and the corpus' global index.
 
 pub mod chapter;
+pub mod contents;
 pub mod els;
 pub mod guard;
 pub mod logs;
@@ -50,6 +51,7 @@ pub fn router(api: Api) -> Router {
         .route("/api", get(describe).fallback(not_allowed))
         .route("/api/", get(describe).fallback(not_allowed))
         .route("/api/chapter", get(chapter::read).fallback(not_allowed))
+        .route("/api/contents", get(contents::list).fallback(not_allowed))
         .route("/api/els", get(els::search).with_state(api.els.clone()).fallback(not_allowed))
         .route("/api/els/stream", get(els::stream).with_state(api.els.clone()).fallback(not_allowed))
         .route("/api/logs", get(logs::follow).fallback(not_allowed))
@@ -78,7 +80,7 @@ pub fn description() -> Value {
             "The Hebrew Bible (Tanakh, Mechon Mamre edition: {books} books, {chapters} chapters, \
              {verses} verses), searched and read the way the Ethaor map does it in the browser."
         ),
-        "endpoints": els::tools().into_iter().chain([chapter::tool()]).collect::<Vec<_>>(),
+        "endpoints": els::tools().into_iter().chain([chapter::tool(), contents::tool()]).collect::<Vec<_>>(),
         "operator": [logs::endpoint(), report::endpoint()],
     })
 }

@@ -15,6 +15,10 @@ export interface Part {
 	/** Our form where theirs differs: the word carrying `¹`, cut out alone so
 	 *  the pointer on it — and on theirs — opens the index, nothing else. */
 	marked: boolean;
+	/** Which of the verse's readings a form belongs to — ours and theirs of
+	 *  one pair share it, so the pointer on either colours theirs alone;
+	 *  -1 for the rest of the verse. */
+	reading: number;
 }
 
 export interface Verse {
@@ -61,12 +65,12 @@ export function readChapter(
 		let cursor = from;
 		for (let k = 0; k < runs; k++) {
 			const [start, size] = [record[at + 6 + 2 * k], record[at + 7 + 2 * k]];
-			if (start > cursor) parts.push(...ours(text(cursor, start - cursor), true));
-			parts.push({ text: text(start, size), theirs: true, marked: false });
+			if (start > cursor) parts.push(...ours(text(cursor, start - cursor), k));
+			parts.push({ text: text(start, size), theirs: true, marked: false, reading: k });
 			cursor = start + size;
 		}
 		if (cursor < from + length || parts.length === 0) {
-			parts.push(...ours(text(cursor, from + length - cursor), false));
+			parts.push(...ours(text(cursor, from + length - cursor), -1));
 		}
 		readings ||= runs > 0;
 		verses.push({ index: record[at], label: text(record[at + 1], record[at + 2]), parts });
@@ -86,16 +90,17 @@ export function readChapter(
 }
 
 /**
- * A stretch of ours. Before the other edition's run it ends with our form,
- * marked `¹`: that last word is cut out as its own part.
+ * A stretch of ours. Before the other edition's run `reading` (-1 for none)
+ * it ends with our form, marked `¹`: that last word is cut out as its own
+ * part, of the same reading.
  */
-function ours(stretch: string, beforeTheirs: boolean): Part[] {
+function ours(stretch: string, reading: number): Part[] {
 	const at = stretch.lastIndexOf(' ') + 1;
-	if (!beforeTheirs || !stretch.endsWith('¹'))
-		return [{ text: stretch, theirs: false, marked: false }];
+	if (reading < 0 || !stretch.endsWith('¹'))
+		return [{ text: stretch, theirs: false, marked: false, reading: -1 }];
 	const head = stretch.slice(0, at);
-	const form = { text: stretch.slice(at), theirs: false, marked: true };
-	return head ? [{ text: head, theirs: false, marked: false }, form] : [form];
+	const form = { text: stretch.slice(at), theirs: false, marked: true, reading };
+	return head ? [{ text: head, theirs: false, marked: false, reading: -1 }, form] : [form];
 }
 
 /**
@@ -175,4 +180,90 @@ export function kept(first: number, last: number, around: number, count: number)
 	const from = Math.max(0, Math.min(first, last) - around);
 	const to = Math.min(count, Math.max(first, last) + around + 1);
 	return { from, to };
+}
+
+/** A book of the contents: its portion, its name, its chapters. */
+export interface ContentsBook {
+	index: number;
+	section: number;
+	name: string;
+	/** Global indices of its first chapter and of the one past its last. */
+	first: number;
+	end: number;
+}
+
+/** The Tanakh's contents: what the book view goes up to, to go elsewhere. */
+export interface Contents {
+	/** The portions' names, in order. */
+	portions: string[];
+	books: ContentsBook[];
+	/** Every chapter's number, in Hebrew letters, by global index. */
+	labels: string[];
+}
+
+/** Words of the contents record's head — `CONTENTS_HEAD` in the module. */
+export const CONTENTS_HEAD = 3;
+
+/** The contents' record, read; strings cut by byte offsets, as a chapter's. */
+export function readContents(
+	record: ArrayLike<number>,
+	text: (offset: number, length: number) => string
+): Contents {
+	const [portionCount, bookCount, chapterCount] = [record[0], record[1], record[2]];
+	let at = CONTENTS_HEAD;
+	const portions: string[] = [];
+	for (let p = 0; p < portionCount; p++, at += 2) portions.push(text(record[at], record[at + 1]));
+	const books: ContentsBook[] = [];
+	for (let b = 0; b < bookCount; b++, at += 5) {
+		books.push({
+			index: b,
+			section: record[at],
+			name: text(record[at + 1], record[at + 2]),
+			first: record[at + 3],
+			end: record[at + 4]
+		});
+	}
+	const labels: string[] = [];
+	for (let c = 0; c < chapterCount; c++, at += 2) labels.push(text(record[at], record[at + 1]));
+	return { portions, books, labels };
+}
+
+/**
+ * Where the book view is, from the text up: the text itself, then its
+ * book's chapters, then the portions with every book's name, then the three
+ * portions alone.
+ */
+export type Level = 'text' | 'chapters' | 'books' | 'portions';
+
+const LEVELS: Level[] = ['text', 'chapters', 'books', 'portions'];
+
+/** One level up from `level`; `null` from the portions, the top. */
+export function up(level: Level): Level | null {
+	return LEVELS[LEVELS.indexOf(level) + 1] ?? null;
+}
+
+/**
+ * The map's depth (`here_depth`: 0 the portions alone, 1 the books, 2 the
+ * chapters' numbers, 3 the text) as the book view's level it opens on.
+ * The map's chapters open the books, not one book's chapters — the owner's
+ * rule: the map shows many books' numbers at once, and the book view's
+ * level for many books is the books.
+ */
+export function fromMap(depth: number): Level {
+	return depth >= 3 ? 'text' : depth >= 1 ? 'books' : 'portions';
+}
+
+/**
+ * The map's depth a level hands the reader back to: the text to its
+ * passage, a book's chapters to that book's chapters, the books to the
+ * framing — the portions and their books — and the portions alone to the
+ * opening. The inverse of `fromMap`.
+ */
+export function toMap(level: Level): number {
+	return ['portions', 'books', 'chapters', 'text'].indexOf(level);
+}
+
+/** The book holding a chapter; -1 out of the Tanakh. */
+export function bookOf(contents: Contents, chapter: number): number {
+	return contents.books.findIndex((b) => b.first <= chapter && chapter < b.end);
 }

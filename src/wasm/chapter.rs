@@ -1,13 +1,16 @@
 //! The book view's exports (`ethaor.wasm`, feature `map`): a chapter as a
 //! record of offsets into the corpus, and what the page needs to fetch one
-//! before the whole text is in.
+//! before the whole text is in; and the Tanakh's contents, to go to one.
 //!
-//! The browser's side of the reading; `server/src/api/chapter.rs` is the HTTP
-//! side of the same one. Both run `shared::passage`: this file only moves
-//! values across the WebAssembly boundary.
+//! The browser's side of the reading; `server/src/api/chapter.rs` and
+//! `server/src/api/contents.rs` are the HTTP side of the same. Both run
+//! `shared::passage` and `shared::contents`: this file only moves values
+//! across the WebAssembly boundary.
 
 use crate::corpus;
+use crate::shared::contents;
 use crate::shared::passage;
+use crate::shared::reference::PORTIONS;
 
 /// The last record written, read by the page at `chapter_record_ptr`.
 static mut RECORD: Vec<u32> = Vec::new();
@@ -86,6 +89,53 @@ pub extern "C" fn chapter_record(chapter: u32) -> u32 {
 #[allow(static_mut_refs)]
 pub extern "C" fn chapter_record_ptr() -> *const u32 {
     unsafe { RECORD.as_ptr() }
+}
+
+/// The contents record, written once: it never changes.
+static mut CONTENTS: Vec<u32> = Vec::new();
+
+/// Words of a contents record's head: portions, books, chapters.
+pub const CONTENTS_HEAD: usize = 3;
+
+/// Writes the Tanakh's contents at `contents_ptr` and returns its length in
+/// words. Ready from the start: names and numbers are in the map part.
+///
+/// The head, `CONTENTS_HEAD` words: the counts of portions, books and
+/// chapters. Then per portion its name; per book its portion, its name, its
+/// first chapter and the one past its last; per chapter its number. Every
+/// string is an (offset, length) in the corpus text (`text_ptr`).
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+#[allow(static_mut_refs)]
+pub extern "C" fn contents_record() -> u32 {
+    let record = unsafe { &mut CONTENTS };
+    if record.is_empty() {
+        write_contents(record);
+    }
+    record.len() as u32
+}
+
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+#[allow(static_mut_refs)]
+pub extern "C" fn contents_ptr() -> *const u32 {
+    unsafe { CONTENTS.as_ptr() }
+}
+
+/// The contents laid as words: the record the page reads.
+pub fn write_contents(out: &mut Vec<u32>) {
+    let books = contents::books();
+    let portions = PORTIONS.len();
+    out.extend_from_slice(&[portions as u32, books.len() as u32, corpus::chapter_count() as u32]);
+    for section in 0..portions {
+        out.extend_from_slice(&key(contents::portion_hebrew(section)));
+    }
+    for book in &books {
+        out.push(book.section as u32);
+        out.extend_from_slice(&key(book.hebrew));
+        out.extend_from_slice(&[book.chapters.start as u32, book.chapters.end as u32]);
+    }
+    for chapter in 0..corpus::chapter_count() {
+        out.extend_from_slice(&key(corpus::chapter_label(chapter)));
+    }
 }
 
 fn key(text: &'static str) -> [u32; 2] {

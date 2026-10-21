@@ -131,7 +131,7 @@ impl App {
     /// It is the framing divided by the notch, never a scale of its own: the
     /// thresholds of the three levels all hang off `fit_scale`, and a second
     /// reference would let them drift apart.
-    fn overview_scale(&mut self) -> f32 {
+    pub(super) fn overview_scale(&mut self) -> f32 {
         self.fit_scale() / self.zoom_step()
     }
 
@@ -144,6 +144,15 @@ impl App {
     pub(crate) fn at_opening(&mut self) -> bool {
         let opening = self.overview_scale();
         (self.camera.z - opening).abs() < opening * 1e-3
+    }
+
+    /// The framing itself, centred: the portions and their books, one notch
+    /// in from the opening — where the book view's levels above a chapter
+    /// hand the reader back to the map.
+    pub(crate) fn frame_books(&mut self) {
+        self.camera.z = self.fit_scale();
+        self.camera.x = (self.width - WORLD.w * self.camera.z) / 2.0;
+        self.camera.y = (self.height - WORLD.h * self.camera.z) / 2.0;
     }
 
     pub(crate) fn fit(&mut self) {
@@ -188,6 +197,51 @@ impl App {
             None => cell.y + cell.h / 2.0,
         };
         self.camera = Camera { z, x: self.width / 2.0 - x * z, y: self.height / 2.0 - y * z };
+        self.sync_detail();
+    }
+
+    /// Brings the book holding `chapter` to the screen at the chapters' level:
+    /// at the zoom its box fills the view, its numbers out, its text not yet
+    /// read, its chapters at the centre —
+    /// where the book view's chapters hand the reader back to the map. Book
+    /// boxes are all one size, so every book lands at the same zoom.
+    pub(crate) fn show_book(&mut self, chapter: usize) {
+        if chapter >= self.layout.chapters.len() {
+            return;
+        }
+        let Some(book) = (0..corpus::book_count()).find(|&b| corpus::chapters_of(b).contains(&chapter)) else {
+            return;
+        };
+        // The chapter layout: the one in place once the numbers show.
+        self.set_detail(true);
+        let rect = self.layout.books[book];
+        // Centred on its chapters, not its box: the block is flush top-right,
+        // and a short book's box is mostly air another book's cell is nearer to.
+        let cells = &self.layout.chapters[corpus::chapters_of(book)];
+        let left = cells.iter().map(|c| c.x).fold(f32::MAX, f32::min);
+        let right = cells.iter().map(|c| c.x + c.w).fold(f32::MIN, f32::max);
+        let top = cells.iter().map(|c| c.y).fold(f32::MAX, f32::min);
+        let bottom = cells.iter().map(|c| c.y + c.h).fold(f32::MIN, f32::max);
+        let (cx, cy, width, height) = ((left + right) / 2.0, (top + bottom) / 2.0, self.width, self.height);
+        let at = |z: f32| Camera { z, x: width / 2.0 - cx * z, y: height / 2.0 - cy * z };
+        let step = self.zoom_step();
+        let mut z = (width / rect.w).min(height / rect.h) * SHOW_FILL;
+        // The numbers out, a notch at a time if the box alone is not enough.
+        for _ in 0..4 * DIVE_NOTCHES as usize {
+            if self.chapters_ready(at(z)) {
+                break;
+            }
+            z *= step;
+        }
+        self.camera = at(z);
+        // The text not yet read: back a notch at a time, never past the numbers.
+        for _ in 0..4 * DIVE_NOTCHES as usize {
+            if self.depth() < 3 || !self.chapters_ready(at(z / step)) {
+                break;
+            }
+            z /= step;
+            self.camera = at(z);
+        }
         self.sync_detail();
     }
 

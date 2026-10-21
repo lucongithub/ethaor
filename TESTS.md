@@ -13,12 +13,12 @@ name, what it holds (its doc comment), and its nature.
 
 | area | files | tests | ignored | without a doc |
 |---|---|---|---|---|
-| Rust core, module-private | 7 | 114 | 1 | 21 |
-| Rust app (`src/tests/`) | 11 | 141 | 0 | 12 |
+| Rust core, module-private | 7 | 115 | 1 | 21 |
+| Rust app (`src/tests/`) | 11 | 149 | 0 | 12 |
 | Corpus build (`tests/`) | 1 | 31 | 0 | 15 |
-| Server (`server/`) | 14 | 77 | 1 | 12 |
-| Page (`web/`) | 7 | 56 | 0 | 0 |
-| **total** | **40** | **419** | **2** | **60** |
+| Server (`server/`) | 15 | 81 | 1 | 12 |
+| Page (`web/`) | 7 | 59 | 0 | 0 |
+| **total** | **41** | **435** | **2** | **60** |
 
 ## By file
 
@@ -31,12 +31,18 @@ name, what it holds (its doc comment), and its nature.
           - `a_chapter_is_read_verse_by_verse_and_named_every_way` — A chapter answers its verses in order, each our text and named every way — OSIS, English, Hebrew — the chapter too, its neighbours across books, and may be kept by anyone. <sub>service, called in memory · async</sub>
           - `a_verse_carries_the_other_reading_where_there_is_one` — Where the other edition reads otherwise, the verse carries it: the verse as shown, and the other forms alone, each found in it. <sub>service, called in memory · async</sub>
           - `a_chapter_not_named_is_refused_with_its_code` — Each mistake its code and a 400, numbered, never kept. <sub>service, called in memory · async</sub>
-      - [`describe.rs`](server/src/tests/describe.rs) — 3 tests
+      - [`contents.rs`](server/src/tests/contents.rs) — 2 tests — covers [`server/src/api/contents.rs`](server/src/api/contents.rs)
+        <br>`GET /api/contents`: the table of contents as an agent reads it — every portion, book and chapter named every way, and a parameter refused.
+        - module `tests::contents` · ethaor-server
+          - `the_contents_name_every_portion_book_and_chapter` — Three portions in order, the 39 books under them, the 929 chapters under their books, each named every way; a chapter's OSIS is one `/api/chapter` reads, and the answer may be kept by anyone. <sub>service, called in memory · async</sub>
+          - `a_parameter_to_the_contents_is_refused` — The contents take no parameter: one given is refused with its code and a 400, numbered, never kept. <sub>service, called in memory · async</sub>
+      - [`describe.rs`](server/src/tests/describe.rs) — 4 tests
         <br>`GET /api`: the description an agent — or an MCP server — reads, held to what the endpoints really accept.
         - module `tests::describe` · ethaor-server
           - `the_description_lists_each_endpoint_as_a_tool` — *(no doc: say what it holds)* <sub>service, called in memory · async</sub>
           - `the_els_schemas_are_what_the_endpoints_take` — The schemas' numbers are the code's, every property they declare is accepted — the scope's one way at a time — and one they do not is refused; every refusal the code can give is declared. <sub>service, called in memory · async</sub>
           - `the_chapter_schema_is_what_the_endpoint_takes` — The chapter's tool declares what the endpoint takes — `ref`, and nothing else — and every code it can refuse with. <sub>service, called in memory · async</sub>
+          - `the_contents_schema_is_what_the_endpoint_takes` — The contents' tool declares no parameter and refuses one, and its errors are the endpoint's. <sub>service, called in memory · async</sub>
       - [`els.rs`](server/src/tests/els.rs) — 10 tests — covers [`server/src/api/els.rs`](server/src/api/els.rs)
         <br>`GET /api/els`: the answer's shape, its refusals, its pages.
         - module `tests::els` · ethaor-server
@@ -100,11 +106,12 @@ name, what it holds (its doc comment), and its nature.
           - `a_follower_reads_across_files_and_is_told_what_it_missed` — A follower reads on as the files roll, every line once and in order; one so slow that files it had not read were deleted is told how many, then goes on from the oldest left. <sub>service, called in memory · async</sub>
           - `no_log_file_is_a_503` — With no log file, the endpoint says so — a 503, not an empty stream. <sub>service, called in memory · async</sub>
           - `a_flush_writes_the_lines_and_wakes_a_follower_at_once` — Lines wait in the buffer until the flush — no system call each — and the flush wakes a waiting follower at once, well before it would have looked on its own. <sub>service, called in memory · multi-thread</sub>
-      - [`parity.rs`](server/src/tests/parity.rs) — 3 tests
+      - [`parity.rs`](server/src/tests/parity.rs) — 4 tests
         <br>The two transports answer alike: what the page reads from the module's memory (`src/wasm/els.rs`) and what the API sends (`api/els.rs`) are the same hits, in the same order, placed in the same verses.
         - module `tests::parity` · ethaor-server
           - `the_page_and_the_api_find_the_same_hits` — *(no doc: say what it holds)* <sub>service, called in memory · parity WebAssembly ↔ API · async</sub>
           - `the_page_and_the_api_read_the_same_chapter` — The book view and the API read a chapter alike: what the page reads from the module's record (`src/wasm/chapter.rs`) and what `/api/chapter` answers are the same verses, shown the same, the same forms the other edition's — on chapters holding another reading, and a stride through the rest. <sub>service, called in memory · parity WebAssembly ↔ API · async</sub>
+          - `the_page_and_the_api_list_the_same_contents` — The book view and the API list the same contents: what the page reads from `contents_record` and what `/api/contents` answers are the same portions, books and chapters, named alike. <sub>service, called in memory · parity WebAssembly ↔ API · async</sub>
           - `the_page_and_the_api_keep_to_the_same_verses` — Scoped, too: the page's `els_search_in` over a stretch of verses and the API's scope over the same verses find the same hits. <sub>service, called in memory · parity WebAssembly ↔ API · async</sub>
       - [`robust.rs`](server/src/tests/robust.rs) — 3 tests
         <br>The service never goes down for a request: a panic is answered and the next request served, an engine that panicked is replaced, a bad setting falls back to its default.
@@ -219,7 +226,7 @@ name, what it holds (its doc comment), and its nature.
         - `label_exceptions_carry_only_what_breaks_the_rule` — Labels that follow the rule cost nothing; one that breaks it is written whole, with the count it resumes from — and laying them gives the labels back. <sub>unit, module-private</sub>
         - `varints_round_trip` — *(no doc: say what it holds)* <sub>unit, module-private</sub>
   - **shared/**
-    - [`tests.rs`](src/shared/tests.rs) — 23 tests — covers [`src/shared.rs`](src/shared.rs)
+    - [`tests.rs`](src/shared/tests.rs) — 24 tests — covers [`src/shared.rs`](src/shared.rs)
       <br>The shared layer: what both transports answer, checked once.
       - module `shared::tests` · ethaor
         - `the_book_table_follows_the_corpus` — The English table walks the corpus' books in step: a book left out or swapped would name every later verse wrong. <sub>unit, module-private</sub>
@@ -245,8 +252,9 @@ name, what it holds (its doc comment), and its nature.
         - `a_shown_verse_is_ours_with_the_other_forms_inserted` — A verse shown with the other reading is ours with the other forms inserted: taking every insertion out gives our verse back byte for byte, and each run said to be theirs is a non-empty stretch of the shown verse on a character boundary, carrying their index mark and never ours. Elsewhere the shown verse is ours, with no run. <sub>unit, module-private</sub>
         - `a_reference_names_its_chapter_or_is_refused` — A reference names a chapter, or the chapter of a verse; a book, a chapter past its book, or nothing at all names none and is refused with its code. <sub>unit, module-private</sub>
         - `neighbours_run_across_books_and_stop_at_the_ends` — Neighbours run across books and stop at the Tanakh's two ends; a chapter out of range reads nothing. <sub>unit, module-private</sub>
+        - `the_contents_walk_every_book_and_chapter_in_order` — The contents walk the Tanakh whole and in order: the 39 books each once, each under the portion `PORTIONS` puts it in, named as the corpus names it, its chapters running on from the last book's with no gap or overlap to the 929th, each numbered as the corpus numbers it. <sub>unit, module-private</sub>
   - **tests/**
-    - [`api.rs`](src/tests/api.rs) — 17 tests
+    - [`api.rs`](src/tests/api.rs) — 20 tests
       <br>The interface the page really calls.
       - module `tests::api` · ethaor
         - `the_page_can_draw_a_frame_from_a_cold_start` — *(no doc: say what it holds)* <sub>app: the module as the page drives it</sub>
@@ -265,6 +273,9 @@ name, what it holds (its doc comment), and its nature.
         - `the_page_searches_a_stretch_of_verses` — The scoped search as the page would call it: the records of `search_in` over the verses' letters, and nothing for an empty or outlying range. <sub>app: the module as the page drives it</sub>
         - `a_panic_leaves_its_place_and_message_for_the_page` — What a panic leaves for the page: its place, a new line, its message — read back through the two exports the page reads after a trap. <sub>app: the module as the page drives it</sub>
         - `the_book_view_reads_every_chapter_from_its_record` — A chapter's record, read word by word as `book-view.ts` reads it: the strings it points at are the chapter's number, its book's and portion's names, and per verse its number and its text as shown — the other edition's runs inside it. Every chapter; and nothing for one out of range. <sub>app: the module as the page drives it</sub>
+        - `the_book_view_reads_the_contents_from_their_record` — The contents' record, read as `book-view.ts` reads it: three portions named, the 39 books each under its portion with its name and chapters, the 929 chapters' numbers — the strings the corpus' own, and the record the same at every call. <sub>app: the module as the page drives it</sub>
+        - `the_page_reads_the_depth_and_frames_the_books` — The depth as the page reads it to hand a level over: the opening 0, `frame_books` 1 — after a chapter too — a book shown at its chapters 2, and a chapter shown 3. <sub>app: the module as the page drives it</sub>
+        - `the_page_gives_the_portions_size` — The book view's size as the page gives it: kept when it is one, a size not finite or not positive ignored. <sub>app: the module as the page drives it</sub>
         - `the_page_hands_the_place_back_and_forth` — The hand-off as the page drives it: the map names where its centre is, and `show` takes it back to a chapter and verse — a verse of -1 is the chapter's top, a chapter out of range moves nothing. <sub>app: the module as the page drives it</sub>
     - [`breadcrumb.rs`](src/tests/breadcrumb.rs) — 14 tests
       <br>The breadcrumb: where one is, from the zoom and from the pointer.
@@ -317,7 +328,7 @@ name, what it holds (its doc comment), and its nature.
         - `a_single_word_takes_the_whole_line` — A line of a single word gives one box, laid on the right edge. <sub>app: the module as the page drives it</sub>
         - `a_line_without_size_has_no_word_cell` — *(no doc: say what it holds)* <sub>app: the module as the page drives it</sub>
         - `the_letters_of_a_word_stay_inside_it` — Words and letters agree: a letter box is inside the box of the word that holds it — the two splits share one measured width. <sub>app: the module as the page drives it</sub>
-    - [`frame.rs`](src/tests/frame.rs) — 30 tests — covers [`src/map/frame.rs`](src/map/frame.rs)
+    - [`frame.rs`](src/tests/frame.rs) — 32 tests — covers [`src/map/frame.rs`](src/map/frame.rs)
       <br>The command list: what a frame always holds, and what it never holds.
       - module `tests::frame` · ethaor
         - `the_command_list_has_a_whole_number_of_records` — *(no doc: say what it holds)* <sub>app: the module as the page drives it</sub>
@@ -330,6 +341,8 @@ name, what it holds (its doc comment), and its nature.
         - `the_chapter_level_shows_three_sizes_and_three_only` — One notch in, the chapters are out: **three sizes, and three only** — the numbers, the books, the sections. <sub>app: the module as the page drives it</sub>
         - `the_rank_reads_in_the_intensity_of_the_white` — The rank reads in the intensity of the white: a section in pure white, a book one tone below, a number a touch lower still. <sub>app: the module as the page drives it</sub>
         - `one_notch_out_leaves_the_three_portions_alone` — **One zoom-out notch, and the map is nothing but the three portions, large, at equal distance** — one single right edge, and no fill behind them. <sub>app: the module as the page drives it</sub>
+        - `the_opening_never_cuts_a_portion` — **The opening never cuts a portion's name**, however short the window: the floored framing crops the world there, and the three names shrink with the room instead — their ink inside the screen, still one size, one gap apart. <sub>app: the module as the page drives it</sub>
+        - `the_opening_draws_the_portions_at_the_book_views_size` — **Given the book view's size, the opening draws the three names at it**, spaced as the book view spaces them, on every window — then, one notch out, smaller by that notch, as the map recedes. A size too large for the room is bounded by it: never a name cut. <sub>app: the module as the page drives it</sub>
         - `no_text_is_ever_laid_over_another` — **Nothing is ever laid over anything else.** Boxes of ink, on screen, do not meet — titles, numbers and verses alike. <sub>app: the module as the page drives it</sub>
         - `the_verses_arrive_within_a_dozen_notches` — The verses arrive, and they arrive **early**: between the seventh and the twelfth notch depending on the window, never later. <sub>app: the module as the page drives it</sub>
         - `a_cell_shows_its_text_or_its_number_but_not_both` — All the verses of a chapter share one character size, and a number is never drawn next to the text of its own cell. <sub>app: the module as the page drives it</sub>
@@ -361,7 +374,7 @@ name, what it holds (its doc comment), and its nature.
         - `a_number_is_exactly_half_a_title` — **A number is worth half a book title.** `chapters_fit` deduces the height of the band from that ratio, so the ratio must hold in the finished layout — under the estimate as under a measurement. <sub>app: the module as the page drives it</sub>
         - `the_two_levels_share_one_world` — The two levels of detail are built on the same world, which is what keeps the camera valid when they are swapped. <sub>app: the module as the page drives it</sub>
         - `a_measured_numeral_never_overflows_its_cell` — A number of chapters never reads wider than its cell, whatever the digits the page comes back with. <sub>app: the module as the page drives it</sub>
-    - [`handoff.rs`](src/tests/handoff.rs) — 5 tests
+    - [`handoff.rs`](src/tests/handoff.rs) — 7 tests
       <br>The hand-off between the map and the book view: the map names where the view is (`here`), never deeper than its image, and takes a reader back to a chapter at its reading level, the verse at the centre (`show`).
       - module `tests::handoff` · ethaor
         - `every_chapter_shown_is_read_and_named_back` — Every chapter, shown with its last verse: the map then reads it — its text, not its number — and names back that very chapter and verse. The last verse is the farthest from where a chapter starts, so the one a centring error would miss first. <sub>app: the module as the page drives it</sub>
@@ -369,6 +382,8 @@ name, what it holds (its doc comment), and its nature.
         - `a_chapter_shown_without_a_verse_is_named_back` — Shown with no verse, a chapter is named back without one asked: the view lands on it, and on its first lines when it is taller than the screen. <sub>app: the module as the page drives it</sub>
         - `here_is_never_deeper_than_the_image` — `here` says no more than the image: the Tanakh's start at the opening, a book's first chapter while only books show, and no verse until the text is read. <sub>app: the module as the page drives it</sub>
         - `a_chapter_out_of_range_moves_nothing` — What `show` cannot place leaves the view as it was. <sub>app: the module as the page drives it</sub>
+        - `the_depth_is_the_image_on_every_window` — The depth the book view's levels read is the image's, on every window: the opening is the three portions alone, the framing the books, a notch in the chapters' numbers, a chapter shown its text — and `here` never names deeper than that depth says. <sub>app: the module as the page drives it</sub>
+        - `every_book_is_shown_at_its_chapters` — Every book shown at the chapters' level, on every window: its numbers out, its text not read, the centre naming one of its own chapters — the zoom the book view's chapters hand over to. <sub>app: the module as the page drives it</sub>
     - [`landing.rs`](src/tests/landing.rs) — 5 tests — covers [`src/map/landing.rs`](src/map/landing.rs)
       <br>The text lands after the map: until it does, the map is whole but the reading level stays closed — nothing drawn, clicked or named needs a verse that is not there — and it opens, at the same zoom, the moment it lands.
       - module `tests::landing` · ethaor
@@ -390,7 +405,7 @@ name, what it holds (its doc comment), and its nature.
         - `the_nest_takes_seven_tenths_of_its_letter` — The nest is at the heart of a letter, and takes **seven tenths of its cell** — not a dot. <sub>app: the module as the page drives it</sub>
         - `the_zoom_target_tolerates_the_gaps` — The zoom target tolerates the gaps: aiming between two books must stay productive. <sub>app: the module as the page drives it</sub>
         - `the_breadcrumb_names_the_place_under_the_centre` — The breadcrumb always says where one is: section, book and chapter under the centre of the view, even when the title bands have left the screen. <sub>app: the module as the page drives it</sub>
-    - [`readings.rs`](src/tests/readings.rs) — 11 tests
+    - [`readings.rs`](src/tests/readings.rs) — 12 tests
       <br>The other edition's reading, drawn inside our text.
       - module `tests::readings` · ethaor
         - `a_verse_with_another_reading_is_laid_out_from_the_display_string` — *(no doc: say what it holds)* <sub>app: the module as the page drives it</sub>
@@ -400,6 +415,7 @@ name, what it holds (its doc comment), and its nature.
         - `the_counter_follows_what_is_drawn` — The counter the page reads to show the index: zero when no other reading is on screen, more as soon as one is drawn. <sub>app: the module as the page drives it</sub>
         - `a_click_never_names_the_other_edition` — **The navbar keeps naming our text.** A word of ours is given back without the mark that numbers it; a word of the other edition names nothing, since the passage does not contain it. <sub>app: the module as the page drives it</sub>
         - `the_index_answers_on_the_two_forms_alone` — **The index answers on the two forms, and on nothing else** — the owner's rule. In a chapter holding another reading, read at its level: the pointer on our marked form or on any word of theirs lights it; on every other word of the chapter, the verses that carry them included, it stays shut. Which words are the forms is read off the marks the reader sees — `¹` on ours, theirs from `[` to `]²` — not off the table. <sub>app: the module as the page drives it</sub>
+        - `the_answer_is_the_pointed_pair_s_reading` — **The answer is the pointed pair's reading, theirs alone** — what the page colours, and only while it is pointed at. On a word of theirs the range holds that word; on our marked form it starts right after it, nothing but the space between. Either way it reads `[…]²` and is exactly the stretch the frame cuts out as `INK_OTHER`, so the page can tell that reading's runs from every other on screen. <sub>app: the module as the page drives it</sub>
         - `at_the_framing_the_index_says_nothing` — **At the framing, nothing.** No word is drawn, so none can be pointed at — and a book holds a reading almost always. <sub>app: the module as the page drives it</sub>
         - `the_black_around_the_map_promises_nothing` — **Outside every box, nothing is promised.** The black around the map and the air between portions name no passage, so they can name no reading — the same rule the breadcrumb and the click follow. <sub>app: the module as the page drives it</sub>
         - `a_portion_band_says_nothing` — A portion band names its portion and stops there, so the index stays shut: each of the three holds readings, and saying so would be an index lit from the first frame to the last. <sub>app: the module as the page drives it</sub>
@@ -501,11 +517,11 @@ name, what it holds (its doc comment), and its nature.
 - **web/**
   - **src/**
     - **lib/**
-      - [`book-view.test.ts`](web/src/lib/book-view.test.ts) — 8 tests — covers [`web/src/lib/book-view.ts`](web/src/lib/book-view.ts)
+      - [`book-view.test.ts`](web/src/lib/book-view.test.ts) — 11 tests — covers [`web/src/lib/book-view.ts`](web/src/lib/book-view.ts)
         - module `a chapter read from the module` · vitest
           - `gives every chapter with its names and verses` — Every chapter reads whole: its number, its book's and portion's names, every verse numbered and holding text, Genesis opening the Torah. <sub>page logic, on the real artifacts</sub>
           - `cuts the other reading out of the verse as its own parts` — The other edition's forms are cut out of the verse as their own parts — each carrying its index, never ours — and the parts put back together are the verse as shown, with nothing lost at the cuts. <sub>page logic, on the real artifacts</sub>
-          - `cuts our marked form out alone, before theirs` — Our form is cut out alone, just before theirs: one word carrying `¹`, no space in it — what the pointer must be on for the index to open — and every `¹` of a verse is in such a part, never left in our text. <sub>page logic, on the real artifacts</sub>
+          - `cuts our marked form out alone, before theirs` — Our form is cut out alone, just before theirs: one word carrying `¹`, no space in it — what the pointer must be on for the index to open — and every `¹` of a verse is in such a part, never left in our text. The two forms of a pair share their reading's number, and only they. <sub>page logic, on the real artifacts</sub>
         - module `top level` · vitest
           - `reads nothing of a chapter not landed, then reads it` — Before its verses land, a chapter has no record and the bridge reads nothing; once its book is in, it reads. <sub>page logic, on the real artifacts</sub>
         - module `estimate` · vitest
@@ -516,6 +532,12 @@ name, what it holds (its doc comment), and its nature.
           - `groups the chapters not in into runs` — Chapters not in come as runs of neighbours, one request each; those in break the runs. <sub>page logic, on the real artifacts</sub>
         - module `kept` · vitest
           - `reaches around the screen within the Tanakh` — The chapters laid out run a few each way past those on screen, never past the Tanakh's ends, in either order of the two. <sub>page logic, on the real artifacts</sub>
+        - module `the contents` · vitest
+          - `come whole from the module before any text` — Read from a module no text has landed in: the three portions, the 39 books each under its portion, their chapters tiling the 929 in order, every chapter numbered — all there before any verse. <sub>page logic, on the real artifacts</sub>
+        - module `up` · vitest
+          - `climbs one level at a time to the portions` — The text goes up to its book's chapters, the chapters to the books, the books to the portions, and the portions are the top. <sub>page logic, on the real artifacts</sub>
+        - module `the hand-over between the views` · vitest
+          - `lands each level on its own` — The map's depth opens the book on its level — its chapters' numbers on the books, as its framing does — and the book hands each level back to its depth: the text to its passage (3), a book's chapters to the map's chapters (2), the books to the framing (1), the portions alone to the overview (0). <sub>page logic, on the real artifacts</sub>
       - [`fault.test.ts`](web/src/lib/fault.test.ts) — 12 tests — covers [`web/src/lib/fault.ts`](web/src/lib/fault.ts)
         - module `a fault` · vitest
           - `is numbered so it reads aloud and never repeats` — is numbered so it reads aloud and never repeats. <sub>page logic, on the real artifacts</sub>
@@ -617,7 +639,8 @@ helper is often held by the test of its caller — but each is a question the
 - [`src/shared/els.rs`](src/shared/els.rs): `check_up_to`, `last_verse`
 - [`src/shared/reference.rs`](src/shared/reference.rs): `book_english`, `book_hebrew`
 - [`src/variant.rs`](src/variant.rs): `seek`
+- [`src/wasm/chapter.rs`](src/wasm/chapter.rs): `write_contents`
 - [`src/wasm/els.rs`](src/wasm/els.rs): `els_cap`, `els_prepare`, `probe_els_forget`, `probe_els_method`
-- [`src/wasm/map.rs`](src/wasm/map.rs): `pick_into`, `probe_verse_drawn`, `tiles_ptr`, `tiles_wanted`, `variants_drawn`
+- [`src/wasm/map.rs`](src/wasm/map.rs): `pick_into`, `probe_verse_drawn`, `readings_end`, `tiles_ptr`, `tiles_wanted`, `variants_drawn`
 - [`web/src/lib/ethaor.ts`](web/src/lib/ethaor.ts): `createTanakhMap`
 - [`web/src/lib/fault.ts`](web/src/lib/fault.ts): `fromTrap`

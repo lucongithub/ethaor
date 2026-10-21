@@ -270,6 +270,57 @@ fn one_notch_out_leaves_the_three_portions_alone() {
     }
 }
 
+/// **The opening never cuts a portion's name**, however short the window:
+/// the floored framing crops the world there, and the three names shrink
+/// with the room instead — their ink inside the screen, still one size, one
+/// gap apart.
+#[test]
+fn the_opening_never_cuts_a_portion() {
+    for (w, h) in WINDOWS.into_iter().chain([(1000.0, 210.0), (1600.0, 160.0), (320.0, 240.0)]) {
+        let mut app = app_at(w, h);
+        measure_all(&mut app);
+        app.fit();
+        let texts = texts(&mut app);
+        assert_eq!(texts.len(), 3, "{w}x{h}: the opening is not the three portions");
+        for c in &texts {
+            let top = c.y - c.size * 1.07;
+            let bottom = c.y + c.size * 0.39;
+            assert!(top >= 0.0 && bottom <= h, "{w}x{h}: {} cut ({top:.0}..{bottom:.0})", c.text());
+        }
+        assert_eq!(distinct_sizes(&texts).len(), 1, "{w}x{h}: the names lost their one size");
+    }
+}
+
+/// **Given the book view's size, the opening draws the three names at it**,
+/// spaced as the book view spaces them, on every window — then, one notch
+/// out, smaller by that notch, as the map recedes. A size too large for the
+/// room is bounded by it: never a name cut.
+#[test]
+fn the_opening_draws_the_portions_at_the_book_views_size() {
+    for (w, h) in WINDOWS {
+        for target in [48.0, 60.0, 72.0] {
+            let mut app = app_at(w, h);
+            measure_all(&mut app);
+            app.portion_size = target;
+            app.fit();
+            let drawn = texts(&mut app);
+            assert_eq!(drawn.len(), 3, "{w}x{h}: the opening is not the three portions");
+            let size = drawn[0].size;
+            assert_eq!(distinct_sizes(&drawn).len(), 1, "{w}x{h}: the names lost their one size");
+            let room = h * CARD_ROOM / (2.0 * CARD_LEAD + 1.35);
+            assert_close(size, target.min(room), 0.05, &format!("{w}x{h}: not the book view's size"));
+            assert_close(drawn[1].y - drawn[0].y, size * CARD_LEAD, 0.05, "not the book view's spacing");
+            for c in &drawn {
+                assert!(c.y - c.size * 1.07 >= 0.0 && c.y + c.size * 0.39 <= h, "{w}x{h}: {} cut", c.text());
+            }
+            let step = app.zoom_step();
+            app.zoom_at(w / 2.0, h / 2.0, 1.0 / step);
+            let out = texts(&mut app);
+            assert_close(out[0].size, size / step, 0.05, &format!("{w}x{h}: the names no longer recede"));
+        }
+    }
+}
+
 /// **Nothing is ever laid over anything else.** Boxes of ink, on screen, do not
 /// meet — titles, numbers and verses alike.
 #[test]

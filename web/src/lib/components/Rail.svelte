@@ -3,25 +3,22 @@
 </script>
 
 <script lang="ts">
-	import Logo from './Logo.svelte';
-
 	// The sidebar: a rail of icons on the left, always this narrow — it does
-	// not open, so it never covers the map nor takes more of the row. Each icon
-	// is named in a tip on hover or keyboard focus. Its words are English, like
-	// the rest of the chrome.
+	// not open, so it never covers the map nor takes more of the row. It starts
+	// under the top bar, which holds the mark: the bar's rule runs whole across
+	// the page and the rail's meets it from below, so no two rules cross. Each
+	// icon is named in a tip on hover or keyboard focus. Its words are English,
+	// like the rest of the chrome.
 	//
 	// Icons: Phosphor, light weight (MIT), drawn inline — one stroke, one
 	// weight, nothing to load.
 
 	let {
 		view,
-		onview,
-		onhome
+		onview
 	}: {
 		view: View;
 		onview: (next: View) => void;
-		/** The mark is the way home: the opening, as Escape gives it. */
-		onhome: () => void;
 	} = $props();
 
 	const ICON = {
@@ -60,26 +57,6 @@
 	aria-label="Sidebar"
 	class="z-30 flex h-full w-12 shrink-0 flex-col border-r border-white/10 bg-black pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] sm:w-14"
 >
-	<!-- The top cell continues the breadcrumb's row and its rule, and holds
-	     the mark, on the icons' column below it. -->
-	<div
-		class="flex h-[calc(var(--nav)+env(safe-area-inset-top))] shrink-0 items-center border-b border-white/10 px-1 pt-[env(safe-area-inset-top)] sm:px-2"
-	>
-		<!-- The mark leads home: the map's opening, as Escape gives it. It
-		     brightens on hover like the items. -->
-		<button
-			type="button"
-			class="group flex h-10 w-full cursor-pointer items-center rounded px-[0.6875rem]
-			       focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-white/60"
-			aria-label="Ethaor — back to the overview"
-			onclick={onhome}
-		>
-			<Logo
-				class="h-5 w-5 text-[1.25rem] text-white/58 transition-colors duration-150 group-hover:text-white"
-			/>
-		</button>
-	</div>
-
 	<nav aria-label="Views" class="flex flex-col gap-0.5 px-1 pt-2 sm:px-2">
 		<button
 			type="button"

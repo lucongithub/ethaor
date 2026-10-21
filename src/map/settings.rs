@@ -39,6 +39,14 @@ pub(crate) const MIN_TEXT: f32 = 4.0;
 /// too tight. At a quarter, it is worth 2.1 times the size of the words.
 pub(crate) const SECTION_CARD: f32 = 0.35;
 pub(crate) const CARD_GAP: f32 = 1.0 / 4.0;
+/// Share of the screen's height the three portions' names may take at most:
+/// on a short window the floored framing crops the world, and the names
+/// shrink with the room rather than be cut with the world.
+pub(crate) const CARD_ROOM: f32 = 0.9;
+/// Distance between two portions' names, centre to centre, as a share of
+/// their size once the page gives that size: the book view's own spacing —
+/// one size, and the `gap-[1.14em]` between two names.
+pub(crate) const CARD_LEAD: f32 = 2.14;
 
 /// Floor specific to chapter numbers, lower than the one for running text: a
 /// number has one to three letters, known in advance and read as a shape, where

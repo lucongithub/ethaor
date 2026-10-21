@@ -2,6 +2,7 @@
 //! and body out — no socket, the router answers in memory.
 
 mod chapter;
+mod contents;
 mod describe;
 mod els;
 mod faults;
