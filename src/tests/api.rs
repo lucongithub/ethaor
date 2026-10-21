@@ -116,15 +116,14 @@ fn a_click_is_dead_above_the_reading_zoom() {
     };
     assert_eq!(hover(px, py), -1, "the cursor announces a click at the framing");
     assert_eq!(select(px, py), 0, "the click hit an invisible verse");
-    assert_eq!(select_word(px, py), 0, "the double click hit an invisible word");
     let view = unsafe { std::slice::from_raw_parts(selection_ptr(), 6) };
     assert_eq!(view, [0; 6], "the selection was not cleared");
 }
 
-/// Once the lines are read, a click gives the passage and a double click the
-/// word inside it — the six slots of `selection_ptr`.
+/// Once the lines are read, a click gives the passage — the slots of
+/// `selection_ptr`, the verse numbered.
 #[test]
-fn clicking_gives_the_passage_then_the_word() {
+fn clicking_gives_the_passage() {
     let _hold = hold(REFERENCE.0, REFERENCE.1);
     converge();
 
@@ -152,24 +151,39 @@ fn clicking_gives_the_passage_then_the_word() {
         (view[0] as usize, view[1] as usize)
     };
 
-    // One click: the passage, and no word.
     assert_eq!(select(cx, cy), 1, "the click hit nothing at reading zoom");
     let (book, chapter) = indices();
     let verse = read(2).expect("a verse");
     assert_eq!(book, book_of(chapter));
+    let number = read(4).expect("the verse's number");
     assert!(
-        corpus::verses_of(chapter).any(|v| corpus::verse_text(v) == verse),
-        "the verse must be of the chapter"
+        corpus::verses_of(chapter)
+            .any(|v| corpus::verse_text(v) == verse && corpus::verse_label(v) == number),
+        "the verse {verse:?} numbered {number:?} is not of the chapter"
     );
-    assert_eq!(read(4), None, "a single click must not name a word");
+}
 
-    // Double click: the same passage, plus the word under the point.
-    assert_eq!(select_word(cx, cy), 1, "the double click hit nothing");
-    assert_eq!(indices(), (book, chapter), "the double click changed chapter");
-    assert_eq!(read(2), Some(verse), "the double click changed verse");
-    let word = read(4).expect("a word");
-    assert!(!word.contains(' '), "the word holds a space: {word:?}");
-    assert!(verse.split(' ').any(|w| w == word), "the word {word:?} is not of the verse");
+/// The book view's click through the export, as the page calls it: a
+/// verse fills the slots `select` fills — the passage and its number — and
+/// a verse out of range clears them.
+#[test]
+fn the_book_selects_a_verse_by_its_index() {
+    let _hold = hold(REFERENCE.0, REFERENCE.1);
+    let verse = corpus::verses_of(40).start + 2;
+    let slots = || unsafe { std::slice::from_raw_parts(selection_ptr(), 6) }.to_vec();
+    let read = |slot: usize| {
+        let view = slots();
+        (view[slot + 1] > 0)
+            .then(|| &corpus::text()[view[slot] as usize..(view[slot] + view[slot + 1]) as usize])
+    };
+
+    assert_eq!(select_verse(verse as u32), 1, "a landed verse is not selected");
+    assert_eq!((slots()[0] as usize, slots()[1] as usize), (book_of(40), 40));
+    assert_eq!(read(2), Some(corpus::verse_text(verse)));
+    assert_eq!(read(4), Some(corpus::verse_label(verse)));
+
+    assert_eq!(select_verse(corpus::verse_count() as u32), 0);
+    assert_eq!(slots(), [0; 6], "the selection was not cleared");
 }
 
 /// `focus` feeds the breadcrumb from the centre of the view: section, book,

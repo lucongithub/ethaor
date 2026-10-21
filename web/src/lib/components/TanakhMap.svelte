@@ -13,6 +13,7 @@
 	import Logo from './Logo.svelte';
 	import BookView, { type Reading } from './BookView.svelte';
 	import { CRUMB_GOES, fromMap, TANAKH, toMap, type Level } from '$lib/book-view';
+	import { pick, picked, words } from '$lib/passage';
 
 	let canvas: HTMLCanvasElement;
 	let reload = $state<HTMLButtonElement | null>(null);
@@ -132,13 +133,13 @@
 			notice: notice !== null,
 			book: view === 'book'
 		});
-		if (closes === 'selection') selection = null;
+		if (closes === 'selection') closePassage();
 		else if (closes === 'notice') notice = null;
 		else if (closes === 'overview') map?.reset();
 	}
 
 	// The other keys move the map, so they are read on it alone: an arrow in
-	// the passage panel scrolls the panel.
+	// the passage scrolls the passage.
 	function onCanvasKeydown(event: KeyboardEvent) {
 		const asked = command(event);
 		if (!asked || !map) return;
@@ -159,6 +160,37 @@
 		const timer = setTimeout(() => (spoken = said), 600);
 		return () => clearTimeout(timer);
 	});
+
+	// The passage opens as a modal: the page beneath is inert, the focus held
+	// inside until it closes, and then handed back to the map.
+	let passage = $state<HTMLDialogElement | null>(null);
+	$effect(() => {
+		if (passage && !passage.open) passage.showModal();
+	});
+
+	// Closed before the focus moves: while the modal is open the view beneath
+	// is inert and would refuse it. The focus goes back to the view read.
+	function closePassage() {
+		if (!selection) return;
+		passage?.close();
+		selection = null;
+		if (view === 'book') book?.focus();
+		else canvas.focus({ preventScroll: true });
+	}
+
+	// A word of the passage picked, or given back to its verse when it was
+	// the one picked.
+	function pickWord(k: number) {
+		if (!selection) return;
+		const word = k === picked(selection) ? null : pick(selection.verse, k);
+		selection = { ...selection, ...(word ?? { word: '', head: '', tail: '' }) };
+	}
+
+	// A click on the backdrop — the dialog itself, never its content — is a
+	// way out.
+	function onPassageClick(event: MouseEvent) {
+		if (event.target === passage) closePassage();
+	}
 
 	// The map has stopped: the way back takes the focus, one key from use.
 	$effect(() => {
@@ -302,6 +334,7 @@
 							{landed}
 							onreading={(next) => (reading = next)}
 							onform={(on) => (onForm = on)}
+							onselect={(hit) => (selection = hit)}
 							onfault={shown}
 						/>
 					</div>
@@ -376,15 +409,10 @@
 {/if}
 
 {#if notice && !fatal}
-	<!-- Centred, unless the passage panel holds the right of the same band:
-	     then it keeps to the left and to what the panel leaves, so the two
-	     never overlap. -->
+	<!-- Centred under the breadcrumb. -->
 	<div
-		class={[
-			'fixed inset-x-3 top-[calc(var(--nav)+0.75rem+env(safe-area-inset-top))] mx-auto flex max-w-xl',
-			'items-start gap-3 rounded-lg border border-white/15 bg-black/90 px-4 py-2 text-sm text-white/80',
-			selection && 'sm:right-auto sm:mx-0 sm:max-w-[min(36rem,calc(100vw-28.5rem))]'
-		]}
+		class="fixed inset-x-3 top-[calc(var(--nav)+0.75rem+env(safe-area-inset-top))] mx-auto flex max-w-xl
+		       items-start gap-3 rounded-lg border border-white/15 bg-black/90 px-4 py-2 text-sm text-white/80"
 		dir="ltr"
 		lang="en"
 		role="status"
@@ -406,42 +434,84 @@
 {/if}
 
 {#if selection}
-	<!-- On a phone a sheet above the readings' row, never over it; the left
-	     padding is the close button's, so a long word never runs under it. -->
-	<aside
-		aria-label="Passage"
-		aria-live="polite"
-		class={[
-			'fixed inset-x-3 max-h-[45vh] overflow-auto rounded-xl border border-white/15 bg-black/90 p-4 pl-11 backdrop-blur',
-			'[scrollbar-width:thin] [scrollbar-color:rgb(255_255_255/0.25)_transparent]',
-			readings > 0
-				? 'bottom-[calc(3.25rem+env(safe-area-inset-bottom))]'
-				: 'bottom-[calc(1rem+env(safe-area-inset-bottom))]',
-			'sm:inset-x-auto sm:top-[calc(var(--nav)+0.75rem+env(safe-area-inset-top))] sm:right-[calc(0.75rem+env(safe-area-inset-right))]',
-			'sm:bottom-auto sm:max-h-[60vh] sm:w-[26rem]'
-		]}
+	{@const where = map?.book.contents}
+	{@const at = picked(selection)}
+	{@const all = words(selection.verse)}
+	<!-- The passage, a modal centred over the map: read as a web page reads,
+	     Tailwind's type scale stepped up with the screen, the map pushed back
+	     beneath. A click on its backdrop closes it. -->
+	<dialog
+		bind:this={passage}
+		dir="rtl"
+		aria-labelledby="passage-place"
+		onclick={onPassageClick}
+		onclose={closePassage}
+		class="m-auto max-h-[min(85dvh,52rem)] w-[calc(100%-2rem)] max-w-2xl flex-col overflow-hidden
+		       rounded-xl border border-white/15 bg-black p-0 text-white transition-[opacity,scale]
+		       duration-200 ease-out backdrop:bg-black/80 open:flex motion-reduce:transition-none
+		       lg:max-w-3xl starting:scale-[0.98] starting:opacity-0"
 	>
-		<button
-			type="button"
-			dir="ltr"
-			lang="en"
-			aria-label="Close"
-			class="absolute top-1 left-1 grid size-9 cursor-pointer place-items-center rounded text-xl leading-none text-white/55
-			       hover:text-white focus-visible:text-white focus-visible:outline-1 focus-visible:outline-white/60"
-			onclick={() => (selection = null)}
+		<header
+			class="flex shrink-0 items-center gap-3 border-b border-white/10 py-2 ps-5 pe-2 sm:ps-7 sm:pe-3"
 		>
-			×
-		</button>
+			<!-- Where the passage is, every level named in Hebrew as the
+			     breadcrumb names it: book, then chapter and verse. -->
+			<h2 id="passage-place" class="flex-1 truncate font-hebrew text-xl">
+				<span class="text-white">{where?.books[selection.book]?.name}</span>
+				<span class="text-white">{where?.labels[selection.chapter]},{selection.number}</span>
+			</h2>
+			<button
+				type="button"
+				lang="en"
+				aria-label="Close"
+				class="grid size-10 shrink-0 cursor-pointer place-items-center rounded text-white/58 transition-colors duration-150
+				       hover:bg-white/[0.06] hover:text-white focus-visible:text-white
+				       focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-white/60"
+				onclick={closePassage}
+			>
+				<svg viewBox="0 0 256 256" class="size-5 fill-current" aria-hidden="true">
+					<path
+						d="M204.24,195.76a6,6,0,1,1-8.48,8.48L128,136.49,60.24,204.24a6,6,0,0,1-8.48-8.48L119.51,128,51.76,60.24a6,6,0,0,1,8.48-8.48L128,119.51l67.76-67.75a6,6,0,0,1,8.48,8.48L136.49,128Z"
+					/>
+				</svg>
+			</button>
+		</header>
 
-		<!-- A click gives the passage; a double click gives the word, shown in
-		     place inside its passage rather than torn out of it. -->
-		{#if selection.word}
-			<p class="mb-3 font-hebrew text-[30px] leading-tight text-white">{selection.word}</p>
-			<p class="font-hebrew text-[22px] leading-loose text-white/45">
-				{selection.head}<span class="text-white">{selection.word}</span>{selection.tail}
+		<!-- The passage, word by word: each word wears the plate of the book's
+		     chapter buttons under the pointer, and a click picks it — shown big
+		     above its verse, in place inside it, the rest dimmed. A click on the
+		     word picked gives the verse back; another word, that one. -->
+		<div
+			aria-live="polite"
+			class="[scrollbar-width:thin] [scrollbar-color:rgb(255_255_255/0.25)_transparent] overflow-y-auto overscroll-contain px-5
+			       py-6 sm:px-7 sm:py-8 lg:px-10 lg:py-10"
+		>
+			{#if at >= 0}
+				<p
+					class="mb-5 font-hebrew text-4xl leading-tight text-white sm:mb-6 sm:text-5xl lg:text-6xl"
+				>
+					{selection.word}
+				</p>
+			{/if}
+			<p
+				class={[
+					'font-hebrew text-xl leading-loose text-pretty sm:text-2xl lg:text-3xl',
+					at >= 0 ? 'text-white/45' : 'text-white'
+				]}
+			>
+				{#each all as word, k (k)}<button
+						type="button"
+						aria-pressed={k === at}
+						class={[
+							'-mx-[0.12em] cursor-pointer rounded box-decoration-clone px-[0.12em] transition-colors duration-150',
+							'focus-visible:outline-1 focus-visible:outline-white/60',
+							k === at
+								? 'bg-white/12 text-white'
+								: 'hover:bg-white/6 hover:text-white focus-visible:text-white'
+						]}
+						onclick={() => pickWord(k)}>{word}</button
+					>{k < all.length - 1 ? ' ' : ''}{/each}
 			</p>
-		{:else}
-			<p class="font-hebrew text-[22px] leading-loose text-white">{selection.verse}</p>
-		{/if}
-	</aside>
+		</div>
+	</dialog>
 {/if}

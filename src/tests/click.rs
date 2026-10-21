@@ -2,8 +2,9 @@
 //!
 //! Two rules. **A click only lives on a passage one can read**: above that
 //! zoom a chapter is a number, and naming one of its verses would be a choice
-//! of the geometry rather than of the reader. And **a double click goes one
-//! step finer**, down to the word under the point.
+//! of the geometry rather than of the reader. Its words are picked in the
+//! passage the page opens; the word boxes of a line stay, for the readings'
+//! index under the pointer.
 
 use super::*;
 
@@ -13,7 +14,7 @@ pub struct Hit {
     pub book: usize,
     pub chapter: usize,
     pub verse: Option<&'static str>,
-    pub word: Option<&'static str>,
+    pub number: Option<&'static str>,
 }
 
 fn read(slots: [u32; 6]) -> Hit {
@@ -25,13 +26,13 @@ fn read(slots: [u32; 6]) -> Hit {
         book: slots[0] as usize,
         chapter: slots[1] as usize,
         verse: level(2),
-        word: level(4),
+        number: level(4),
     }
 }
 
-fn click(app: &mut App, px: f32, py: f32, word: bool) -> Option<Hit> {
+fn click(app: &mut App, px: f32, py: f32) -> Option<Hit> {
     let (wx, wy) = app.camera.to_world(px, py);
-    app.pick(wx, wy, word).map(read)
+    app.pick(wx, wy).map(read)
 }
 
 fn on_screen(app: &App, r: Rect) -> (f32, f32) {
@@ -99,7 +100,7 @@ fn a_click_is_live_exactly_where_the_text_is_drawn() {
                     continue;
                 }
                 let (px, py) = (cell.x + cell.w / 2.0, cell.y + cell.h / 2.0);
-                let live = click(&mut app, px, py, false).is_some();
+                let live = click(&mut app, px, py).is_some();
                 assert_eq!(
                     live,
                     drawn.contains(&chapter),
@@ -122,7 +123,7 @@ fn a_click_is_dead_at_the_framing_and_at_the_chapter_level() {
     for book in 0..corpus::book_count() {
         let (px, py) = on_screen(&app, app.layout.books[book]);
         assert!(
-            click(&mut app, px, py, false).is_none(),
+            click(&mut app, px, py).is_none(),
             "a live click on book {book} at the framing"
         );
     }
@@ -139,7 +140,7 @@ fn a_click_is_dead_at_the_framing_and_at_the_chapter_level() {
         }
         cells += 1;
         assert!(
-            click(&mut app, px, py, false).is_none(),
+            click(&mut app, px, py).is_none(),
             "a live click on cell {chapter}, whose text is not read"
         );
     }
@@ -165,7 +166,7 @@ fn a_click_goes_live_with_the_text() {
             "{w}x{h}: the click's threshold is not the text's"
         );
 
-        let hit = click(&mut app, cx, cy, false).expect("a click");
+        let hit = click(&mut app, cx, cy).expect("a click");
         assert!(hit.verse.is_some(), "{w}x{h}: a live click without a verse");
     }
 }
@@ -189,7 +190,7 @@ fn the_cursor_announces_exactly_what_a_click_will_do() {
                 let (px, py) = (w * (i as f32 + 0.5) / 7.0, h * (j as f32 + 0.5) / 5.0);
                 let (wx, wy) = app.camera.to_world(px, py);
                 let announced = app.clickable_at(wx, wy).is_some();
-                let selected = click(&mut app, px, py, false).is_some();
+                let selected = click(&mut app, px, py).is_some();
                 assert_eq!(
                     announced, selected,
                     "notch {notch}, point ({px}, {py}): the cursor lies about the click"
@@ -210,11 +211,11 @@ fn a_click_in_the_air_selects_nothing() {
     let last = app.layout.books[corpus::book_count() - 1];
     let far = Rect { y: last.y + last.h + 40.0, h: 1.0, ..last };
     let (px, py) = on_screen(&app, far);
-    assert!(click(&mut app, px, py, false).is_none(), "the blank at the bottom is clickable");
+    assert!(click(&mut app, px, py).is_none(), "the blank at the bottom is clickable");
 
     let band = app.layout.section_bands[1];
     let (px, py) = on_screen(&app, Rect { h: band.h * 0.4, ..band });
-    assert!(click(&mut app, px, py, false).is_none(), "the air of a portion is clickable");
+    assert!(click(&mut app, px, py).is_none(), "the air of a portion is clickable");
 }
 
 // --------------------------------------------------------- what it selects
@@ -234,7 +235,7 @@ fn a_click_gives_the_passage_under_the_point() {
     let mut seen = 0;
     for line in &lines {
         let (px, py) = on_screen(&app, line.rect);
-        let Some(hit) = click(&mut app, px, py, false) else { continue };
+        let Some(hit) = click(&mut app, px, py) else { continue };
         if hit.chapter != chapter {
             continue;
         }
@@ -245,57 +246,39 @@ fn a_click_gives_the_passage_under_the_point() {
             "the line of verse {} gives another passage",
             line.verse
         );
-        assert_eq!(hit.word, None, "a single click names a word");
         seen += 1;
     }
     assert!(seen >= 2, "only {seen} lines clicked");
 }
 
-/// A double click names **the word under the point**, and the word is a word of
-/// that very verse.
+/// The passage comes with **its number**, the very label its verse is drawn
+/// with — so the page can name the place
+/// it shows without guessing it from the text.
 #[test]
-fn a_double_click_names_the_word_under_the_point() {
+fn a_click_numbers_the_verse_it_gives() {
     let mut app = reference_app();
     measure_all(&mut app);
     dive_to_reading(&mut app);
 
     let (wx, wy) = app.camera.to_world(app.width * 0.5, app.height * 0.5);
     let chapter = app.clickable_at(wx, wy).expect("a chapter");
-    let line = app.line_at(chapter, wy).expect("a line");
-    let cells = app.word_cells(line.text, line.rect, line.size);
-    assert!(cells.len() >= 2, "two words are needed to compare");
-
-    let mut named: Vec<&'static str> = Vec::new();
-    for (cell, word) in &cells {
-        let (px, py) = on_screen(&app, *cell);
-        let Some(hit) = click(&mut app, px, py, true) else { continue };
+    let mut numbers = Vec::new();
+    for line in app.chapter_lines(chapter) {
+        let (px, py) = on_screen(&app, line.rect);
+        let Some(hit) = click(&mut app, px, py) else { continue };
         if hit.chapter != chapter {
             continue;
         }
-        let hit_word = hit.word.expect("a live double click must name a word");
-        assert_eq!(hit_word, *word, "the double click names another word");
-        let verse = hit.verse.expect("a verse");
-        assert!(verse.split(' ').any(|w| w == hit_word), "the word is not of the verse");
-        assert!(!hit_word.contains(' '), "the word holds a space");
-        assert!(!hit_word.is_empty());
-        named.push(hit_word);
+        assert_eq!(
+            hit.number,
+            Some(corpus::verse_label(line.verse)),
+            "the line of verse {} is numbered as another",
+            line.verse
+        );
+        numbers.push(line.verse);
     }
-    assert!(named.len() >= 2, "only {} words designated", named.len());
-    assert!(named.windows(2).any(|p| p[0] != p[1]), "every point gives the same word");
-}
-
-/// A double click above the reading zoom is as dead as a click: there is no
-/// word to point at.
-#[test]
-fn a_double_click_is_dead_where_a_click_is() {
-    let mut app = reference_app();
-    measure_all(&mut app);
-    let step = app.zoom_step();
-    app.zoom_at(app.width * 0.5, app.height * 0.5, step);
-    app.build_frame();
-
-    let (px, py) = on_screen(&app, app.layout.chapters[0]);
-    assert!(click(&mut app, px, py, true).is_none(), "a live double click without text");
+    numbers.dedup();
+    assert!(numbers.len() >= 2, "only {} verses numbered", numbers.len());
 }
 
 // ------------------------------------------------------------- word cells
@@ -386,4 +369,47 @@ fn the_letters_of_a_word_stay_inside_it() {
         assert!(cell.x >= left - 1e-2, "a letter goes left of the last word");
         assert!(cell.x + cell.w <= right + 1e-2, "a letter goes right of the first word");
     }
+}
+
+// ------------------------------------------------------- in the book view
+
+/// The book's click, where the browser lays the verse out, **names what the
+/// map's click names**: for every line of a chapter at reading level, the
+/// map's pick at the line and the book's pick of its verse give the same
+/// slots.
+#[test]
+fn a_click_in_the_book_names_what_the_map_names() {
+    let mut app = reference_app();
+    measure_all(&mut app);
+    dive_to_reading(&mut app);
+
+    let (wx, wy) = app.camera.to_world(app.width * 0.5, app.height * 0.5);
+    let chapter = app.clickable_at(wx, wy).expect("a chapter");
+    let mut compared = 0;
+    for line in app.chapter_lines(chapter) {
+        let (lx, ly) = on_screen(&app, line.rect);
+        let (px, py) = app.camera.to_world(lx, ly);
+        assert_eq!(
+            App::pick_in_verse(line.verse),
+            app.pick(px, py),
+            "verse {}: the book's click names another passage",
+            line.verse
+        );
+        compared += 1;
+    }
+    assert!(compared >= 2, "only {compared} lines compared");
+}
+
+/// Every landed verse is selected by the book with its own text and number;
+/// a verse out of range names nothing.
+#[test]
+fn a_click_in_the_book_names_every_verse() {
+    for verse in (0..corpus::verse_count()).step_by(97) {
+        let hit = read(App::pick_in_verse(verse).expect("a landed verse is selected"));
+        assert_eq!(hit.verse, Some(corpus::verse_text(verse)), "verse {verse}: another passage");
+        assert_eq!(hit.number, Some(corpus::verse_label(verse)), "verse {verse}: another number");
+        assert!(corpus::verses_of(hit.chapter).contains(&verse), "verse {verse}: another chapter");
+        assert_eq!(hit.book, book_of(hit.chapter));
+    }
+    assert_eq!(App::pick_in_verse(corpus::verse_count()), None, "a verse out of range");
 }

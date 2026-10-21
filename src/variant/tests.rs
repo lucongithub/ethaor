@@ -113,37 +113,3 @@ fn the_insertions_of_a_verse_follow_each_other() {
     }
 }
 
-/// **A byte of the display string is ours or theirs, never both.** `to_corpus`
-/// answers for ours and refuses for theirs, which is what keeps a click from
-/// naming a word the passage does not contain.
-#[test]
-fn an_offset_is_mapped_back_or_refused() {
-    for i in 0..verse_count() {
-        let verse = displays()[i * 3] as usize;
-        let shown = display(verse).unwrap();
-        let mine = corpus::verse_text(verse);
-
-        let mut inside: Vec<(usize, usize)> = inserts_of(verse).map(|v| v.range()).collect();
-        inside.sort();
-
-        let mut expected = 0usize;
-        for at in 0..shown.len() {
-            let in_insert = inside.iter().any(|&(from, len)| at >= from && at < from + len);
-            match to_corpus(verse, at) {
-                None => assert!(in_insert, "verse {verse}: offset {at} wrongly refused"),
-                Some(mapped) => {
-                    assert!(!in_insert, "verse {verse}: offset {at} wrongly accepted");
-                    assert_eq!(mapped, expected, "verse {verse}: offset {at} put back wrong");
-                    assert!(mapped < mine.len(), "verse {verse}: offset outside the verse");
-                    assert_eq!(
-                        shown.as_bytes()[at],
-                        mine.as_bytes()[mapped],
-                        "verse {verse}: byte {at} different"
-                    );
-                    expected += 1;
-                }
-            }
-        }
-        assert_eq!(expected, mine.len(), "verse {verse}: bytes put back");
-    }
-}

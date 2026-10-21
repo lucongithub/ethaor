@@ -5,7 +5,7 @@
    of 27 — so it serves the interface only. */
 @import '@fontsource-variable/noto-serif-hebrew';
 
-/* Height of the breadcrumb, in one place: the verse panel aligns on it too,
+/* Height of the breadcrumb, in one place: the notice aligns on it too,
    so the two cannot drift apart. It follows the size of its text — 14 px on a
    phone, 16 on a usual screen, 18 on a very large one — with the same air
    above and below. */

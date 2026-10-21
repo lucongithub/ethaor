@@ -151,51 +151,18 @@ fn the_counter_follows_what_is_drawn() {
     assert!(app.variant_runs > 0, "the counter ignores the other readings");
 }
 
-/// **The navbar keeps naming our text.** A word of ours is given back without
-/// the mark that numbers it; a word of the other edition names nothing, since
-/// the passage does not contain it.
+/// **A click keeps naming our text.** On a verse carrying another reading,
+/// the passage a click gives is ours — the other edition's forms and the
+/// marks that number them are not in it — so every word the passage offers
+/// to pick is ours.
 #[test]
 fn a_click_never_names_the_other_edition() {
-    let (chapter, verse) = sample();
-    let mut app = reference_app();
-    let lines = lines_of(&mut app, chapter);
-    let line = lines.into_iter().find(|l| l.verse == verse).expect("a line of the verse");
-    let mine = corpus::verse_text(verse);
-    let (from, len) = key_of(mine);
-
-    let words = app.word_cells(line.text, line.rect, line.size);
-    assert!(!words.is_empty(), "no word on the line");
-
-    let shown = variant::display(verse).unwrap();
-    let base = corpus::offset_of(shown);
-    for (_, word) in words {
-        let (at, size) = key_of(word);
-        match variant::corpus_span(verse, at as usize - base, size as usize) {
-            // Ours: the span given back is inside the verse, and it is what the
-            // corpus holds there.
-            Some((start, kept)) => {
-                assert!(start + kept <= mine.len(), "a word runs past the verse");
-                assert_eq!(
-                    &mine[start..start + kept],
-                    &corpus::text()[(from as usize + start)..(from as usize + start + kept)],
-                    "the word named is not the corpus' one"
-                );
-                assert!(kept <= size as usize, "the mark was not removed");
-            }
-            // Theirs: nothing is named.
-            None => {
-                let at = at as usize - base;
-                assert!(
-                    variant::inserts_of(verse).any(|i| {
-                        let (f, l) = i.range();
-                        at >= f && at < f + l
-                    }),
-                    "a word refused without being another reading"
-                );
-            }
-        }
-    }
-    let _ = len;
+    let (_, verse) = sample();
+    let slots = App::pick_in_verse(verse).expect("the verse is selected");
+    let given = &corpus::text()[slots[2] as usize..(slots[2] + slots[3]) as usize];
+    assert_eq!(given, corpus::verse_text(verse), "the passage is not our verse");
+    assert_ne!(Some(given), variant::display(verse), "the other edition's forms are given");
+    assert!(!given.contains('¹') && !given.contains('²'), "a mark is given: {given:?}");
 }
 
 // ------------------------------------------------- the index under the canvas

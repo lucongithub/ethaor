@@ -104,40 +104,5 @@ pub fn inserts_of(verse: usize) -> impl Iterator<Item = Insert> {
         })
 }
 
-/// Where an offset of the display string falls inside the verse itself.
-///
-/// `None` when it falls in an insertion: that byte belongs to the other
-/// edition, not to the passage, and nothing outside the map should name it.
-pub fn to_corpus(verse: usize, at: usize) -> Option<usize> {
-    let mut shift = 0usize;
-    for insert in inserts_of(verse) {
-        let (from, len) = insert.range();
-        if at < from {
-            break;
-        }
-        if at < from + len {
-            return None;
-        }
-        shift += len;
-    }
-    Some(at - shift)
-}
-
-/// The part of a slice of the display string that belongs to the verse, as a
-/// range inside the verse.
-///
-/// A drawn word may carry the mark that numbers it — the mark is not in the
-/// passage, so it is cut off, and the click names our word exactly as the
-/// corpus holds it. A word that *starts* in an insertion is the other
-/// edition's: nothing is named.
-pub fn corpus_span(verse: usize, at: usize, len: usize) -> Option<(usize, usize)> {
-    let start = to_corpus(verse, at)?;
-    let mut n = 1usize;
-    while n < len && to_corpus(verse, at + n) == Some(start + n) {
-        n += 1;
-    }
-    Some((start, n))
-}
-
 #[cfg(test)]
 mod tests;

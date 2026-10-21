@@ -17,52 +17,27 @@ impl App {
         self.readable(chapter).then_some(chapter)
     }
 
-    /// What a click selects: book, chapter, verse, and the word if one is
-    /// asked for. Each level is an (offset, length) in the corpus.
+    /// What a click selects: book, chapter, the verse and its number, each
+    /// of the last two an (offset, length) in the corpus. Its words are
+    /// picked in the passage the page opens, not here.
     ///
     /// Returns nothing above the reading zoom: **a click is only live on a
     /// passage one can read.**
-    pub(crate) fn pick(&mut self, x: f32, y: f32, word: bool) -> Option<[u32; 6]> {
+    pub(crate) fn pick(&mut self, x: f32, y: f32) -> Option<[u32; 6]> {
         let chapter = self.clickable_at(x, y)?;
-        let book = (0..corpus::book_count()).find(|&b| corpus::chapters_of(b).contains(&chapter))?;
         let line = self.line_at(chapter, y)?;
+        selected(chapter, line.verse)
+    }
 
-        let mut out = [book as u32, chapter as u32, 0, 0, 0, 0];
-        let (offset, len) = key_of(corpus::verse_text(line.verse));
-        out[2] = offset;
-        out[3] = len;
-
-        if word {
-            // Same tolerance horizontally as everywhere else: the text is set
-            // to the right, so the left of the strip is often empty.
-            let hit = self
-                .word_cells(line.text, line.rect, line.size)
-                .into_iter()
-                .min_by(|(a, _), (b, _)| horizontal_gap(*a, x).total_cmp(&horizontal_gap(*b, x)));
-            if let Some((_, word)) = hit {
-                let (offset, len) = key_of(word);
-                // The navbar names the passage, so it names our text. In a
-                // verse carrying another reading, a word of ours is given back
-                // without the mark that numbers it, and a word of the other
-                // edition names nothing: it is not in the passage.
-                match variant::display(line.verse) {
-                    None => {
-                        out[4] = offset;
-                        out[5] = len;
-                    }
-                    Some(shown) => {
-                        let rel = offset as usize - corpus::offset_of(shown);
-                        if let Some((at, kept)) = variant::corpus_span(line.verse, rel, len as usize) {
-                            let verse = corpus::offset_of(corpus::verse_text(line.verse));
-                            out[4] = (verse + at) as u32;
-                            out[5] = kept as u32;
-                        }
-                    }
-                }
-            }
+    /// What a click on a verse the browser lays out selects — the book
+    /// view's twin of `pick`, so the two views never disagree. Nothing for a
+    /// verse out of range or not landed: there is no text to name.
+    pub(crate) fn pick_in_verse(verse: usize) -> Option<[u32; 6]> {
+        if verse >= corpus::verse_count() || corpus::verse_text(verse).is_empty() {
+            return None;
         }
-
-        Some(out)
+        let chapter = (0..corpus::chapter_count()).find(|&c| corpus::verses_of(c).contains(&verse))?;
+        selected(chapter, verse)
     }
 
     /// Box the number of a chapter really occupies, in the world.
@@ -441,6 +416,18 @@ impl App {
 
         Some((book, chapter, line.verse, cell))
     }
+}
+
+/// The selection's slots for a verse of a chapter: book, chapter, the verse
+/// — our text, never the other edition's forms — and its number, the last
+/// two an (offset, length) in the corpus.
+fn selected(chapter: usize, verse: usize) -> Option<[u32; 6]> {
+    let book = (0..corpus::book_count()).find(|&b| corpus::chapters_of(b).contains(&chapter))?;
+    let mut out = [book as u32, chapter as u32, 0, 0, 0, 0];
+    (out[2], out[3]) = key_of(corpus::verse_text(verse));
+    // The passage is shown with its place: the number its verse is drawn with.
+    (out[4], out[5]) = key_of(corpus::verse_label(verse));
+    Some(out)
 }
 
 /// Whether a box holds a point.

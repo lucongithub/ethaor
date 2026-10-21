@@ -29,7 +29,7 @@
 	// before — so the scroll never moves under the reader.
 	import { onMount, tick } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
-	import type { Book, Place } from '$lib/ethaor';
+	import type { Book, Place, Selection } from '$lib/ethaor';
 	import {
 		bookOf,
 		BYTES_PER_VERSE,
@@ -51,6 +51,7 @@
 		landed,
 		onreading,
 		onform,
+		onselect,
 		onfault
 	}: {
 		book: Book;
@@ -62,6 +63,8 @@
 		onreading: (reading: Reading | null) => void;
 		/** The pointer is on one of the two forms, ours `¹` or theirs `[…]²`, or has left it. */
 		onform: (on: boolean) => void;
+		/** A click read the passage: what the map's click gives. */
+		onselect: (selection: Selection | null) => void;
 		onfault: (fault: Fault) => void;
 	} = $props();
 
@@ -252,6 +255,26 @@
 		verse.scrollIntoView({ block: target.verse >= 0 ? 'center' : 'start' });
 		target = null;
 		report();
+	}
+
+	// ----------------------------------------------------------------- click
+
+	// A click reads the passage, as on the map: the verse under it; its words
+	// are picked in the passage, once open. A drag, which selects text, stays
+	// the browser's.
+	let press: { x: number; y: number } | null = null;
+
+	function onClick(event: MouseEvent) {
+		if (!press || Math.hypot(event.clientX - press.x, event.clientY - press.y) > 4) return;
+		if (!(getSelection()?.isCollapsed ?? true)) return;
+		const verse = (event.target as Element).closest<HTMLElement>('[data-verse]');
+		if (!verse) return;
+		onselect(book.select(Number(verse.dataset.verse)));
+	}
+
+	/** Back to the text, as the passage closes: the keys scroll it again. */
+	export function focus() {
+		scroller.focus({ preventScroll: true });
 	}
 
 	// ------------------------------------------------------------------ zoom
@@ -490,6 +513,14 @@
 
 	function onKeydown(event: KeyboardEvent) {
 		if (event.ctrlKey || event.metaKey || event.altKey) return;
+		// Enter reads the passage at the middle of the column, as on the map.
+		if (event.key === 'Enter') {
+			const at = centre();
+			if (!at || at.verse < 0) return;
+			event.preventDefault();
+			onselect(book.select(at.verse));
+			return;
+		}
 		const steps = event.key === '+' || event.key === '=' ? 1 : event.key === '-' ? -1 : 0;
 		if (steps === 0) return;
 		event.preventDefault();
@@ -505,6 +536,7 @@
 		return Math.hypot(a.x - b.x, a.y - b.y);
 	};
 	function onPointerDown(event: PointerEvent) {
+		press = { x: event.clientX, y: event.clientY };
 		if (event.pointerType !== 'touch') return;
 		fingers.set(event.pointerId, { x: event.clientX, y: event.clientY });
 		if (fingers.size === 2) spread = apart();
@@ -635,8 +667,9 @@
 	       focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-white/25"
 		tabindex="0"
 		role="region"
-		aria-label="The Tanakh as a book. Plus and minus change the size of the text."
+		aria-label="The Tanakh as a book. Plus and minus change the size of the text, Enter reads the passage at the middle."
 		onscroll={onScroll}
+		onclick={onClick}
 		onwheel={onWheel}
 		onkeydown={onKeydown}
 		onpointerdown={onPointerDown}
@@ -679,7 +712,8 @@
 						{#each text.verses as verse (verse.index)}
 							<p
 								data-verse={verse.index}
-								class="mb-[0.35em] grid grid-cols-[1.6em_1fr] items-baseline sm:grid-cols-[2.2em_1fr]"
+								class="-mx-[0.4em] mb-[0.35em] grid cursor-pointer grid-cols-[1.6em_1fr] items-baseline rounded px-[0.4em]
+								       transition-colors duration-150 hover:bg-white/6 sm:grid-cols-[2.2em_1fr]"
 							>
 								<span class="text-[0.6em] text-white/58 select-none" aria-hidden="true"
 									>{verse.label}</span

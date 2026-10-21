@@ -13,12 +13,12 @@ name, what it holds (its doc comment), and its nature.
 
 | area | files | tests | ignored | without a doc |
 |---|---|---|---|---|
-| Rust core, module-private | 7 | 115 | 1 | 21 |
-| Rust app (`src/tests/`) | 11 | 149 | 0 | 12 |
+| Rust core, module-private | 7 | 114 | 1 | 21 |
+| Rust app (`src/tests/`) | 11 | 151 | 0 | 12 |
 | Corpus build (`tests/`) | 1 | 31 | 0 | 15 |
 | Server (`server/`) | 15 | 81 | 1 | 12 |
-| Page (`web/`) | 7 | 59 | 0 | 0 |
-| **total** | **41** | **435** | **2** | **60** |
+| Page (`web/`) | 8 | 62 | 0 | 0 |
+| **total** | **42** | **439** | **2** | **60** |
 
 ## By file
 
@@ -254,14 +254,15 @@ name, what it holds (its doc comment), and its nature.
         - `neighbours_run_across_books_and_stop_at_the_ends` — Neighbours run across books and stop at the Tanakh's two ends; a chapter out of range reads nothing. <sub>unit, module-private</sub>
         - `the_contents_walk_every_book_and_chapter_in_order` — The contents walk the Tanakh whole and in order: the 39 books each once, each under the portion `PORTIONS` puts it in, named as the corpus names it, its chapters running on from the last book's with no gap or overlap to the 929th, each numbered as the corpus numbers it. <sub>unit, module-private</sub>
   - **tests/**
-    - [`api.rs`](src/tests/api.rs) — 20 tests
+    - [`api.rs`](src/tests/api.rs) — 21 tests
       <br>The interface the page really calls.
       - module `tests::api` · ethaor
         - `the_page_can_draw_a_frame_from_a_cold_start` — *(no doc: say what it holds)* <sub>app: the module as the page drives it</sub>
         - `the_gestures_move_the_camera_and_come_back` — The gestures the page sends: wheel, drag, Escape. <sub>app: the module as the page drives it</sub>
         - `resizing_keeps_the_framing` — Resizing keeps the framing when it was framed, and leaves the view alone otherwise. <sub>app: the module as the page drives it</sub>
         - `a_click_is_dead_above_the_reading_zoom` — **A click is only live on a passage one can read.** At the framing, where a chapter is a title in a box, nothing is clickable and the cursor says so. <sub>app: the module as the page drives it</sub>
-        - `clicking_gives_the_passage_then_the_word` — Once the lines are read, a click gives the passage and a double click the word inside it — the six slots of `selection_ptr`. <sub>app: the module as the page drives it</sub>
+        - `clicking_gives_the_passage` — Once the lines are read, a click gives the passage — the slots of `selection_ptr`, the verse numbered. <sub>app: the module as the page drives it</sub>
+        - `the_book_selects_a_verse_by_its_index` — The book view's click through the export, as the page calls it: a verse fills the slots `select` fills — the passage and its number — and a verse out of range clears them. <sub>app: the module as the page drives it</sub>
         - `the_breadcrumb_is_filled_from_the_centre_of_the_view` — `focus` feeds the breadcrumb from the centre of the view: section, book, chapter and verse, each as an (offset, length) into the corpus. <sub>app: the module as the page drives it</sub>
         - `the_breadcrumb_follows_the_pointer` — `focus_at` is the hover: it answers 1 when the pointer is on something, and 0 when it is on nothing — falling back on the centre of the view, so that the navbar never blinks out. <sub>app: the module as the page drives it</sub>
         - `a_mouse_gone_names_nothing_and_a_finger_lifted_hands_over_to_the_centre` — **A mouse gone from the canvas empties the breadcrumb**; a lifted finger hands it to the centre of the view. The mouse often leaves onto the breadcrumb row itself, and the centre then named a portion under the cursor, which read as a selection. <sub>app: the module as the page drives it</sub>
@@ -313,7 +314,7 @@ name, what it holds (its doc comment), and its nature.
         - `panning_then_framing_comes_back_to_the_start` — Panning moves the world and nothing else; `fit` brings everything back. <sub>app: the module as the page drives it</sub>
         - `zooming_out_keeps_the_cursor_still` — A zoom gesture keeps the point under the cursor still — as long as no pull applies, i.e. when zooming out. <sub>app: the module as the page drives it</sub>
         - `absurd_windows_do_not_break_the_camera` — Resizing keeps the state consistent: a window of one pixel, or of none, must not break anything. <sub>app: the module as the page drives it</sub>
-    - [`click.rs`](src/tests/click.rs) — 12 tests
+    - [`click.rs`](src/tests/click.rs) — 13 tests
       <br>What a click selects, and when it is live at all.
       - module `tests::click` · ethaor
         - `a_click_is_live_exactly_where_the_text_is_drawn` — **A click is live exactly where the text is drawn**, and nowhere else. <sub>app: the module as the page drives it</sub>
@@ -322,12 +323,13 @@ name, what it holds (its doc comment), and its nature.
         - `the_cursor_announces_exactly_what_a_click_will_do` — **The pointer announces what a click will do**: `hover` answers on the very condition of a click, everywhere and at every zoom. <sub>app: the module as the page drives it</sub>
         - `a_click_in_the_air_selects_nothing` — In the air between two portions, or in the black that borders the map, a click selects nothing — whatever the zoom. <sub>app: the module as the page drives it</sub>
         - `a_click_gives_the_passage_under_the_point` — A click gives a coherent path, and the verse it gives is the one under the point. <sub>app: the module as the page drives it</sub>
-        - `a_double_click_names_the_word_under_the_point` — A double click names **the word under the point**, and the word is a word of that very verse. <sub>app: the module as the page drives it</sub>
-        - `a_double_click_is_dead_where_a_click_is` — A double click above the reading zoom is as dead as a click: there is no word to point at. <sub>app: the module as the page drives it</sub>
+        - `a_click_numbers_the_verse_it_gives` — The passage comes with **its number**, the very label its verse is drawn with — so the page can name the place it shows without guessing it from the text. <sub>app: the module as the page drives it</sub>
         - `the_words_of_a_line_fill_it_right_to_left` — The word boxes of a line go **right to left**, hold their ink and nothing else, and never overlap: the gaps between them are the spaces. <sub>app: the module as the page drives it</sub>
         - `a_single_word_takes_the_whole_line` — A line of a single word gives one box, laid on the right edge. <sub>app: the module as the page drives it</sub>
         - `a_line_without_size_has_no_word_cell` — *(no doc: say what it holds)* <sub>app: the module as the page drives it</sub>
         - `the_letters_of_a_word_stay_inside_it` — Words and letters agree: a letter box is inside the box of the word that holds it — the two splits share one measured width. <sub>app: the module as the page drives it</sub>
+        - `a_click_in_the_book_names_what_the_map_names` — The book's click, where the browser lays the verse out, **names what the map's click names**: for every line of a chapter at reading level, the map's pick at the line and the book's pick of its verse give the same slots. <sub>app: the module as the page drives it</sub>
+        - `a_click_in_the_book_names_every_verse` — Every landed verse is selected by the book with its own text and number; a verse out of range names nothing. <sub>app: the module as the page drives it</sub>
     - [`frame.rs`](src/tests/frame.rs) — 32 tests — covers [`src/map/frame.rs`](src/map/frame.rs)
       <br>The command list: what a frame always holds, and what it never holds.
       - module `tests::frame` · ethaor
@@ -413,7 +415,7 @@ name, what it holds (its doc comment), and its nature.
         - `only_the_other_reading_carries_the_other_ink` — **The ink says theirs or ours, and nothing else does.** The two runs are drawn at the same strength — the colour alone sets them apart, and which colour is the page's business — so a run must never be found marked without being the other reading, nor the other way round. <sub>app: the module as the page drives it</sub>
         - `a_verse_without_a_variant_stays_one_command` — A verse without a variant is still one command: the cut costs nothing to the twenty-three thousand others. <sub>app: the module as the page drives it</sub>
         - `the_counter_follows_what_is_drawn` — The counter the page reads to show the index: zero when no other reading is on screen, more as soon as one is drawn. <sub>app: the module as the page drives it</sub>
-        - `a_click_never_names_the_other_edition` — **The navbar keeps naming our text.** A word of ours is given back without the mark that numbers it; a word of the other edition names nothing, since the passage does not contain it. <sub>app: the module as the page drives it</sub>
+        - `a_click_never_names_the_other_edition` — **A click keeps naming our text.** On a verse carrying another reading, the passage a click gives is ours — the other edition's forms and the marks that number them are not in it — so every word the passage offers to pick is ours. <sub>app: the module as the page drives it</sub>
         - `the_index_answers_on_the_two_forms_alone` — **The index answers on the two forms, and on nothing else** — the owner's rule. In a chapter holding another reading, read at its level: the pointer on our marked form or on any word of theirs lights it; on every other word of the chapter, the verses that carry them included, it stays shut. Which words are the forms is read off the marks the reader sees — `¹` on ours, theirs from `[` to `]²` — not off the table. <sub>app: the module as the page drives it</sub>
         - `the_answer_is_the_pointed_pair_s_reading` — **The answer is the pointed pair's reading, theirs alone** — what the page colours, and only while it is pointed at. On a word of theirs the range holds that word; on our marked form it starts right after it, nothing but the space between. Either way it reads `[…]²` and is exactly the stretch the frame cuts out as `INK_OTHER`, so the page can tell that reading's runs from every other on screen. <sub>app: the module as the page drives it</sub>
         - `at_the_framing_the_index_says_nothing` — **At the framing, nothing.** No word is drawn, so none can be pointed at — and a book holds a reading almost always. <sub>app: the module as the page drives it</sub>
@@ -468,7 +470,7 @@ name, what it holds (its doc comment), and its nature.
         - `measured_digits_tighten_the_band_and_grow_the_cell` — Wider digits tighten the band and grow the cell: the two settings are the same one. <sub>unit, module-private</sub>
         - `the_layout_survives_absurd_inputs` — A degenerate call must not panic nor produce anything negative: the page could ask for a frame before the window has a size. <sub>unit, module-private</sub>
   - **variant/**
-    - [`tests.rs`](src/variant/tests.rs) — 7 tests — covers [`src/variant.rs`](src/variant.rs)
+    - [`tests.rs`](src/variant/tests.rs) — 6 tests — covers [`src/variant.rs`](src/variant.rs)
       <br>What the welded table must hold for the drawing to be honest: the display string is our verse plus insertions, nothing else; every byte of it is either ours or named as the other edition's.
       - module `variant::tests` · ethaor
         - `the_table_holds_what_was_measured` — Verses carrying another reading, and differences in all. Measured against Miqra according to the Masorah, book by book: the numbering plays no part, so these two figures move only if the table or the source does. <sub>unit, module-private</sub>
@@ -477,7 +479,6 @@ name, what it holds (its doc comment), and its nature.
         - `removing_the_insertions_gives_the_verse_back` — **The display string is our verse, with insertions.** Taking the insertions out gives the verse back byte for byte — that is what guarantees the map shows our text and adds to it, rather than replacing it. <sub>unit, module-private</sub>
         - `every_range_is_a_slice_of_the_display` — Each range stays inside the string and on character boundaries: the page slices the bytes, so a range cutting a letter in half would draw a hole. <sub>unit, module-private</sub>
         - `the_insertions_of_a_verse_follow_each_other` — The insertions of one verse do not overlap and come in reading order. <sub>unit, module-private</sub>
-        - `an_offset_is_mapped_back_or_refused` — **A byte of the display string is ours or theirs, never both.** `to_corpus` answers for ours and refuses for theirs, which is what keeps a click from naming a word the passage does not contain. <sub>unit, module-private</sub>
 - **tests/**
   - [`builder.rs`](tests/builder.rs) — 31 tests
     <br>The compile-time builder, tested on its own source.
@@ -588,6 +589,11 @@ name, what it holds (its doc comment), and its nature.
           - `clears what was shown even when the history is empty` — A level with no line yet clears the page all the same: the lines of the level before must not stay as if they were of this one. <sub>page logic, on the real artifacts</sub>
           - `stops on a refusal and says why` — A refusal says the service's code, message and incident, and is not asked again: a wrong token stays wrong. <sub>page logic, on the real artifacts</sub>
           - `says a page served without the service, and retries a bare 503` — Served without the service (`npm run dev`), the answer is not JSON: refused, its status said. A 503 without a code is a proxy: retried. <sub>page logic, on the real artifacts</sub>
+      - [`passage.test.ts`](web/src/lib/passage.test.ts) — 3 tests — covers [`web/src/lib/passage.ts`](web/src/lib/passage.ts)
+        - module `passage` · vitest
+          - `cuts a verse at its spaces, every pointed letter whole` — cuts a verse at its spaces, every pointed letter whole. <sub>page logic, on the real artifacts</sub>
+          - `picks each word in place: head, word and tail give the verse back` — picks each word in place: head, word and tail give the verse back. <sub>page logic, on the real artifacts</sub>
+          - `picks nothing out of the verse, and reads no word picked as none` — picks nothing out of the verse, and reads no word picked as none. <sub>page logic, on the real artifacts</sub>
       - [`search-core.test.ts`](web/src/lib/search-core.test.ts) — 3 tests — covers [`web/src/lib/search-core.ts`](web/src/lib/search-core.ts)
         - module `the books file` · vitest
           - `holds the 39 books then the readings, in order` — holds the 39 books then the readings, in order. <sub>page logic, on the real artifacts</sub>
@@ -635,12 +641,13 @@ helper is often held by the test of its caller — but each is a question the
 - [`src/map/frame.rs`](src/map/frame.rs): `book_title_size`, `draw_book`, `emit_ink`, `emit_run`, `emit_text`, `overview_title`, `scale_of`
 - [`src/map/hit.rs`](src/map/hit.rs): `books_drawn`, `ink_of`, `locate_in`, `names_chapter`
 - [`src/map/landing.rs`](src/map/landing.rs): `line_height_once_in`, `push_tile`, `verses_in`
+- [`src/map/text.rs`](src/map/text.rs): `line_at`
 - [`src/pack.rs`](src/pack.rs): `get_str`, `get_string`, `lay_chapter`, `lay_readings`, `put_str`, `read_exceptions`, `unpack`, `write_exceptions`
 - [`src/shared/els.rs`](src/shared/els.rs): `check_up_to`, `last_verse`
 - [`src/shared/reference.rs`](src/shared/reference.rs): `book_english`, `book_hebrew`
 - [`src/variant.rs`](src/variant.rs): `seek`
 - [`src/wasm/chapter.rs`](src/wasm/chapter.rs): `write_contents`
 - [`src/wasm/els.rs`](src/wasm/els.rs): `els_cap`, `els_prepare`, `probe_els_forget`, `probe_els_method`
-- [`src/wasm/map.rs`](src/wasm/map.rs): `pick_into`, `probe_verse_drawn`, `readings_end`, `tiles_ptr`, `tiles_wanted`, `variants_drawn`
+- [`src/wasm/map.rs`](src/wasm/map.rs): `probe_verse_drawn`, `readings_end`, `tiles_ptr`, `tiles_wanted`, `variants_drawn`
 - [`web/src/lib/ethaor.ts`](web/src/lib/ethaor.ts): `createTanakhMap`
 - [`web/src/lib/fault.ts`](web/src/lib/fault.ts): `fromTrap`

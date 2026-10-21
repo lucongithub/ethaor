@@ -732,9 +732,8 @@ what is on screen. Everything follows:
   right like everything else; a verse without a variant stays one single
   command.
 - **The breadcrumb and the click keep naming our text.** They read the corpus,
-  which the display string leaves untouched. A word of ours is given back
-  without the mark that numbers it; a word of the other edition names nothing,
-  since the passage does not contain it.
+  which the display string leaves untouched: the passage a click opens is our
+  verse, so every word it offers to pick is ours.
 
 ### Labels
 
@@ -1070,8 +1069,8 @@ portion names, their size and gap come from the projected world
 (`SECTION_CARD`, `CARD_GAP`), not from their band — a section's band is worth
 its volume of books, and once the books are gone it says nothing.
 
-Gestures: wheel or pinch to zoom, drag to pan, click for the passage, double
-click for the word, Esc for the overview. **The keyboard does the same at the
+Gestures: wheel or pinch to zoom, drag to pan, click for the passage — then a
+click on one of its words for the word — Esc for the overview. **The keyboard does the same at the
 centre of the view** (`keys.ts`): `+`/`-` zoom, arrows pan (Shift farther),
 Enter reads the passage. **Esc closes before it leaves**: the open passage,
 then a notice, and only with nothing open the overview — closing a passage
@@ -1188,6 +1187,11 @@ Rejected: one button naming where it goes — the rail never said where one was.
   two forms under the pointer alone, as on the map.
 - **Escape never leaves the book**: there is no overview to go back to, and
   the reader's place is the scroll.
+- **A click reads the passage, as on the map** — the same modal, the same
+  names: the page hands the module the verse clicked (`select_verse`), which
+  fills the map's selection. A verse under the pointer wears the chapter
+  buttons' hover plate: it is what a click reads. A drag stays the
+  browser's: it selects text. Enter reads the verse at the middle.
 
 ### The click
 
@@ -1207,21 +1211,25 @@ is thus live **exactly where the text is drawn**.
 The cursor says the same: `hover` answers on the click's condition, not on
 geometry alone.
 
-**A click gives the passage, a double click the word** (`select_word`). Both
-share the condition: there is no word to show where there is no text.
-`word_cells` cuts a line into words as `letter_cells` cuts it into letters, one
-step coarser, counting spaces — a word's box carries its ink and nothing else,
-and the gaps between boxes are the spaces. Same tolerance as elsewhere: keep the
-nearest word, text being flush right.
+**A click gives the passage; its words are picked in the passage itself**,
+not on the canvas. `word_cells` still cuts a line into words — for the
+readings' index under the pointer — as `letter_cells` cuts it into letters,
+one step coarser, counting spaces: a word's box carries its ink and nothing
+else, and the gaps between boxes are the spaces.
 
-The first click never delays anything: it shows the passage at once, and the
-second click (within the double-click window) refines it to a word. Waiting for
-that window before answering would make every click feel sticky.
+**The passage is a modal, centred** (a native `<dialog>`), on the map and in
+the book alike; a click on its backdrop closes it. **Its words are the way to
+the word** (`passage.ts`): each wears the chapter buttons' plate under the
+pointer, and a click shows it big above its verse, in place inside it, the
+rest dimmed; the word picked clicked again gives the verse back. The verse
+is ours, cut at its spaces as the module cuts a line. Rejected, by the
+owner: the double click — the modal, opened by the first click, took the
+second — and a press held two seconds.
 
-`select` fills six slots: book, chapter, verse, word — the last two as
-(offset, length). The page finds the word **inside** its verse by cutting at
-byte offsets, never in the decoded string: one pointed letter is several UTF-16
-units.
+`select` fills six slots: book, chapter, verse, the verse's number — the
+last two as (offset, length); the number titles the passage. Strings
+are cut at byte offsets, never in the decoded string: one pointed letter is
+several UTF-16 units.
 
 ## Tests
 
@@ -1268,7 +1276,7 @@ anywhere must be an assertion.
 | `src/tests/geometry.rs` | distances, proportional cell padding, attraction beating zoom drift |
 | `src/tests/camera.rs` | floored framing, dive in `DIVE_NOTCHES` notches, **numbers at the first notch on nine windows**, non-oscillating detail level, fold lowering the scale, one-way descent |
 | `src/tests/frame.rs` | **no fill, no empty frame, no overlaid text** on nine windows and sixty notches; overview title count; three sizes at chapter level; chapter number in the corner and verse numbers at their right once text is out; no number drawn twice; one book-title size per notch, at the bottom of its band, under its ceiling; three portions on zoom-out, equal gaps, single right edge; measurements converge in one frame; record layout, a contract with `ethaor.ts`; time and command budget |
-| `src/tests/click.rs` | the click live **exactly** where text is drawn, cell by cell on nine windows and twelve notches; dead at framing and chapter level; the cursor never lies about the click; the passage under the point; the word under the point, from the right verse; word boxes right-to-left, non-overlapping, covering the drawn width |
+| `src/tests/click.rs` | the click live **exactly** where text is drawn, cell by cell on nine windows and twelve notches; dead at framing and chapter level; the cursor never lies about the click; the passage under the point, numbered; the book's click names what the map's does; word boxes right-to-left, non-overlapping, covering the drawn width |
 | `src/tests/breadcrumb.rs` | depth bounded by what is drawn; portion and book at framing, chapter at the first notch, verse with the text; the pointer names the book, cell or line it is on; a portion band names the portion alone; the air names nothing and the centre takes over |
 | `src/tests/locate.rs` | every point of a book box names one of its chapters, none in the air between portions; hover says what the click will do |
 | `src/tests/text.rs` | one size per chapter; lines recompose the verse **byte for byte**; every line stays a corpus slice; letters right-to-left |
@@ -1284,7 +1292,7 @@ anywhere must be an assertion.
 | `web/src/lib/keys.test.ts` | each key its command, Shift farther; a key held with Ctrl, Cmd or Alt left to the browser; Escape closes the passage, then the notice, and only then returns to the overview — never in the book view |
 | `web/src/lib/search-worker.test.ts` | a search asked before the text is held, then answered by its id; the next one answers the same; a failed search answered by its id, the next on a new module; a failure answered with its numbered fault, a real trap traced to its Rust place |
 | `src/tests/landing.rs` | the next book fetched is the nearest to the view, follows it when it moves, each book once; before the text lands the map stays whole — no black frame however deep, no verse drawn, clicked or named — and the verses come once it lands; the overview is identical with and without the text; a chapter's tile is asked two notches or more ahead of its reading level, once, only for chapters on screen, with its exact byte range |
-| `src/variant/tests.rs` | the welded table: taking the insertions out gives the verse back byte for byte, every range is a slice on a letter boundary, an offset is mapped back to the verse or refused |
+| `src/variant/tests.rs` | the welded table: taking the insertions out gives the verse back byte for byte, every range is a slice on a letter boundary |
 | `src/tests/readings.rs` | the other reading **in the flow, never over it**: the runs of a line tile it from the right and recompose it, the ink marks theirs and only theirs, a verse without a variant stays one command, a click never names the other edition ; the index opens on the two forms alone, never on the rest of their chapter nor on its number; the answer is the pointed pair's reading, theirs alone, the very runs the frame cuts out |
 | `src/shared/tests.rs` | the English book table walks the corpus' books; numerals read as their values; every label is a numeral, chapters 1, 2, 3… and verses on from the last, joined ones included; a verse named every way; every letter placed back in its verse; refusals with distinct codes; a page is the engine's hits, letters spelling the word; pages tile the listed hits, `limit` 0 counts; a flood counted whole and listed to the cap, its last page closing the walk without searching again; bounds past any range (skips past the stream, offset at the top of its type) answer without panic; finals and marks fold, a word of marks alone has no letter; one letter is each of its occurrences; the portions are the map's; a book by its exact OSIS code alone, no other case, name or notation; an OSIS reference names its book, chapter or verse, every verse found back from its OSIS, another notation naming nothing; one scope way at a time; a scoped search stays in its verses; a query too costly refused before it runs; every chapter reads back its verses, its book, portion and number; a shown verse is ours with the other forms inserted; a reference names its chapter or is refused; neighbours across books |
 | `server/src/tests/` | the ELS answer names its place every way and is the shared page field for field; `next_offset` walks every listed hit; each refusal its code and a 400; `GET /api` lists tools whose schema is what the endpoint takes; the build served with ranges, no compression, a year of cache on hashed names and a 404 for a missing one, `/api` never shadowed; **the page's export and the API find the same hits**; a flood answers its total and last page; numbers past their type refused as `bad_param`; a missing text is a 503, a caller's mistake a 400; under `/api` a wrong path or method answers JSON, `/api/` describes, HEAD has no body; callers at once each get their own answer; no path climbs out of the build; a file asked again is a 304; searches run side by side, one engine each, never more than the pool, all back after; an answer searched once for everyone, at once or later; a refusal takes no engine; a full queue answers `busy` with `Retry-After` and is not kept; a caller gone gives its engine back; successes say `public`, refusals `no-store`; a scope keeps every letter inside, each scoping mistake its code; the page and the API keep to the same verses; a stream is the pages in one go, goes past a page, stops when left; a search too heavy refused before it runs; a client past its budget waits alone, a cached answer costs one; the proxy names the client only when trusted; a panic answered and the next request served; an engine that panicked replaced; a bad setting falls back; the logs closed without the token, a request found by its id, followed live and filtered by level; the log settings read and falling back; the files rolling within their budget, a new one per process, an unwritable directory refused at start; the history read back across files; a half-written line sent once whole; a follower reading across files, told what it missed; a flush writing the lines and waking a follower at once; no log file a 503; every answer has an id; a page of its own served at its directory, `/logs` sent there with its query whole; a settings file read, the environment winning over it and untouched, none the environment alone, a broken one ignored whole; an incident reads aloud and never repeats; an answer and its log share the incident, the log naming the code, the place and the user message; every refusal numbered; an escalation keeps its number and steps, verbose only adding chain and stack; a panic numbered at its own line; every code raised at one place; a page report logged under its number, bounded, a bad one refused; a chapter read verse by verse and named every way, carrying the other reading, its neighbours across books; each chapter refusal its code; **the book view's record and `/api/chapter` read the same chapter** |

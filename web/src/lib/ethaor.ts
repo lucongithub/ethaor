@@ -84,7 +84,7 @@ interface Wasm {
 	/** Selects the passage under the point. 0 when nothing is clickable there. */
 	select(x: number, y: number): number;
 	/** Same, one step finer: the word under the point. */
-	select_word(x: number, y: number): number;
+	select_verse(verse: number): number;
 	selection_ptr(): number;
 	/** Breadcrumb from the centre of the view. */
 	focus(): void;
@@ -150,15 +150,17 @@ interface Wasm {
  * What a click selected.
  *
  * A click is only live on a passage one can read — the module refuses
- * elsewhere — so a selection always carries its verse. A double click adds the
- * word, with the rest of the verse split around it so the page can show it in
- * place.
+ * elsewhere — so a selection always carries its verse. A word picked in the
+ * passage adds it, with the rest of the verse split around it so the page
+ * can show it in place (`passage.ts`).
  */
 export interface Selection {
 	book: number;
 	chapter: number;
+	/** The verse's number, in Hebrew letters. */
+	number: string;
 	verse: string;
-	/** Word under the point, on a double click only. */
+	/** The word picked in the passage; empty until one is. */
 	word: string;
 	/** What precedes and follows the word inside the verse. */
 	head: string;
@@ -205,6 +207,11 @@ export interface Book {
 	want(from: number, to: number): void;
 	/** The portions, books and chapters' numbers: in from the start. */
 	readonly contents: Contents;
+	/**
+	 * What a click in the book selects: the verse of global index `verse`,
+	 * the map's selection, named the same way. `null` for a verse not in.
+	 */
+	select(verse: number): Selection | null;
 }
 
 export interface TanakhMap {
@@ -593,16 +600,6 @@ export async function createTanakhMap(
 	let moved = false;
 
 	/**
-	 * Last click that selected something, to tell a double click from two
-	 * clicks. The first click already shows the passage; the second one, close
-	 * enough in time and in space, refines it down to the word. Nothing is ever
-	 * delayed waiting for it.
-	 */
-	let lastClick = { at: 0, x: 0, y: 0 };
-	const DOUBLE_MS = 350;
-	const DOUBLE_PX = 24;
-
-	/**
 	 * Last position of the pointer on the canvas, in CSS pixels, or `null` when
 	 * it is gone. It is what the breadcrumb is read at: hovering a title, a
 	 * chapter or a line of verse says where **that** is, not where the view is.
@@ -681,13 +678,7 @@ export async function createTanakhMap(
 
 		if (single && !moved) {
 			const { x, y } = local(event);
-			const now = event.timeStamp;
-			const again =
-				now - lastClick.at < DOUBLE_MS && Math.hypot(x - lastClick.x, y - lastClick.y) < DOUBLE_PX;
-
-			const hit = selectionAt(x, y, again);
-			onSelect?.(hit);
-			lastClick = hit ? { at: now, x, y } : { at: 0, x: 0, y: 0 };
+			onSelect?.(selectionAt(x, y));
 		}
 		draw();
 	}
@@ -707,28 +698,33 @@ export async function createTanakhMap(
 	}
 
 	/**
-	 * What a click selected: the passage, and the word too on a double click.
+	 * What a click selected: the passage. Its words are picked in the passage
+	 * itself, once it is open.
 	 *
-	 * The word is split out of the verse by **byte** offsets, read straight from
-	 * the module's memory: slicing the decoded string would be wrong, since one
-	 * Hebrew letter with its marks is several UTF-16 units.
+	 * Strings are cut by **byte** offsets, read straight from the module's
+	 * memory: slicing the decoded string would be wrong, since one Hebrew
+	 * letter with its marks is several UTF-16 units.
 	 */
-	function selectionAt(x: number, y: number, word: boolean): Selection | null {
-		const hit = word ? wasm.select_word(x, y) : wasm.select(x, y);
+	function selectionAt(x: number, y: number): Selection | null {
+		return selected(wasm.select(x, y));
+	}
+
+	/** The selection the module just filled, if `hit` says it did. */
+	function selected(hit: number): Selection | null {
 		if (hit === 0) return null;
 
 		const view = new Uint32Array(wasm.memory.buffer, wasm.selection_ptr(), 6);
-		const [book, chapter, offset, length, at, size] = view;
+		const [book, chapter, offset, length, label, labelSize] = view;
 		if (length === 0) return null;
 
-		const inside = size > 0 && at >= offset && at + size <= offset + length;
 		return {
 			book,
 			chapter,
+			number: fragment(label, labelSize),
 			verse: fragment(offset, length),
-			word: inside ? fragment(at, size) : '',
-			head: inside ? fragment(offset, at - offset) : '',
-			tail: inside ? fragment(at + size, offset + length - at - size) : ''
+			word: '',
+			head: '',
+			tail: ''
 		};
 	}
 
@@ -747,7 +743,7 @@ export async function createTanakhMap(
 			// `pan` moves the world; the view goes the other way.
 			wasm.pan(-command.dx * width, -command.dy * height);
 		} else {
-			onSelect?.(selectionAt(width / 2, height / 2, false));
+			onSelect?.(selectionAt(width / 2, height / 2));
 		}
 		draw();
 	}
@@ -905,6 +901,7 @@ export async function createTanakhMap(
 		opens,
 		contents,
 		size: (chapter) => wasm.chapter_size(chapter),
+		select: (verse) => selected(wasm.select_verse(verse)),
 		read(chapter) {
 			const words = wasm.chapter_record(chapter);
 			if (words === 0) return null;

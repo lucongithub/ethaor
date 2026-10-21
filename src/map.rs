@@ -73,7 +73,8 @@ pub(crate) struct App {
     pub(crate) detail: bool,
     /// Minimum framing, cached: see `base_scale`.
     pub(crate) base: f32,
-    /// Selection: book, chapter, verse, word — the last two as (offset, length).
+    /// Selection: book, chapter, verse, verse number — the last two as
+    /// (offset, length).
     pub(crate) selection: [u32; 6],
     /// Breadcrumb: section, book, chapter and verse, each an (offset, length).
     pub(crate) focus: [u32; 8],

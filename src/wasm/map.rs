@@ -74,9 +74,9 @@ pub extern "C" fn hover(x: f32, y: f32) -> i32 {
     app.clickable_at(wx, wy).map_or(-1, |chapter| chapter as i32)
 }
 
-/// Fills the selection: book, chapter, verse, and the word when one is asked
-/// for — each level an (offset, length) readable via `selection_ptr`. Returns 1
-/// if something was hit.
+/// Fills the selection: book, chapter, the verse and its number — the last
+/// two an (offset, length), all six slots readable via `selection_ptr`.
+/// Returns 1 if something was hit.
 ///
 /// **A click is only live on a passage one can read.** Above that zoom a
 /// chapter is a number, and naming one of its verses would be a choice of the
@@ -88,20 +88,26 @@ pub extern "C" fn hover(x: f32, y: f32) -> i32 {
 /// library, and the link fails.
 #[cfg_attr(all(target_arch = "wasm32", feature = "map"), unsafe(no_mangle))]
 pub extern "C" fn select(x: f32, y: f32) -> u32 {
-    pick_into(x, y, false)
-}
-
-/// Same, one step finer: **the word under the point**, which a double click
-/// asks for. The verse is filled too, so the page can show the word inside it.
-#[cfg_attr(feature = "map", unsafe(no_mangle))]
-pub extern "C" fn select_word(x: f32, y: f32) -> u32 {
-    pick_into(x, y, true)
-}
-
-pub(crate) fn pick_into(x: f32, y: f32, word: bool) -> u32 {
     let app = app();
     let (wx, wy) = app.camera.to_world(x, y);
-    match app.pick(wx, wy, word) {
+    let picked = app.pick(wx, wy);
+    keep(app, picked)
+}
+
+/// The book view's click, where the browser laid the verse out: the same
+/// slots as `select`, for the verse of global index `verse`. Returns 0 for a
+/// verse out of range or not landed.
+///
+/// No endpoint twin: like the map's own click it answers a pointer on a
+/// page, and `GET /api/chapter` already names every verse.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+pub extern "C" fn select_verse(verse: u32) -> u32 {
+    let picked = App::pick_in_verse(verse as usize);
+    keep(app(), picked)
+}
+
+fn keep(app: &mut App, picked: Option<[u32; 6]>) -> u32 {
+    match picked {
         Some(selection) => {
             app.selection = selection;
             1
