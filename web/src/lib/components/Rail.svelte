@@ -26,19 +26,21 @@
 		map: 'M227.69,51.27a6,6,0,0,0-5.15-1.09L160.7,65.64l-62-31a6,6,0,0,0-4.14-.45l-64,16A6,6,0,0,0,26,56V200a6,6,0,0,0,7.46,5.82L95.3,190.36l62,31a6,6,0,0,0,4.14.45l64-16A6,6,0,0,0,230,200V56A6,6,0,0,0,227.69,51.27ZM102,49.71l52,26V206.29l-52-26Zm-64,11,52-13V179.32l-52,13ZM218,195.32l-52,13V76.68l52-13Z'
 	};
 
-	// The mode button names where it goes, not where one is: on the map it
-	// opens the book, in the book it goes back to the map.
-	const toggle = $derived(
-		view === 'map'
-			? { label: 'Book mode', icon: ICON.book, next: 'book' as const }
-			: { label: 'Map mode', icon: ICON.map, next: 'map' as const }
-	);
+	// One button per view, the map first: the one shown is pressed, the other
+	// switches to its own. Pressing the view one is in changes nothing.
+	const views: { view: View; label: string; icon: string }[] = [
+		{ view: 'map', label: 'Map mode', icon: ICON.map },
+		{ view: 'book', label: 'Book mode', icon: ICON.book }
+	];
 
 	const item = [
-		'group relative flex h-10 w-full cursor-pointer items-center rounded px-[0.6875rem]',
-		'text-white/58 transition-colors duration-150 hover:bg-white/[0.06] hover:text-white',
+		'group relative flex h-10 w-full items-center rounded px-[0.6875rem]',
+		'transition-colors duration-150',
 		'focus-visible:text-white focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-white/60'
 	];
+	// Pressed: full white on a faint plate — rank in the white, as the map's.
+	const pressed = 'cursor-default bg-white/[0.1] text-white';
+	const idle = 'cursor-pointer text-white/58 hover:bg-white/[0.06] hover:text-white';
 
 	// The name an icon shows beside it, on hover or keyboard focus: a name,
 	// never an instruction. Over the map for the moment it is read.
@@ -58,16 +60,22 @@
 	class="z-30 flex h-full w-12 shrink-0 flex-col border-r border-white/10 bg-black pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] sm:w-14"
 >
 	<nav aria-label="Views" class="flex flex-col gap-0.5 px-1 pt-2 sm:px-2">
-		<button
-			type="button"
-			class={item}
-			aria-label={toggle.label}
-			onclick={() => onview(toggle.next)}
-		>
-			<svg viewBox="0 0 256 256" class="size-5 shrink-0 fill-current" aria-hidden="true">
-				<path d={toggle.icon} />
-			</svg>
-			<span class={tip} aria-hidden="true">{toggle.label}</span>
-		</button>
+		{#each views as v (v.view)}
+			{@const on = v.view === view}
+			<button
+				type="button"
+				class={[item, on ? pressed : idle]}
+				aria-label={v.label}
+				aria-pressed={on}
+				onclick={() => {
+					if (!on) onview(v.view);
+				}}
+			>
+				<svg viewBox="0 0 256 256" class="size-5 shrink-0 fill-current" aria-hidden="true">
+					<path d={v.icon} />
+				</svg>
+				<span class={tip} aria-hidden="true">{v.label}</span>
+			</button>
+		{/each}
 	</nav>
 </aside>

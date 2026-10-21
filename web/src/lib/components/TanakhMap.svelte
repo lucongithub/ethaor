@@ -12,7 +12,7 @@
 	import Rail, { type View } from './Rail.svelte';
 	import Logo from './Logo.svelte';
 	import BookView, { type Reading } from './BookView.svelte';
-	import { fromMap, toMap, type Level } from '$lib/book-view';
+	import { CRUMB_GOES, fromMap, TANAKH, toMap, type Level } from '$lib/book-view';
 
 	let canvas: HTMLCanvasElement;
 	let reload = $state<HTMLButtonElement | null>(null);
@@ -74,6 +74,14 @@
 		map.reset();
 		canvas.focus({ preventScroll: true });
 	}
+
+	// A step of the book's breadcrumb: a link up, brightened on hover as the
+	// rail's icons are.
+	const step = [
+		'cursor-pointer rounded font-hebrew transition-colors duration-150',
+		'decoration-white/40 underline-offset-[0.3em] hover:underline',
+		'focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-white/60'
+	];
 
 	// What the breadcrumb row says: the map's focus, or the book's place.
 	const crumbs = $derived(view === 'book' ? reading && { ...reading, hovered: false } : focus);
@@ -205,7 +213,45 @@
 			class="flex min-w-0 flex-1 items-center gap-2 overflow-hidden px-3 text-sm whitespace-nowrap
 		       sm:px-4 sm:text-base 2xl:text-lg"
 		>
-			{#if crumbs}
+			{#if view === 'book'}
+				<!-- In the book the breadcrumb is the way up: the Tanakh to the
+				     portions alone, a portion to its books, a book to its chapters. -->
+				<button
+					type="button"
+					class={[step, 'text-white']}
+					onclick={() => book?.climbTo(CRUMB_GOES.tanakh)}
+				>
+					{TANAKH}
+				</button>
+				{#if reading?.section}
+					<span class="text-white/25" aria-hidden="true">›</span>
+					<button
+						type="button"
+						class={[step, 'text-white']}
+						onclick={() => book?.climbTo(CRUMB_GOES.portion, reading?.portion)}
+					>
+						{reading.section}
+					</button>
+				{/if}
+				{#if reading?.book}
+					<span class="text-white/25" aria-hidden="true">›</span>
+					<button
+						type="button"
+						class={[step, 'text-white/90']}
+						onclick={() => book?.climbTo(CRUMB_GOES.book, reading?.bookIndex)}
+					>
+						{reading.book}
+					</button>
+				{/if}
+				{#if reading?.chapter}
+					<span class="text-white/25" aria-hidden="true">›</span>
+					<span class="font-hebrew text-white">{reading.chapter}</span>
+				{/if}
+				{#if reading?.verse}
+					<span class="text-white/25" aria-hidden="true">›</span>
+					<span class="font-hebrew text-white">{reading.verse}</span>
+				{/if}
+			{:else if crumbs}
 				<span class="font-hebrew text-white">{crumbs.section}</span>
 				{#if crumbs.book}
 					<span class="text-white/25" aria-hidden="true">›</span>

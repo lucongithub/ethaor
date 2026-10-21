@@ -1102,8 +1102,10 @@ canvas, or the mobile browser intercepts everything.
 
 ### Book view
 
-**The same Tanakh, read by scrolling** — a button in the sidebar switches,
-and the button names where it goes (`Book mode`, `Map mode`, in its tip).
+**The same Tanakh, read by scrolling** — two buttons in the sidebar, the
+map's then the book's (`Map mode`, `Book mode`, in their tips): the view
+shown is pressed, full white on a faint plate, and the other switches to it.
+Rejected: one button naming where it goes — the rail never said where one was.
 
 - **The browser lays the text out.** A web page's reading is what is asked
   for — reflow, selection, copy, find in page, the screen reader — and that
@@ -1131,12 +1133,17 @@ and the button names where it goes (`Book mode`, `Map mode`, in its tip).
   `text-2xl` from `lg`) times the reader's zoom (`--zoom`, a scale kept in
   `localStorage`), the browser computing the pixels the page then reads.
   The column is 34 of that size, so the zoom widens it with the text.
-- **A button at the bottom right goes up a level** (`up`), four in all:
-  the text; its book's chapters alone; the portions with every book's name;
-  the three portions alone, as the map opens. Each goes back down where it
-  is touched — a portion to its books, a book to its chapters, a chapter to
-  its text. Gone at the top. The names come from the module's map part
-  (`contents_record`, twin of `GET /api/contents`): no text waited for.
+- **The breadcrumb is the way up** (`CRUMB_GOES`, `trail`), four levels in
+  all: the text; its book's chapters alone; the portions with every book's
+  name; the three portions alone, as the map opens. Its first step, `תנ״ך`,
+  leads to the portions alone, a portion to its books, a book to its
+  chapters; above the text it names the level — the book and its portion
+  over the chapters, `תנ״ך` alone over the books and the portions. Each
+  level goes back down where it is touched — a portion to its books, a book
+  to its chapters, a chapter to its text. Rejected, by the owner: a button
+  at the bottom right going up one level at a time. The names come from the
+  module's map part (`contents_record`, twin of `GET /api/contents`): no
+  text waited for.
 - **The map's opening draws the three portions at the book view's size**
   (`set_portion_size`): the size is the book's Tailwind steps
   (`PORTION_TEXT` in `portions.ts`, one string for both), measured by the
@@ -1267,7 +1274,7 @@ anywhere must be an assertion.
 | `src/tests/text.rs` | one size per chapter; lines recompose the verse **byte for byte**; every line stays a corpus slice; letters right-to-left |
 | `src/tests/api.rs` | the interface the page really calls, global state under a lock: gestures, selection, breadcrumb at centre and under pointer, a mouse gone names nothing, forgetting measurements, probes; the search through the query buffer; the landing exports take a tile as the page writes it; the page searches a stretch of verses (`els_search_in`); a panic leaves its place and message for the page; every chapter read from its record as the book view reads it; the place handed back and forth |
 | `src/tests/handoff.rs` | every chapter shown is read and named back, its verse at the centre; on nine windows once measured; `here` never deeper than the image; a chapter out of range moves nothing |
-| `web/src/lib/book-view.test.ts` | every chapter read from the real module with its names and verses, the other reading cut out as its own parts, the two forms of a pair sharing their reading; nothing read before a chapter lands; heights estimated from text, size and column; the text's size stepped within bounds; chapters not in grouped into runs; the window around the screen within the Tanakh |
+| `web/src/lib/book-view.test.ts` | every chapter read from the real module with its names and verses, the other reading cut out as its own parts, the two forms of a pair sharing their reading; nothing read before a chapter lands; heights estimated from text, size and column; the text's size stepped within bounds; chapters not in grouped into runs; the window around the screen within the Tanakh; the breadcrumb's steps lead each to its level, and name the book and its portion below the books alone |
 | `src/els/tests.rs` | the stream is every verse read letter by letter; postings, residue lists and planes say what the stream says; **every method equals trying every start and every skip**, on random streams of every size and range; the cap keeps the first hits in (skip, start) order with the exact total; two letters counted without listing; the cost model picks the measured winner; radix sort; placement tables; memo; finals and pointing fold; an occurrence across two verses; every record placed where its hit is; `תורה` every fiftieth letter from the first tav; time budget; `hits` is the records unplaced, from the same memory; a scoped search finds exactly what lies wholly in its stretch, tried one by one; the whole stretch is the plain search; the cost is estimated without searching and tells a flood from a light query |
 | `src/pack/tests.rs` | the packed corpus unpacks to the working form **byte for byte**; the map alone holds names, labels and counts and reserves the text's room; the packed form is a fraction of the working one; Hebrew numerals; label exceptions carry only what breaks the rule; varints |
 | `web/src/lib/text-open.test.ts` | gzip opened byte for byte, from a view too; a Range asks `from..to` end excluded, and a server ignoring it is read only as far as needed; the lanes take each item once, never more at once than their count, and choose each item when a lane frees — so the view's move is seen; every decoded fragment keyed apart, a verse past a kilobyte included |

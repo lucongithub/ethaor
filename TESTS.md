@@ -534,8 +534,8 @@ name, what it holds (its doc comment), and its nature.
           - `reaches around the screen within the Tanakh` — The chapters laid out run a few each way past those on screen, never past the Tanakh's ends, in either order of the two. <sub>page logic, on the real artifacts</sub>
         - module `the contents` · vitest
           - `come whole from the module before any text` — Read from a module no text has landed in: the three portions, the 39 books each under its portion, their chapters tiling the 929 in order, every chapter numbered — all there before any verse. <sub>page logic, on the real artifacts</sub>
-        - module `up` · vitest
-          - `climbs one level at a time to the portions` — The text goes up to its book's chapters, the chapters to the books, the books to the portions, and the portions are the top. <sub>page logic, on the real artifacts</sub>
+        - module `the breadcrumb` · vitest
+          - `names the book and its portion below the books, and leads each step to its level` — The Tanakh leads to the portions alone, a portion to the books, a book to its chapters; the text and a book's chapters name the book and its portion, the two levels showing the whole Tanakh nothing under it. <sub>page logic, on the real artifacts</sub>
         - module `the hand-over between the views` · vitest
           - `lands each level on its own` — The map's depth opens the book on its level — its chapters' numbers on the books, as its framing does — and the book hands each level back to its depth: the text to its passage (3), a book's chapters to the map's chapters (2), the books to the framing (1), the portions alone to the overview (0). <sub>page logic, on the real artifacts</sub>
       - [`fault.test.ts`](web/src/lib/fault.test.ts) — 12 tests — covers [`web/src/lib/fault.ts`](web/src/lib/fault.ts)

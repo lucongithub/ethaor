@@ -235,11 +235,30 @@ export function readContents(
  */
 export type Level = 'text' | 'chapters' | 'books' | 'portions';
 
-const LEVELS: Level[] = ['text', 'chapters', 'books', 'portions'];
+/** The breadcrumb's first step, the whole Tanakh: in the book view, its top. */
+export const TANAKH = 'תנ״ך';
 
-/** One level up from `level`; `null` from the portions, the top. */
-export function up(level: Level): Level | null {
-	return LEVELS[LEVELS.indexOf(level) + 1] ?? null;
+/**
+ * Where each step of the book view's breadcrumb leads: the Tanakh to the
+ * three portions alone, a portion to the portions with every book's name,
+ * a book to its chapters.
+ */
+export const CRUMB_GOES = { tanakh: 'portions', portion: 'books', book: 'chapters' } as const;
+
+/**
+ * The steps the breadcrumb names under the Tanakh at a level, as indices
+ * (-1 for none): the text and a book's chapters name that book and its
+ * portion; the books and the portions alone, which show the whole Tanakh,
+ * nothing more.
+ */
+export function trail(
+	contents: Contents,
+	level: Level,
+	book: number
+): { portion: number; book: number } {
+	const b = contents.books[book];
+	if (!b || level === 'books' || level === 'portions') return { portion: -1, book: -1 };
+	return { portion: b.section, book };
 }
 
 /**

@@ -6,6 +6,9 @@
 		book: string;
 		chapter: string;
 		verse: string;
+		/** The portion and the book the breadcrumb names, -1 for none: each leads to its level. */
+		portion: number;
+		bookIndex: number;
 	}
 </script>
 
@@ -17,10 +20,9 @@
 	// page: the text takes Tailwind's type scale, stepped up at each
 	// breakpoint, times the reader's zoom (`--zoom`), kept for the next visit.
 	//
-	// The button at the bottom right goes up a level: from the text to its
-	// book's chapters, then to the portions with every book's name, then to
-	// the three portions alone — and each level goes back down where it is
-	// touched.
+	// The breadcrumb goes up (`climbTo`): the book to its chapters, the
+	// portion to the portions with every book's name, the Tanakh to the three
+	// portions alone — and each level goes back down where it is touched.
 	//
 	// The 929 chapters are all in the page, but only those near the screen are
 	// laid out; the others keep their height — measured once laid, estimated
@@ -34,7 +36,7 @@
 		estimate,
 		kept,
 		SIZE,
-		up,
+		trail,
 		zoomed,
 		type Chapter,
 		type Level
@@ -183,12 +185,15 @@
 			return;
 		}
 		const verse = text.verses.find((v) => v.index === at.verse);
+		const steps = trail(contents, 'text', text.book);
 		const reading: Reading = {
 			place: at,
 			section: text.sectionName,
 			book: text.bookName,
 			chapter: text.label,
-			verse: verse?.label ?? ''
+			verse: verse?.label ?? '',
+			portion: steps.portion,
+			bookIndex: steps.book
 		};
 		last = at;
 		const key = `${at.chapter}|${at.verse}`;
@@ -324,9 +329,28 @@
 		return { place: { chapter, verse: -1 }, level };
 	}
 
+	// Above the text, the breadcrumb says the level: the book whose chapters
+	// are shown and its portion, or the Tanakh alone over the books and the
+	// portions.
+	$effect(() => {
+		if (level === 'text') return;
+		const steps = trail(contents, level, opened);
+		onreading({
+			place: { chapter: contents.books[opened]?.first ?? 0, verse: -1 },
+			section: contents.portions[steps.portion] ?? '',
+			book: contents.books[steps.book]?.name ?? '',
+			chapter: '',
+			verse: '',
+			portion: steps.portion,
+			bookIndex: steps.book
+		});
+	});
+
 	/** Shows a level above the text, the reader's place in it marked and focused. */
 	async function enter(next: Level, portion = -1) {
 		level = next;
+		// Back at the text, the place read is said again, even unchanged.
+		lastReading = '';
 		await tick();
 		const focus = (...selectors: string[]) => {
 			const found = selectors
@@ -424,15 +448,18 @@
 		above.scrollTo({ top: aim, behavior: 'smooth' });
 	}
 
-	/** One level up: the book's chapters, the books, then the portions alone. */
-	function climb() {
-		const next = up(level);
-		if (!next) return;
+	/**
+	 * Up to a level from the breadcrumb: a book's chapters (`index` the
+	 * book), the books (`index` the portion revealed), the portions alone.
+	 * Left from the text, the chapter read is what the levels mark.
+	 */
+	export function climbTo(next: Exclude<Level, 'text'>, index = -1) {
 		if (level === 'text') {
 			current = here().chapter;
 			opened = Math.max(0, bookOf(contents, current));
 		}
-		void enter(next);
+		if (next === 'chapters' && index >= 0) opened = index;
+		void enter(next, next === 'books' ? index : -1);
 	}
 
 	/** The books of a portion, from the portions alone. */
@@ -835,38 +862,5 @@
 				{/each}
 			</div>
 		</div>
-	{/if}
-
-	<!-- One level up — the book's chapters, the books, the portions alone — from
-     the bottom right corner, clear of the safe areas. Gone at the top. -->
-	{#if level !== 'portions'}
-		<button
-			type="button"
-			dir="ltr"
-			lang="en"
-			aria-label={level === 'text'
-				? 'Up to the chapters'
-				: level === 'chapters'
-					? 'Up to the books'
-					: 'Up to the three portions'}
-			class="absolute right-[calc(1rem+env(safe-area-inset-right))] bottom-[calc(1rem+env(safe-area-inset-bottom))]
-		       grid size-11 cursor-pointer place-items-center rounded-full border border-white/15 bg-black/80
-		       text-white/70 backdrop-blur transition-colors duration-150 hover:border-white/40 hover:text-white
-		       focus-visible:border-white/60 focus-visible:text-white focus-visible:outline-none sm:size-12"
-			onclick={climb}
-		>
-			<svg
-				viewBox="0 0 24 24"
-				class="size-5"
-				fill="none"
-				stroke="currentColor"
-				stroke-width="1.75"
-				stroke-linecap="round"
-				stroke-linejoin="round"
-				aria-hidden="true"
-			>
-				<path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" />
-			</svg>
-		</button>
 	{/if}
 </div>

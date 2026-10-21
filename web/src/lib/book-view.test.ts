@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
 	bookOf,
+	CRUMB_GOES,
 	estimate,
 	fromMap,
 	kept,
@@ -12,9 +13,11 @@ import {
 	SIZE_MAX,
 	SIZE_MIN,
 	SIZE_STEP,
-	up,
+	TANAKH,
+	trail,
 	zoomed,
-	type Chapter
+	type Chapter,
+	type Contents
 } from './book-view';
 import { block, booksShuffled, read } from './tests/artifacts';
 
@@ -56,6 +59,16 @@ function chapterOf(module: Module, chapter: number): Chapter | null {
 	const text = (offset: number, length: number) =>
 		decoder.decode(new Uint8Array(module.memory.buffer, module.text_ptr() + offset, length));
 	return readChapter(chapter, record, text);
+}
+
+/** The contents read as the bridge reads them. */
+function contentsOf(module: Module): Contents {
+	const words = module.contents_record();
+	const record = new Uint32Array(module.memory.buffer, module.contents_ptr(), words).slice();
+	const decoder = new TextDecoder();
+	return readContents(record, (offset, length) =>
+		decoder.decode(new Uint8Array(module.memory.buffer, module.text_ptr() + offset, length))
+	);
 }
 
 describe('a chapter read from the module', () => {
@@ -224,13 +237,7 @@ describe('the contents', () => {
 	// books each under its portion, their chapters tiling the 929 in order,
 	// every chapter numbered — all there before any verse.
 	it('come whole from the module before any text', () => {
-		const module = fresh();
-		const words = module.contents_record();
-		const record = new Uint32Array(module.memory.buffer, module.contents_ptr(), words).slice();
-		const decoder = new TextDecoder();
-		const contents = readContents(record, (offset, length) =>
-			decoder.decode(new Uint8Array(module.memory.buffer, module.text_ptr() + offset, length))
-		);
+		const contents = contentsOf(fresh());
 		expect(contents.portions).toEqual(['תורה', 'נביאים', 'כתובים']);
 		expect(contents.books.length).toBe(39);
 		expect(contents.labels.length).toBe(929);
@@ -258,14 +265,20 @@ describe('the contents', () => {
 	});
 });
 
-describe('up', () => {
-	// The text goes up to its book's chapters, the chapters to the books, the
-	// books to the portions, and the portions are the top.
-	it('climbs one level at a time to the portions', () => {
-		expect(up('text')).toBe('chapters');
-		expect(up('chapters')).toBe('books');
-		expect(up('books')).toBe('portions');
-		expect(up('portions')).toBeNull();
+describe('the breadcrumb', () => {
+	// The Tanakh leads to the portions alone, a portion to the books, a book
+	// to its chapters; the text and a book's chapters name the book and its
+	// portion, the two levels showing the whole Tanakh nothing under it.
+	it('names the book and its portion below the books, and leads each step to its level', () => {
+		const contents = contentsOf(fresh());
+		expect(TANAKH).toBe('תנ״ך');
+		expect(CRUMB_GOES).toEqual({ tanakh: 'portions', portion: 'books', book: 'chapters' });
+		expect(trail(contents, 'text', 26)).toEqual({ portion: 2, book: 26 });
+		expect(trail(contents, 'chapters', 0)).toEqual({ portion: 0, book: 0 });
+		expect(trail(contents, 'chapters', 5)).toEqual({ portion: 1, book: 5 });
+		expect(trail(contents, 'books', 26)).toEqual({ portion: -1, book: -1 });
+		expect(trail(contents, 'portions', 26)).toEqual({ portion: -1, book: -1 });
+		expect(trail(contents, 'text', 39)).toEqual({ portion: -1, book: -1 });
 	});
 });
 
