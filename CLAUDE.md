@@ -202,6 +202,7 @@ is ignored whole and the log says why — half a file is worse than none.
 | `ETHAOR_IP_BURST_MS`, `ETHAOR_IP_RATE_MS` | 3000, 300 | each client's budget, and per second back |
 | `ETHAOR_TRUST_PROXY` | off | client named by the proxy's headers |
 | `ETHAOR_VERBOSE` | off | faults log their whole escalation and stack |
+| `ETHAOR_OPEN` | off | the default browser opens the page once listening |
 
 A new setting goes in this table, in `Config`, in `env.md` (every value and its effect, for whoever sets them), and in a test that reads it.
 

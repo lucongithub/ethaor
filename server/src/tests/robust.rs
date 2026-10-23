@@ -67,6 +67,7 @@ fn a_bad_setting_falls_back() {
                 "ETHAOR_IP_RATE_MS" => "NaN",
                 "ETHAOR_TRUST_PROXY" => "maybe",
                 "ETHAOR_LOGS_TOKEN" => "short",
+                "ETHAOR_OPEN" => "maybe",
                 _ => return None,
             }
             .to_string(),
@@ -78,5 +79,17 @@ fn a_bad_setting_falls_back() {
     assert_eq!(config.ip_rate_ms, d.ip_rate_ms);
     assert!(!config.trust_proxy);
     assert_eq!(config.logs_token, None);
+    assert!(!config.open);
     assert_eq!(Config::from_vars(|_| None), d, "nothing set does not give the defaults");
+}
+
+/// The browser opens only when asked: off by default, on with `1`, `true`
+/// or `yes`, as every on/off setting.
+#[test]
+fn the_browser_opens_only_when_asked() {
+    assert!(!Config::default().open);
+    for on in ["1", "true", " yes "] {
+        let config = Config::from_vars(|name| (name == "ETHAOR_OPEN").then(|| on.to_string()));
+        assert!(config.open, "`{on}` does not open the browser");
+    }
 }

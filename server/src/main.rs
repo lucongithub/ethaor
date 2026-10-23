@@ -60,6 +60,12 @@ async fn main() {
         if config.logs_token.is_some() {
             tracing::info!("logs at {url}logs/ (the page asks the token, or add ?token=)");
         }
+        // Degraded, not down: no browser, and the address above still opens it.
+        if config.open
+            && let Err(e) = ethaor_server::open_browser(&url)
+        {
+            tracing::warn!(%url, error = %e, "cannot open the browser: open the address by hand");
+        }
     }
     let service = app(&root, &config).into_make_service_with_connect_info::<SocketAddr>();
     if let Err(e) = axum::serve(listener, service).with_graceful_shutdown(stopped()).await {

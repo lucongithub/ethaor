@@ -77,6 +77,9 @@ pub struct Config {
     /// The bearer token `GET /api/logs` asks for (`ETHAOR_LOGS_TOKEN`).
     /// Unset, the endpoint is off: logs name clients.
     pub logs_token: Option<String>,
+    /// Whether the default browser opens the page once the service listens
+    /// (`ETHAOR_OPEN=1`): for a copy started by a double click.
+    pub open: bool,
 }
 
 impl Default for Config {
@@ -91,6 +94,7 @@ impl Default for Config {
             trust_proxy: false,
             verbose: false,
             logs_token: None,
+            open: false,
         }
     }
 }
@@ -128,6 +132,7 @@ impl Config {
             trust_proxy: var("ETHAOR_TRUST_PROXY").is_some_and(|v| matches!(v.trim(), "1" | "true" | "yes")),
             verbose: var("ETHAOR_VERBOSE").is_some_and(|v| matches!(v.trim(), "1" | "true" | "yes")),
             logs_token: var("ETHAOR_LOGS_TOKEN").filter(|t| t.trim().len() >= 16),
+            open: var("ETHAOR_OPEN").is_some_and(|v| matches!(v.trim(), "1" | "true" | "yes")),
         }
     }
 }

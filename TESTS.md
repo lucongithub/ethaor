@@ -16,9 +16,9 @@ name, what it holds (its doc comment), and its nature.
 | Rust core, module-private | 7 | 114 | 1 | 21 |
 | Rust app (`src/tests/`) | 11 | 151 | 0 | 12 |
 | Corpus build (`tests/`) | 1 | 31 | 0 | 15 |
-| Server (`server/`) | 15 | 81 | 1 | 12 |
+| Server (`server/`) | 15 | 82 | 1 | 12 |
 | Page (`web/`) | 8 | 62 | 0 | 0 |
-| **total** | **42** | **439** | **2** | **60** |
+| **total** | **42** | **440** | **2** | **60** |
 
 ## By file
 
@@ -113,12 +113,13 @@ name, what it holds (its doc comment), and its nature.
           - `the_page_and_the_api_read_the_same_chapter` — The book view and the API read a chapter alike: what the page reads from the module's record (`src/wasm/chapter.rs`) and what `/api/chapter` answers are the same verses, shown the same, the same forms the other edition's — on chapters holding another reading, and a stride through the rest. <sub>service, called in memory · parity WebAssembly ↔ API · async</sub>
           - `the_page_and_the_api_list_the_same_contents` — The book view and the API list the same contents: what the page reads from `contents_record` and what `/api/contents` answers are the same portions, books and chapters, named alike. <sub>service, called in memory · parity WebAssembly ↔ API · async</sub>
           - `the_page_and_the_api_keep_to_the_same_verses` — Scoped, too: the page's `els_search_in` over a stretch of verses and the API's scope over the same verses find the same hits. <sub>service, called in memory · parity WebAssembly ↔ API · async</sub>
-      - [`robust.rs`](server/src/tests/robust.rs) — 3 tests
+      - [`robust.rs`](server/src/tests/robust.rs) — 4 tests
         <br>The service never goes down for a request: a panic is answered and the next request served, an engine that panicked is replaced, a bad setting falls back to its default.
         - module `tests::robust` · ethaor-server
           - `a_panic_is_answered_and_the_service_goes_on` — A handler that panics gets a JSON 500, logged — and the same service answers the next request. <sub>service, called in memory · async</sub>
           - `an_engine_that_panicked_is_replaced` — A search that panics: its caller gets a numbered fault whose origin is the panic's own line and message, the pool's step after it; its engine is dropped rather than lent again half-written, and the pool goes on. <sub>service, called in memory · async</sub>
           - `a_bad_setting_falls_back` — A setting that is not a positive number is ignored for its default; a burst below the heaviest search is raised to it; a short token is no token. <sub>service, called in memory</sub>
+          - `the_browser_opens_only_when_asked` — The browser opens only when asked: off by default, on with `1`, `true` or `yes`, as every on/off setting. <sub>service, called in memory</sub>
       - [`routes.rs`](server/src/tests/routes.rs) — 4 tests
         <br>Under `/api`, every answer is JSON — a wrong path, a wrong method, a slash too many — and many callers at once get what each would alone.
         - module `tests::routes` · ethaor-server
@@ -633,7 +634,7 @@ helper is often held by the test of its caller — but each is a question the
 - [`server/src/api/guard.rs`](server/src/api/guard.rs): `charge`
 - [`server/src/api/report.rs`](server/src/api/report.rs): `code_of`, `receive`
 - [`server/src/fault.rs`](server/src/fault.rs): `fmt`, `into_response`, `respond`, `retry_after`, `set_verbose`
-- [`server/src/lib.rs`](server/src/lib.rs): `trace`
+- [`server/src/lib.rs`](server/src/lib.rs): `open_browser`, `trace`
 - [`server/src/logs.rs`](server/src/logs.rs): `init_with`, `install`, `level_of`, `on_event`, `on_new_span`, `prune`, `read_range`, `record_bool`, `record_debug`, `record_f64`, `record_i64`, `record_str`, `record_u64`, `test_dir`
 - [`src/els.rs`](src/els.rs): `forget_answers`, `index_of`
 - [`src/els/index.rs`](src/els/index.rs): `make_room`

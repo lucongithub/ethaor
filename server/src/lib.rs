@@ -37,6 +37,29 @@ pub fn browse_url(addr: std::net::SocketAddr) -> String {
     format!("http://{}/", std::net::SocketAddr::new(host, addr.port()))
 }
 
+/// Opens `url` in the system's default browser, without waiting for it.
+pub fn open_browser(url: &str) -> std::io::Result<()> {
+    #[cfg(windows)]
+    let mut command = {
+        let mut c = std::process::Command::new("rundll32");
+        c.args(["url.dll,FileProtocolHandler", url]);
+        c
+    };
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut c = std::process::Command::new("open");
+        c.arg(url);
+        c
+    };
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = {
+        let mut c = std::process::Command::new("xdg-open");
+        c.arg(url);
+        c
+    };
+    command.spawn().map(drop)
+}
+
 /// The whole service, tuned by `config`: `/api/…`, then the files of `root`
 /// for every other path.
 pub fn app(root: &Path, config: &config::Config) -> Router {

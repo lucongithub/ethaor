@@ -114,7 +114,9 @@ Generate a token: `openssl rand -base64 32`, or in PowerShell
 | `ETHAOR_IP_RATE_MS` | `300` | `300` · `1000000` lifted | what it earns back per second. A request costs 1; a search not in the cache costs its estimate too. Past it: 429 `rate_limited` with `Retry-After` |
 | `ETHAOR_TRUST_PROXY` | off | `1` | name the client by the proxy's header (`CF-Connecting-IP`, else the first `X-Forwarded-For` address). **Only behind a proxy that sets them** (Cloudflare, a load balancer), or anyone could pick a fresh budget |
 
-On/off settings (`ETHAOR_VERBOSE`, `ETHAOR_TRUST_PROXY`): `1`, `true` or
+| `ETHAOR_OPEN` | off | `1` | the default browser opens the page once the server listens — for a copy started by a double click. A browser that cannot be opened is logged, and the server goes on |
+
+On/off settings (`ETHAOR_VERBOSE`, `ETHAOR_TRUST_PROXY`, `ETHAOR_OPEN`): `1`, `true` or
 `yes` turns them on; anything else leaves them off.
 
 ## Recipes
