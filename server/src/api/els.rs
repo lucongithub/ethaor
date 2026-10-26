@@ -57,6 +57,9 @@ impl State {
 #[serde(deny_unknown_fields)]
 pub struct Params {
     pub word: String,
+    /// Exact letters (final forms): `ם` and `מ` told apart.
+    #[serde(default)]
+    pub exact: bool,
     #[serde(default)]
     pub skip_min: u32,
     /// `skip_min` when absent: one skip.
@@ -83,6 +86,7 @@ impl Params {
         )?;
         Ok(els::Query {
             word: self.word.clone(),
+            exact: self.exact,
             skip_min: self.skip_min,
             skip_max: self.skip_max.unwrap_or(self.skip_min),
             offset: self.offset,
@@ -137,6 +141,11 @@ fn schema(max_limit: usize, default_limit: usize) -> Value {
                 "type": "string",
                 "description": "Hebrew word; vowel points and non-Hebrew characters are ignored.",
             },
+            "exact": {
+                "type": "boolean", "default": false,
+                "description": "Exact letters (final forms): a final form matches only itself — ם a final \
+                    mem, מ a non-final one. Off, final forms are folded (ם = מ).",
+            },
             "skip_min": {
                 "type": "integer", "minimum": 0, "default": 0,
                 "description": "Smallest number of letters skipped between two letters of the word.",
@@ -183,7 +192,8 @@ fn schema(max_limit: usize, default_limit: usize) -> Value {
 
 const SEARCH: &str = "Equidistant letter sequence search: finds a Hebrew word spelled across the Tanakh by \
     taking one letter, skipping `skip` letters, taking the next, and so on. Skip 0 is the word as written. \
-    Only consonants count (no spaces, vowel points or verse breaks); final forms are folded (ם = מ). The \
+    Only consonants count (no spaces, vowel points or verse breaks); final forms are folded (ם = מ) unless \
+    `exact` tells them apart. The \
     search may be kept to a portion, a book, a chapter or a stretch from one passage to another: an \
     occurrence then counts only if all its letters lie there. Hits come in (skip, start) order; `total` is \
     exact even when only the first `listed` can be paged through. A search estimated too heavy is refused \
@@ -316,8 +326,9 @@ impl Scope {
 #[derive(Serialize, Debug, Clone, PartialEq)]
 pub struct Echo {
     pub word: String,
-    /// The word as searched: consonants only, finals folded.
+    /// The word as searched: consonants only, finals folded unless exact.
     pub letters: String,
+    pub exact: bool,
     pub skip_min: u32,
     pub skip_max: u32,
     pub offset: usize,
@@ -331,6 +342,7 @@ impl Echo {
         Echo {
             word: query.word.clone(),
             letters: letters.into(),
+            exact: query.exact,
             skip_min: query.skip_min,
             skip_max: query.skip_max,
             offset: query.offset,
@@ -507,7 +519,7 @@ pub async fn stream(
         for chunk in found.hits.chunks(CHUNK) {
             let mut bytes = Vec::with_capacity(chunk.len() * 600);
             for &(start, skip) in chunk {
-                let hit = Hit::of(&els::place(start, skip, span_letters));
+                let hit = Hit::of(&els::place(start, skip, span_letters, query.exact));
                 if let Ok(json) = serde_json::to_vec(&hit) {
                     bytes.extend_from_slice(&json);
                     bytes.push(b'\n');

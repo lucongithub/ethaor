@@ -27,7 +27,7 @@
 	// The 929 chapters are all in the page, but only those near the screen are
 	// laid out; the others keep their height — measured once laid, estimated
 	// before — so the scroll never moves under the reader.
-	import { onMount, tick } from 'svelte';
+	import { onMount, tick, untrack } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import type { Book, Place, Selection } from '$lib/ethaor';
 	import {
@@ -43,12 +43,14 @@
 	} from '$lib/book-view';
 	import { escalate, reporter, type Fault } from '$lib/fault';
 	import { PORTION_TEXT } from '$lib/portions';
+	import { COLORS, type Marked } from '$lib/marks';
 
 	let {
 		book,
 		start,
 		startLevel = 'text',
 		landed,
+		searches = [],
 		onreading,
 		onform,
 		onselect,
@@ -60,6 +62,8 @@
 		startLevel?: Level;
 		/** Bumped whenever verses land: the chapters near the screen are read again. */
 		landed: number;
+		/** The searches kept: their letters coloured in the text, their dots by the names above it. */
+		searches?: Marked[];
 		onreading: (reading: Reading | null) => void;
 		/** The pointer is on one of the two forms, ours `¹` or theirs `[…]²`, or has left it. */
 		onform: (on: boolean) => void;
@@ -134,6 +138,31 @@
 		fill(true);
 		void tick().then(land);
 	});
+
+	// A search kept, shown, hidden or removed: the chapters read are read
+	// again, their found letters cut anew. A colour changed needs no reading.
+	const marking = $derived(searches.map((m) => `${m.slot}:${m.shown}:${m.total}`).join('|'));
+	let marked = '';
+	$effect(() => {
+		if (marking === marked) return;
+		marked = marking;
+		untrack(() => fill(true));
+	});
+
+	/** The colour a slot's search wears while shown. */
+	function tint(slot: number): string | undefined {
+		const search = slot < 0 ? undefined : searches.find((m) => m.slot === slot);
+		return search?.shown ? COLORS[search.color] : undefined;
+	}
+
+	/** The colours of the dots by a portion's, book's or chapter's name. */
+	function dots(level: 0 | 1 | 2, index: number): string[] {
+		if (!searches.some((m) => m.shown && m.total)) return [];
+		return book
+			.marks(level, index)
+			.map(tint)
+			.filter((c): c is string => c !== undefined);
+	}
 
 	function placeholder(chapter: number): number {
 		const known = heights.get(chapter);
@@ -653,6 +682,52 @@
 	const opensPortion = (text: Chapter) => text.opens && [0, 5, 26].includes(text.book);
 </script>
 
+<!-- A search's dots, as the map draws them: beside a name, where Hebrew
+     ends, in the search's colour; under a chapter's number, its cell too
+     narrow beside it. Sized in the name's own em, so they follow its step. -->
+{#snippet beside(colors: string[])}
+	{#if colors.length}<span
+			class="ms-[0.3em] inline-flex gap-[0.12em] align-middle"
+			aria-hidden="true"
+			>{#each colors as color, k (k)}<span
+					class="size-[0.26em] rounded-full"
+					style:background-color={color}
+				></span>{/each}</span
+		>{/if}
+{/snippet}
+
+<!-- The same, out of the flow: the three portions alone keep the place the
+     map's opening gives them, to the pixel, dots or none — inline, the dots
+     widened the block and moved it off the map's. Sized and spaced as the
+     map draws them (`DOT_RADIUS`, `DOT_GAP`, `DOT_SPACE`, `DOT_RISE`). -->
+{#snippet outside(colors: string[])}
+	<!-- Hung on the name's own baseline, as the map hangs them: each dot an
+	     empty inline block, which sits on the baseline by its bottom margin —
+	     its centre 0.30 em above it, where the canvas sets it (its baseline
+	     0.36 em under the line's middle, the dot `DOT_RISE` under it),
+	     whatever the font's metrics. Centring on the line box put them a
+	     little low. -->
+	{#if colors.length}<span
+			class="absolute top-0 right-full mr-[0.35em] whitespace-nowrap"
+			aria-hidden="true"
+			>{#each colors as color, k (k)}<span
+					class="mb-[0.17em] inline-block size-[0.26em] rounded-full align-baseline not-first:ms-[0.117em]"
+					style:background-color={color}
+				></span>{/each}</span
+		>{/if}
+{/snippet}
+
+{#snippet under(colors: string[])}
+	{#if colors.length}<span
+			class="absolute inset-x-0 bottom-[0.2em] flex justify-center gap-[0.12em]"
+			aria-hidden="true"
+			>{#each colors as color, k (k)}<span
+					class="size-[0.24em] rounded-full"
+					style:background-color={color}
+				></span>{/each}</span
+		>{/if}
+{/snippet}
+
 <!-- `touch-action: pan-y`: one finger scrolls natively, two size the text.
      Focusable, as a scrolled region must be for the keys to scroll it, and
      named with its keys like the map's canvas. -->
@@ -724,7 +799,10 @@
 												data-form={`${verse.index}.${part.reading}`}
 												class={lit === `${verse.index}.${part.reading}` ? 'text-yellow-200' : ''}
 												>{part.text}</span
-											>{:else if part.marked}<span data-form={`${verse.index}.${part.reading}`}
+											>{:else if part.marked}<span
+												data-form={`${verse.index}.${part.reading}`}
+												style:color={tint(part.slot)}>{part.text}</span
+											>{:else if tint(part.slot)}<span style:color={tint(part.slot)}
 												>{part.text}</span
 											>{:else}{part.text}{/if}
 									{/each}
@@ -772,13 +850,13 @@
 							<h2
 								class="pt-6 pb-4 text-xl leading-tight text-white xl:text-2xl 2xl:text-3xl min-[120rem]:text-4xl"
 							>
-								{contents.portions[b.section]}
+								{contents.portions[b.section]}{@render beside(dots(0, b.section))}
 							</h2>
 						{/if}
 						<h3
 							class="pb-3 text-lg leading-tight text-white/78 xl:text-xl 2xl:text-2xl min-[120rem]:text-3xl"
 						>
-							{b.name}
+							{b.name}{@render beside(dots(1, b.index))}
 						</h3>
 						<ol class="grid grid-cols-6 gap-1 sm:grid-cols-10 xl:grid-cols-12">
 							{#each { length: b.end - b.first }, k (k)}
@@ -790,7 +868,7 @@
 										aria-current={c === current ? 'location' : undefined}
 										aria-label={`${b.name} ${contents.labels[c]}`}
 										class={[
-											'grid h-9 w-full cursor-pointer place-items-center rounded text-base transition-colors duration-150',
+											'relative grid h-9 w-full cursor-pointer place-items-center rounded text-base transition-colors duration-150',
 											'xl:h-10 xl:text-lg 2xl:h-11 2xl:text-xl min-[120rem]:h-12 min-[120rem]:text-2xl',
 											'focus-visible:outline-1 focus-visible:outline-white/60',
 											c === current
@@ -799,7 +877,7 @@
 										]}
 										onclick={() => go(c)}
 									>
-										{contents.labels[c]}
+										{contents.labels[c]}{@render under(dots(2, c))}
 									</button>
 								</li>
 							{/each}
@@ -834,7 +912,7 @@
 				{#each contents.portions as portion, p (p)}
 					<section data-portion={p} class="pb-6 last:pb-0 xl:pb-8">
 						<h2 class="pb-2 text-xl leading-tight xl:text-2xl 2xl:text-3xl min-[120rem]:text-4xl">
-							{portion}
+							{portion}{@render beside(dots(0, p))}
 						</h2>
 						<ul class="-mx-2 grid grid-cols-2 gap-x-4 sm:grid-cols-3">
 							{#each contents.books.filter((b) => b.section === p) as b (b.index)}
@@ -853,7 +931,7 @@
 										]}
 										onclick={() => openBook(b.index)}
 									>
-										{b.name}
+										{b.name}{@render beside(dots(1, b.index))}
 									</button>
 								</li>
 							{/each}
@@ -887,11 +965,11 @@
 						type="button"
 						data-portion-button={p}
 						aria-current={p === openedPortion ? 'location' : undefined}
-						class="cursor-pointer rounded text-white focus-visible:outline-1 focus-visible:outline-offset-[0.15em]
+						class="relative cursor-pointer rounded text-white focus-visible:outline-1 focus-visible:outline-offset-[0.15em]
 						       focus-visible:outline-white/60"
 						onclick={() => openPortion(p)}
 					>
-						{portion}
+						{portion}{@render outside(dots(0, p))}
 					</button>
 				{/each}
 			</div>

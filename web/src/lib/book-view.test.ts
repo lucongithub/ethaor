@@ -35,6 +35,11 @@ interface Module {
 	chapter_record_ptr(): number;
 	contents_record(): number;
 	contents_ptr(): number;
+	marks_buffer(words: number): number;
+	marks_set(slot: number, span: number): number;
+	marks_clear(slot: number): void;
+	chapter_marks(chapter: number): number;
+	chapter_marks_ptr(): number;
 }
 
 function fresh(): Module {
@@ -51,14 +56,20 @@ function land(module: Module, first: number, end: number, codes: Uint8Array) {
 }
 
 /** A chapter read as the bridge reads it: record copied, strings decoded by bytes. */
-function chapterOf(module: Module, chapter: number): Chapter | null {
+function chapterOf(module: Module, chapter: number, inked = false): Chapter | null {
 	const words = module.chapter_record(chapter);
 	if (words === 0) return null;
 	const record = new Uint32Array(module.memory.buffer, module.chapter_record_ptr(), words).slice();
 	const decoder = new TextDecoder();
 	const text = (offset: number, length: number) =>
 		decoder.decode(new Uint8Array(module.memory.buffer, module.text_ptr() + offset, length));
-	return readChapter(chapter, record, text);
+	const found = [];
+	if (inked) {
+		const n = module.chapter_marks(chapter);
+		const t = new Uint32Array(module.memory.buffer, module.chapter_marks_ptr(), n * 3);
+		for (let i = 0; i < t.length; i += 3) found.push({ from: t[i], to: t[i + 1], slot: t[i + 2] });
+	}
+	return readChapter(chapter, record, text, found);
 }
 
 /** The contents read as the bridge reads them. */
@@ -104,6 +115,59 @@ describe('a chapter read from the module', () => {
 		expect([genesis.bookName, genesis.sectionName, genesis.label]).toEqual(['בראשית', 'תורה', 'א']);
 		const first = genesis.verses[0].parts.map((p) => p.text).join('');
 		expect(first.replace(/[֑-ׇ]/g, '')).toMatch(/^בראשית ברא אלהים/);
+	});
+
+	// A search's letters, marked as the bridge hands them, are cut out of our
+	// parts with their slot; the verse reads the same whole, and a chapter of
+	// the other reading keeps its forms apart — found letters never theirs.
+	it("cuts a search's found letters out of our parts, with its slot", () => {
+		// One hit, as the search module records it: the first verse's letters
+		// 3 to 5, and in a verse holding the other reading, its last two.
+		const plain = chapterOf(module, 0)!;
+		const carrying = Array.from({ length: 929 }, (_, c) => chapterOf(module, c)!).find((c) =>
+			c.verses.some((v) => v.parts.some((p) => p.theirs))
+		)!;
+		const verse = carrying.verses.find((v) => v.parts.some((p) => p.theirs))!;
+		const ours = verse.parts
+			.filter((p) => !p.theirs)
+			.map((p) => p.text)
+			.join('');
+		const letters = (ours.match(/[א-ת]/g) ?? []).length;
+		const mark = (slot: number, verseIndex: number, rank: number, span: number) => {
+			const at = module.marks_buffer(7);
+			new Uint32Array(module.memory.buffer, at, 7).set([0, 0, 0, 0, verseIndex, rank, verseIndex]);
+			expect(module.marks_set(slot, span)).toBeGreaterThan(0);
+		};
+		mark(2, plain.verses[0].index, 3, 3);
+		mark(4, verse.index, letters - 2, 2);
+
+		for (const [before, slot, want] of [
+			[plain, 2, 3],
+			[carrying, 4, 2]
+		] as const) {
+			const after = chapterOf(module, before.index, true)!;
+			for (const [k, v] of after.verses.entries()) {
+				expect(v.parts.map((p) => p.text).join('')).toBe(
+					before.verses[k].parts.map((p) => p.text).join('')
+				);
+				expect(v.parts.filter((p) => p.theirs)).toEqual(
+					before.verses[k].parts.filter((p) => p.theirs)
+				);
+			}
+			const inked = after.verses.flatMap((v) => v.parts.filter((p) => p.slot >= 0));
+			expect(inked.every((p) => p.slot === slot && !p.theirs)).toBe(true);
+			expect(
+				inked
+					.map((p) => p.text)
+					.join('')
+					.match(/[א-ת]/g)?.length
+			).toBe(want);
+		}
+		module.marks_clear(2);
+		module.marks_clear(4);
+		expect(
+			chapterOf(module, 0, true)!.verses.every((v) => v.parts.every((p) => p.slot === -1))
+		).toBe(true);
 	});
 
 	// The other edition's forms are cut out of the verse as their own parts —

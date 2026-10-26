@@ -27,8 +27,11 @@ const LETTERS: [char; ALPHABET] = [
 /// What a caller asks. Hashable: a server keys its answers by it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Query {
-    /// Hebrew; marks are ignored and final forms folded.
+    /// Hebrew; marks are ignored and final forms folded — unless `exact`.
     pub word: String,
+    /// Exact letters (final forms): `ם` matches a final mem only, `מ` a
+    /// non-final one. Off, the two are one letter.
+    pub exact: bool,
     /// Letters jumped between two letters of the word, from `skip_min` to
     /// `skip_max` inclusive; 0 reads the word as written.
     pub skip_min: u32,
@@ -103,7 +106,7 @@ impl Refusal {
 pub struct Letter {
     /// Its rank among every consonant of the Tanakh, from 0.
     pub rank: u32,
-    /// The consonant, final forms folded.
+    /// The consonant, final forms folded — or as written, searched exactly.
     pub char: char,
     /// The verse it lies in, global index.
     pub verse: usize,
@@ -132,7 +135,7 @@ impl Hit {
 /// A page of hits and the exact count behind it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Page {
-    /// The word as searched: consonants only, finals folded.
+    /// The word as searched: consonants only, finals folded unless exact.
     pub letters: String,
     /// Every hit, counted.
     pub total: u64,
@@ -159,7 +162,7 @@ pub fn check(query: &Query) -> Result<String, Refusal> {
 /// `check`, with another bound on `limit` — a stream lists up to `CAP`.
 pub fn check_up_to(query: &Query, max_limit: usize) -> Result<String, Refusal> {
     let mut codes = Vec::new();
-    els::pattern(&query.word, &mut codes);
+    els::pattern_of(&query.word, query.exact, &mut codes);
     if codes.is_empty() {
         return Err(Refusal::NoLetter);
     }
@@ -177,7 +180,12 @@ pub fn check_up_to(query: &Query, max_limit: usize) -> Result<String, Refusal> {
     if !corpus::has_text() {
         return Err(Refusal::TextMissing);
     }
-    Ok(codes.iter().map(|&c| LETTERS[c as usize]).collect())
+    Ok(codes.iter().map(|&c| char_of(c, query.exact)).collect())
+}
+
+/// The consonant a code stands for in the stream searched.
+fn char_of(code: u8, exact: bool) -> char {
+    if exact { char::from_u32(0x05D0 + code as u32).unwrap_or('?') } else { LETTERS[code as usize] }
 }
 
 /// The scope a caller names, at most one way: a portion (`torah`), a book
@@ -239,6 +247,7 @@ pub fn letters_of(scope: Option<(usize, usize)>) -> std::ops::Range<usize> {
 /// What a query is expected to cost, in V8 milliseconds, without running
 /// it. Refuses it past `limit_ms`.
 pub fn admit(engine: &mut Engine, query: &Query, limit_ms: f64) -> Result<f64, Refusal> {
+    engine.exact = query.exact;
     let estimate_ms = engine.cost(&query.word, query.skip_min, query.skip_max, letters_of(query.scope)) / 1e6;
     if estimate_ms > limit_ms {
         return Err(Refusal::TooCostly { estimate_ms, limit_ms });
@@ -246,14 +255,15 @@ pub fn admit(engine: &mut Engine, query: &Query, limit_ms: f64) -> Result<f64, R
     Ok(estimate_ms)
 }
 
-/// One hit, placed: each letter's rank, consonant, verse and rank there.
-pub fn place(start: u32, skip: u32, span: usize) -> Hit {
-    let stream = els::stream();
+/// One hit, placed: each letter's rank, consonant, verse and rank there —
+/// the consonant as the stream searched reads it.
+pub fn place(start: u32, skip: u32, span: usize, exact: bool) -> Hit {
+    let stream = els::stream_of(exact);
     let letters = (0..span)
         .map(|i| {
             let rank = start as usize + i * (skip as usize + 1);
             let (verse, position) = reference::letter(rank);
-            Letter { rank: rank as u32, char: LETTERS[stream[rank] as usize], verse, position: position as u32 }
+            Letter { rank: rank as u32, char: char_of(stream[rank], exact), verse, position: position as u32 }
         })
         .collect();
     Hit { skip, letters }
@@ -272,6 +282,7 @@ pub struct Found {
 /// Searches, and keeps the pairs of `limit` hits from `offset`.
 pub fn find(engine: &mut Engine, query: &Query, max_limit: usize) -> Result<Found, Refusal> {
     let letters = check_up_to(query, max_limit)?;
+    engine.exact = query.exact;
     let range = letters_of(query.scope);
     let (total, found) = engine.hits_in(&query.word, query.skip_min, query.skip_max, range);
     let listed = found.len();
@@ -286,6 +297,6 @@ pub fn find(engine: &mut Engine, query: &Query, max_limit: usize) -> Result<Foun
 pub fn search(engine: &mut Engine, query: &Query) -> Result<Page, Refusal> {
     let found = find(engine, query, MAX_LIMIT)?;
     let span = found.letters.chars().count();
-    let hits = found.hits.iter().map(|&(start, skip)| place(start, skip, span)).collect();
+    let hits = found.hits.iter().map(|&(start, skip)| place(start, skip, span, query.exact)).collect();
     Ok(Page { letters: found.letters, total: found.total, listed: found.listed, offset: query.offset, hits })
 }

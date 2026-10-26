@@ -30,3 +30,55 @@ export function pick(
 export function picked(selection: { word: string; head: string }): number {
 	return selection.word ? words(selection.head).length - 1 : -1;
 }
+
+/** A letter a search found in the verse: a byte range of it, and the slot. */
+export interface Found {
+	from: number;
+	to: number;
+	slot: number;
+}
+
+/** A piece of a word: its text, and the slot that found it, or -1. */
+export interface Run {
+	text: string;
+	slot: number;
+}
+
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+
+/**
+ * The verse's words, each cut into the runs the searches found and those
+ * between: what the passage draws, the found letters in their colour. The
+ * module gives byte ranges of the verse; a run is cut by bytes, never in the
+ * decoded string, and a word without a find stays one run.
+ */
+export function inked(verse: string, found: readonly Found[]): Run[][] {
+	let at = 0;
+	return words(verse).map((word) => {
+		const bytes = encoder.encode(word);
+		const [start, end] = [at, at + bytes.length];
+		at = end + 1;
+		const cuts = found
+			.filter((f) => f.to > start && f.from < end)
+			.map((f) => ({
+				from: Math.max(f.from, start) - start,
+				to: Math.min(f.to, end) - start,
+				slot: f.slot
+			}))
+			.sort((a, b) => a.from - b.from);
+		const runs: Run[] = [];
+		let cursor = 0;
+		const piece = (from: number, to: number, slot: number) =>
+			runs.push({ text: decoder.decode(bytes.subarray(from, to)), slot });
+		for (const cut of cuts) {
+			const from = Math.max(cut.from, cursor);
+			if (cut.to <= from) continue;
+			if (from > cursor) piece(cursor, from, -1);
+			piece(from, cut.to, cut.slot);
+			cursor = cut.to;
+		}
+		if (cursor < bytes.length || runs.length === 0) piece(cursor, bytes.length, -1);
+		return runs;
+	});
+}

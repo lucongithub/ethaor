@@ -14,6 +14,10 @@ pub(crate) const KIND_TEXT: f32 = 1.0;
 /// neighbours, even if a badly measured width makes it overflow.
 pub(crate) const KIND_CLIP: f32 = 2.0;
 pub(crate) const KIND_UNCLIP: f32 = 3.0;
+/// A search's dot beside a name: centre, radius, its slot as the ink. The
+/// one mark that is not a letter, and it carries information too: this
+/// chapter, book or portion holds what the search found.
+pub(crate) const KIND_DOT: f32 = 4.0;
 
 /// Ink of a text command, last slot of the record.
 ///
@@ -25,6 +29,30 @@ pub(crate) const KIND_UNCLIP: f32 = 3.0;
 /// the module only says which run is which.
 pub(crate) const INK_OURS: f32 = 0.0;
 pub(crate) const INK_OTHER: f32 = 1.0;
+/// A search's letters, and its dots: `INK_MARK + slot`. The page gives each
+/// slot the colour its search wears.
+pub(crate) const INK_MARK: f32 = 2.0;
+
+/// A dot's radius, its gap from the name and from the next dot, in shares
+/// of the name's size; and how far above the box's middle its centre sits,
+/// at the height of a letter's body rather than of the line.
+pub(crate) const DOT_RADIUS: f32 = 0.13;
+const DOT_GAP: f32 = 0.35;
+const DOT_SPACE: f32 = 0.9;
+const DOT_RISE: f32 = 0.06;
+/// How far under a chapter number's baseline its dots' centres sit, in
+/// shares of its size: in the room the cell leaves below the digits.
+const DOT_DROP: f32 = 0.3;
+/// A dot smaller than this, in pixels, is not seen: not drawn.
+pub(crate) const DOT_MIN: f32 = 0.5;
+
+/// A title's text, with the searches holding its place, as bits: their dots
+/// go by it.
+#[derive(Clone, Copy)]
+struct Named {
+    text: &'static str,
+    marks: u8,
+}
 
 /// Sizes of one level. Every drawn world has its own.
 #[derive(Clone, Copy)]
@@ -59,15 +87,8 @@ impl App {
     ///
     /// It stays clipped to its box: too long for a small book, it is trimmed
     /// rather than biting into its neighbour.
-    fn title(
-        &mut self,
-        content: &'static str,
-        box_: Rect,
-        band: Rect,
-        size: f32,
-        full: bool,
-        alpha: f32,
-    ) {
+    fn title(&mut self, name: Named, box_: Rect, band: Rect, size: f32, full: bool, alpha: f32) {
+        let Named { text: content, marks } = name;
         if alpha <= 0.01 || size < MIN_TEXT || !self.visible(band) {
             return;
         }
@@ -107,7 +128,57 @@ impl App {
         // the chapters: the title is anchored at the bottom of its band.
         self.clip(Rect { x: box_.x, y: 0.0, w: box_.w, h: self.height });
         self.emit_text(content, area, size, alpha);
+        if marks != 0 {
+            // A title filling its box has no room beside it: its dots go
+            // under it, in the room the box leaves below the letters.
+            let w = self.width_of(content, size).min(area.w);
+            let right = area.x + area.w;
+            if full {
+                self.dots_under(marks, right - w / 2.0, area.y + area.h / 2.0 + size * 0.36, size);
+            } else {
+                self.dots(marks, right - w, box_.x, area, size);
+            }
+        }
         self.unclip();
+    }
+
+    /// The dots of the slots in `marks`, laid leftwards from `left` — the
+    /// left end of a name, where Hebrew ends — on the name's box, at its size,
+    /// and never past `bound`: where the room is short, they shrink into it.
+    fn dots(&mut self, marks: u8, left: f32, bound: f32, area: Rect, size: f32) {
+        let n = marks.count_ones() as f32;
+        let wanted = size * (DOT_GAP + n * 2.0 * DOT_RADIUS + (n - 1.0) * DOT_RADIUS * DOT_SPACE);
+        let k = ((left - bound) / wanted).min(1.0);
+        let y = area.y + area.h / 2.0 + size * DOT_RISE;
+        self.dot_row(marks, left - size * DOT_GAP * k, y, size * DOT_RADIUS * k);
+    }
+
+    /// The dots of a name, in a row under its baseline, centred on `middle`.
+    /// A chapter's number has them there — a cell is square, and beside its
+    /// number there is no room — and five fit in the cell's width: every cell
+    /// and every number share one size, so they fit everywhere.
+    fn dots_under(&mut self, marks: u8, middle: f32, baseline: f32, size: f32) {
+        let n = marks.count_ones() as f32;
+        let wide = size * DOT_RADIUS * (n * 2.0 + (n - 1.0) * DOT_SPACE);
+        self.dot_row(marks, middle + wide / 2.0, baseline + size * DOT_DROP, size * DOT_RADIUS);
+    }
+
+    /// A row of dots of radius `r` on the line `y`, the first one's right
+    /// edge at `right`, lowest slot first.
+    fn dot_row(&mut self, marks: u8, right: f32, y: f32, r: f32) {
+        if r < DOT_MIN {
+            return;
+        }
+        let mut edge = right;
+        for slot in 0..MARK_SLOTS {
+            if marks & (1 << slot) == 0 {
+                continue;
+            }
+            let x = edge - r;
+            self.commands
+                .extend_from_slice(&[KIND_DOT, x, y, r, r, 1.0, 0.0, 0.0, 0.0, INK_MARK + slot as f32]);
+            edge = x - r - r * DOT_SPACE;
+        }
     }
 
     /// Lays a fragment, set on the right edge of its box, at an imposed size.
@@ -391,7 +462,13 @@ impl App {
             let cards = self.cards(camera);
             for section in 0..3 {
                 let area = cards.area(section);
-                self.emit_text(corpus::section_name(section), area, cards.size, alpha);
+                let name = corpus::section_name(section);
+                self.emit_text(name, area, cards.size, alpha);
+                let marks = self.section_marks(section);
+                if marks != 0 {
+                    let w = self.width_of(name, cards.size);
+                    self.dots(marks, area.x + area.w - w, area.x, area, cards.size);
+                }
             }
             return;
         }
@@ -416,7 +493,8 @@ impl App {
                 w: (band.x + band.w).min(self.width) - band.x.max(0.0),
                 ..band
             };
-            self.title(corpus::section_name(section), pinned, strip, scale.section, false, alpha);
+            let name = Named { text: corpus::section_name(section), marks: self.section_marks(section) };
+            self.title(name, pinned, strip, scale.section, false, alpha);
 
             let (first, last) = (treemap::SECTIONS[section].1, treemap::SECTIONS[section].2);
             for book in first..last {
@@ -483,12 +561,18 @@ impl App {
                 let ink = self.ratio(label) * scale.chapter;
                 let area = Rect { w: (cell.w + ink) / 2.0, ..cell };
                 self.emit_text(label, area, scale.chapter, alpha * CHAPTER_INK);
+                let marks = self.chapter_marks(chapter);
+                if marks != 0 {
+                    let baseline = area.y + area.h / 2.0 + scale.chapter * 0.36;
+                    self.dots_under(marks, cell.x + cell.w / 2.0, baseline, scale.chapter);
+                }
             }
         }
 
         let strip = camera.project(self.layout.book_bands[book]);
         let full = !scale.show_chapters;
-        self.title(corpus::book_name(book), rect, strip, scale.book, full, alpha * BOOK_INK);
+        let name = Named { text: corpus::book_name(book), marks: self.book_marks(book) };
+        self.title(name, rect, strip, scale.book, full, alpha * BOOK_INK);
     }
 
     /// A chapter or verse number beside the text, flush right in its area and
@@ -508,44 +592,51 @@ impl App {
     /// The size comes from the layout, not from the box: all the verses of a
     /// chapter share the same one, a long verse taking several lines rather than
     /// smaller characters.
-    /// Draws a line, cut at the readings of the other edition.
     ///
-    /// A verse carrying one is drawn from its display string, where the other
-    /// form already takes its place in the flow — so nothing is ever painted
-    /// over anything. The line is then cut into runs, ours and theirs, each
-    /// with its own ink; a line without a variant stays one single command, as
-    /// before.
+    /// The line is cut into runs where its ink changes: the other edition's
+    /// reading, and the letters a shown search found. A verse carrying a
+    /// reading is drawn from its display string, where the other form already
+    /// takes its place in the flow — so nothing is ever painted over anything.
+    /// A line with neither stays one single command.
     pub(crate) fn draw_line(&mut self, line: Line, row: Rect, scale: f32, alpha: f32) {
         let size = line.size * scale;
         if size < MIN_TEXT {
             return;
         }
 
-        let Some(shown) = variant::display(line.verse) else {
-            self.emit_text(line.text, row, size, alpha);
-            return;
-        };
-
+        let shown = super::text::drawn(line.verse);
         let start = corpus::offset_of(line.text) - corpus::offset_of(shown);
         let end = start + line.text.len();
-        let mut right = row.x + row.w;
-        let mut cursor = start;
 
+        let mut cuts = std::mem::take(&mut self.cuts);
+        cuts.clear();
         for insert in variant::inserts_of(line.verse) {
             let (at, len) = insert.other_range();
-            let (from, to) = (at.max(start), (at + len).min(end));
+            cuts.push((at, at + len, INK_OTHER));
+        }
+        self.verse_marks(line.verse, &mut cuts);
+        // Stable: of two searches on one letter, the lower slot keeps it.
+        cuts.sort_by_key(|cut| cut.0);
+
+        let mut right = row.x + row.w;
+        let mut cursor = start;
+        for &(at, until, ink) in &cuts {
+            let (from, to) = (at.max(cursor), until.min(end));
             if to <= from {
                 continue;
             }
             if from > cursor {
                 right = self.emit_run(&shown[cursor..from], row, right, size, alpha, INK_OURS);
             }
-            right = self.emit_run(&shown[from..to], row, right, size, alpha, INK_OTHER);
+            right = self.emit_run(&shown[from..to], row, right, size, alpha, ink);
             cursor = to;
         }
-        if cursor < end {
+        if cursor == start {
+            self.emit_text(line.text, row, size, alpha);
+        } else if cursor < end {
             self.emit_run(&shown[cursor..end], row, right, size, alpha, INK_OURS);
         }
+        self.cuts = cuts;
     }
 }
 

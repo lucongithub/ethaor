@@ -45,7 +45,14 @@ async fn the_els_schemas_are_what_the_endpoints_take() {
         let base: Vec<(&str, &str)> = properties
             .keys()
             .filter(|k| !scope.contains(&k.as_str()))
-            .map(|k| (k.as_str(), if k == "word" { "תורה" } else { "1" }))
+            .map(|k| {
+                let value = match (k.as_str(), properties[k]["type"].as_str()) {
+                    ("word", _) => "תורה",
+                    (_, Some("boolean")) => "true",
+                    _ => "1",
+                };
+                (k.as_str(), value)
+            })
             .collect();
         for way in [&[("portion", "torah")][..], &[("book", "Gen")], &[("chapter", "Gen.1")], &[("from", "Gen.1"), ("to", "Gen.2")]] {
             let mut pairs = base.clone();

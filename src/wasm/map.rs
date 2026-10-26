@@ -90,8 +90,9 @@ pub extern "C" fn hover(x: f32, y: f32) -> i32 {
 pub extern "C" fn select(x: f32, y: f32) -> u32 {
     let app = app();
     let (wx, wy) = app.camera.to_world(x, y);
+    let place = app.pick_place(wx, wy);
     let picked = app.pick(wx, wy);
-    keep(app, picked)
+    keep(app, picked, place.map(|(_, verse)| verse))
 }
 
 /// The book view's click, where the browser laid the verse out: the same
@@ -103,20 +104,42 @@ pub extern "C" fn select(x: f32, y: f32) -> u32 {
 #[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn select_verse(verse: u32) -> u32 {
     let picked = App::pick_in_verse(verse as usize);
-    keep(app(), picked)
+    keep(app(), picked, Some(verse as usize))
 }
 
-fn keep(app: &mut App, picked: Option<[u32; 6]>) -> u32 {
-    match picked {
-        Some(selection) => {
+/// The found letters of the verse selected: `(from, to, slot)` triples.
+static mut SELECTION_MARKS: Vec<u32> = Vec::new();
+
+#[allow(static_mut_refs)]
+fn keep(app: &mut App, picked: Option<[u32; 6]>, verse: Option<usize>) -> u32 {
+    let marks = unsafe { &mut SELECTION_MARKS };
+    marks.clear();
+    match (picked, verse) {
+        (Some(selection), Some(verse)) => {
             app.selection = selection;
+            app.passage_marks(verse, marks);
             1
         }
-        None => {
+        _ => {
             app.selection = [0; 6];
             0
         }
     }
+}
+
+/// How many found letters the passage selected holds: `(from, to, slot)`
+/// triples at `selection_marks_ptr`, in bytes of its verse — the selection's
+/// own text — for the searches shown, lowest slot first.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+#[allow(static_mut_refs)]
+pub extern "C" fn selection_marks_len() -> u32 {
+    unsafe { (SELECTION_MARKS.len() / 3) as u32 }
+}
+
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+#[allow(static_mut_refs)]
+pub extern "C" fn selection_marks_ptr() -> *const u32 {
+    unsafe { SELECTION_MARKS.as_ptr() }
 }
 
 /// Fills `focus_ptr`: section, book, chapter and verse under the **centre of
@@ -475,4 +498,81 @@ pub extern "C" fn book_first_chapter(book: u32) -> u32 {
 #[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn book_end_chapter(book: u32) -> u32 {
     corpus::chapters_of(book as usize).end as u32
+}
+
+// --------------------------------------------------------------------- marks
+
+/// A search's hits as the search module left them, until `marks_set` places
+/// them.
+static mut MARKS_IN: Vec<u32> = Vec::new();
+
+/// Searches the map marks at once; the page keeps no more.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+pub extern "C" fn marks_slots() -> u32 {
+    MARK_SLOTS as u32
+}
+
+/// Room for `words` words of hit records: where the page copies a search's
+/// `els_hits` before `marks_set`.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+#[allow(static_mut_refs)]
+pub extern "C" fn marks_buffer(words: u32) -> *mut u32 {
+    super::fault::guard();
+    unsafe {
+        MARKS_IN.clear();
+        MARKS_IN.resize(words as usize, 0);
+        MARKS_IN.as_mut_ptr()
+    }
+}
+
+/// Marks in slot `slot` the hits written at `marks_buffer` — `els_stride`
+/// words each, `span` letters per hit — shown at once; the page then asks for
+/// a frame. Returns the runs placed, 0 for a slot out of range.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+#[allow(static_mut_refs)]
+pub extern "C" fn marks_set(slot: u32, span: u32) -> u32 {
+    let records = unsafe { core::mem::take(&mut MARKS_IN) };
+    app().set_marks(slot as usize, &records, span as usize) as u32
+}
+
+/// Shows (1) or hides (0) a slot's marks, keeping them.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+pub extern "C" fn marks_show(slot: u32, on: u32) {
+    app().show_marks(slot as usize, on != 0);
+}
+
+/// Forgets a slot's marks.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+pub extern "C" fn marks_clear(slot: u32) {
+    app().clear_marks(slot as usize);
+}
+
+/// The found letters of the chapter the book view last read.
+static mut CHAPTER_MARKS: Vec<u32> = Vec::new();
+
+/// The letters the shown searches found in a chapter, as the book view
+/// shows it: `(from, to, slot)` triples at `chapter_marks_ptr`, offsets in
+/// the corpus text of its verses as shown — the strings of its record. The
+/// count of triples; 0 for none, or a chapter not landed.
+///
+/// No endpoint twin: a search's marks live in the page, kept by its reader.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+#[allow(static_mut_refs)]
+pub extern "C" fn chapter_marks(chapter: u32) -> u32 {
+    let out = unsafe { &mut CHAPTER_MARKS };
+    app().book_marks_of(chapter as usize, out);
+    (out.len() / 3) as u32
+}
+
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+#[allow(static_mut_refs)]
+pub extern "C" fn chapter_marks_ptr() -> *const u32 {
+    unsafe { CHAPTER_MARKS.as_ptr() }
+}
+
+/// The shown searches holding a place, as bits of their slots: a portion
+/// (`level` 0), a book (1) or a chapter (2) — the book view's dots.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+pub extern "C" fn marks_at(level: u32, index: u32) -> u32 {
+    app().place_marks(level, index as usize) as u32
 }

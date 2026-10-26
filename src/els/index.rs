@@ -5,7 +5,7 @@
 //! built once with the index; residue lists and planes are built on demand,
 //! per letter and gap, and kept for the next query.
 
-use crate::letter::ALPHABET;
+use crate::letter::FORMS;
 
 /// Planes or residue lists kept before the cache is emptied: a plane is one
 /// bit per letter of the stream, so this bounds the cache to a few megabytes.
@@ -13,10 +13,11 @@ const KEEP: usize = 48;
 
 pub struct Index<'t> {
     pub text: &'t [u8],
-    pub freq: [u32; ALPHABET],
+    /// Occurrences of each code: 22 folded letters, or the 27 forms.
+    pub freq: [u32; FORMS],
     /// Every position of every letter, grouped by letter, ascending in a group.
     post: Vec<u32>,
-    post_at: [u32; ALPHABET + 1],
+    post_at: [u32; FORMS + 1],
     residues: Vec<Residues>,
     planes: Vec<Plane>,
 }
@@ -51,12 +52,12 @@ pub struct Plane {
 impl<'t> Index<'t> {
     pub fn new(text: &'t [u8]) -> Index<'t> {
         assert!(text.len() < 1 << 31, "the stream goes past the index addressing");
-        let mut freq = [0u32; ALPHABET];
+        let mut freq = [0u32; FORMS];
         for &c in text {
             freq[c as usize] += 1;
         }
-        let mut post_at = [0u32; ALPHABET + 1];
-        for c in 0..ALPHABET {
+        let mut post_at = [0u32; FORMS + 1];
+        for c in 0..FORMS {
             post_at[c + 1] = post_at[c] + freq[c];
         }
         let mut fill = post_at;

@@ -13,10 +13,10 @@ use super::els;
 static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
 
 /// The search exactly as `search-core.ts` drives it.
-fn as_the_page(word: &str, skip_min: u32, skip_max: u32) -> (f64, Vec<u32>) {
+fn as_the_page(word: &str, skip_min: u32, skip_max: u32, exact: bool) -> (f64, Vec<u32>) {
     let _hold = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     unsafe { core::ptr::copy_nonoverlapping(word.as_ptr(), els_query_ptr(), word.len()) };
-    let total = els_search(word.len() as u32, skip_min, skip_max);
+    let total = els_search(word.len() as u32, skip_min, skip_max, exact as u32);
     let n = els_hits_len() as usize * STRIDE;
     (total, unsafe { core::slice::from_raw_parts(els_hits_ptr(), n) }.to_vec())
 }
@@ -24,20 +24,26 @@ fn as_the_page(word: &str, skip_min: u32, skip_max: u32) -> (f64, Vec<u32>) {
 #[tokio::test]
 async fn the_page_and_the_api_find_the_same_hits() {
     // A word as written, a range, one letter, a long word, a flood past the
-    // cap, and skips running past the stream.
+    // cap, skips running past the stream — and exact letters, a final and
+    // its non-final form apart.
     let cases = [
-        ("אָדָם", 0, 0),
-        ("תורה", 40, 60),
-        ("א", 3, 3),
-        ("שלמה", 0, 5),
-        ("ירושלים", 100, 400),
-        ("את", 0, 200),
-        ("אב", 2_000_000, u32::MAX),
+        ("אָדָם", 0, 0, false),
+        ("תורה", 40, 60, false),
+        ("א", 3, 3, false),
+        ("שלמה", 0, 5, false),
+        ("ירושלים", 100, 400, false),
+        ("את", 0, 200, false),
+        ("אב", 2_000_000, u32::MAX, false),
+        ("אָדָם", 0, 0, true),
+        ("אדמ", 0, 0, true),
+        ("מלך", 0, 30, true),
+        ("ם", 0, 0, true),
     ];
-    for (word, skip_min, skip_max) in cases {
-        let (total, records) = as_the_page(word, skip_min, skip_max);
+    for (word, skip_min, skip_max, exact) in cases {
+        let (total, records) = as_the_page(word, skip_min, skip_max, exact);
         let json = els(&[
             ("word", word),
+            ("exact", if exact { "true" } else { "false" }),
             ("skip_min", &skip_min.to_string()),
             ("skip_max", &skip_max.to_string()),
             ("limit", &MAX_LIMIT.to_string()),
@@ -167,7 +173,7 @@ async fn the_page_and_the_api_keep_to_the_same_verses() {
         let (total, records) = {
             let _hold = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
             unsafe { core::ptr::copy_nonoverlapping(word.as_ptr(), els_query_ptr(), word.len()) };
-            let total = els_search_in(word.len() as u32, skip_min, skip_max, first, end);
+            let total = els_search_in(word.len() as u32, skip_min, skip_max, first, end, 0);
             let n = els_hits_len() as usize * STRIDE;
             (total, unsafe { core::slice::from_raw_parts(els_hits_ptr(), n) }.to_vec())
         };

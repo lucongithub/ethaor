@@ -8,6 +8,7 @@ mod camera;
 mod frame;
 mod hit;
 mod landing;
+mod marks;
 mod measure;
 mod settings;
 mod text;
@@ -20,6 +21,7 @@ use crate::{corpus, letter, variant};
 pub(crate) use camera::*;
 pub(crate) use frame::*;
 pub(crate) use hit::*;
+pub(crate) use marks::*;
 pub(crate) use measure::*;
 pub(crate) use settings::*;
 pub(crate) use text::*;
@@ -98,6 +100,12 @@ pub(crate) struct App {
     /// Tiles to fetch, as `tiles_wanted` leaves them for the page: per run of
     /// chapters, first, end, and its byte range in the opened text part.
     pub(crate) tiles: Vec<u32>,
+    /// The searches the page keeps, one per slot: their letters inked, their
+    /// places dotted.
+    pub(crate) marks: [Marks; MARK_SLOTS],
+    /// Where a line is cut into runs, reused from line to line: `(from, to,
+    /// ink)` in bytes of the string it is drawn from.
+    cuts: Vec<(usize, usize, f32)>,
 }
 
 impl App {
@@ -134,6 +142,8 @@ impl App {
             asked: vec![false; corpus::chapter_count()],
             books_asked: vec![false; corpus::book_count()],
             tiles: Vec::new(),
+            marks: Default::default(),
+            cuts: Vec::new(),
         };
         app.base = app.base_scale();
         app.fit();

@@ -81,3 +81,20 @@ async fn a_stream_left_stops() {
     }
     assert!(left, "the stream went on without a caller");
 }
+
+/// **A stream of exact letters places each letter as written**: its head
+/// says it searched exactly, and every hit spells the word with its final.
+#[tokio::test]
+async fn an_exact_stream_keeps_the_finals() {
+    let pairs = [("word", "אדם"), ("exact", "true")];
+    let answer = get(api_only(), &format!("/api/els/stream?{}", query(&pairs)), &[]).await;
+    assert_eq!(answer.status, StatusCode::OK);
+    let lines = lines(&answer.body);
+    assert_eq!(lines[0]["query"]["exact"], true);
+    let hits = &lines[1..lines.len() - 1];
+    assert!(!hits.is_empty());
+    for hit in hits {
+        let spelled: String = hit["letters"].as_array().unwrap().iter().map(|l| l["char"].as_str().unwrap()).collect();
+        assert_eq!(spelled, "אדם");
+    }
+}

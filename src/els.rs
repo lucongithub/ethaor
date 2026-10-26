@@ -13,6 +13,10 @@
 //! — book, chapter, verse, rank inside the verse — derives from the rank
 //! through the verse starts recorded with the stream.
 //!
+//! **Exact letters** read a second stream, the same consonants with their
+//! final forms told apart (`exact_stream`): `אדמ` then finds a non-final mem
+//! only. It is read off the text at its first search, its index built then.
+//!
 //! How hits are found is `method`'s business, over indices `index` derives
 //! from the stream in memory; this module folds the query, bounds the output
 //! and places each hit in the text.
@@ -27,7 +31,7 @@ use std::ops::Range;
 use std::sync::OnceLock;
 
 use crate::corpus;
-use crate::letter::{self, ALPHABET};
+use crate::letter::{self, FORMS};
 use method::{Query, count_pairs, run};
 
 /// Words of a hit record, a contract with the page: the rank of the first
@@ -77,16 +81,39 @@ pub fn stream() -> &'static [u8] {
     &letters().stream
 }
 
+static EXACT: OnceLock<Vec<u8>> = OnceLock::new();
+
+/// The same consonants, final forms told apart (`letter::exact_code`): one
+/// byte for one byte of `stream`, so a rank and the verse starts are the
+/// same in both. Read off the text at the first exact search.
+pub fn exact_stream() -> &'static [u8] {
+    EXACT.get_or_init(|| {
+        assert!(corpus::has_text(), "letters asked before the text");
+        let mut out = Vec::with_capacity(stream().len());
+        for v in 0..corpus::verse_count() {
+            out.extend(corpus::verse_text(v).chars().filter_map(letter::exact_code));
+        }
+        out
+    })
+}
+
+/// The stream a search reads: folded, or exact.
+pub fn stream_of(exact: bool) -> &'static [u8] {
+    if exact { exact_stream() } else { stream() }
+}
+
 /// Rank of each verse's first letter in the stream, with a closing sentinel.
 pub fn verse_starts() -> &'static [u32] {
     &letters().starts
 }
 
-/// Folds a query into the stream's code: consonants only, finals folded. A
-/// pointed query and a bare one are the same search.
-pub fn pattern(query: &str, out: &mut Vec<u8>) {
+/// Codes a query in the stream it searches: consonants only, finals folded
+/// — or each its own, `exact`. A pointed query and a bare one are the same
+/// search.
+pub fn pattern_of(query: &str, exact: bool, out: &mut Vec<u8>) {
     out.clear();
-    out.extend(query.chars().filter_map(letter::code));
+    let code = if exact { letter::exact_code } else { letter::code };
+    out.extend(query.chars().filter_map(code));
 }
 
 /// Finds `pattern` with any skip in `skip0..=skip1` and writes the hits as
@@ -107,7 +134,7 @@ pub fn hits(
     out.clear();
     let (n, m) = (index.text.len(), pattern.len());
     assert!(n < 1 << START_BITS, "the stream overflows the occurrences' key");
-    if m == 0 || n == 0 || skip0 > skip1 || pattern.iter().any(|&c| c as usize >= ALPHABET) {
+    if m == 0 || n == 0 || skip0 > skip1 || pattern.iter().any(|&c| c as usize >= FORMS) {
         return 0;
     }
     if m == 1 {
@@ -315,6 +342,8 @@ pub fn cost(f: &Features) -> f64 {
 /// and where each hit falls.
 pub struct Engine {
     pub index: Index<'static>,
+    /// The exact stream's index, built at the first exact search.
+    exact_index: Option<Index<'static>>,
     /// Indices over a stretch of the stream, for searches kept to it — the
     /// last few, most recent first.
     scoped: Vec<Index<'static>>,
@@ -324,6 +353,8 @@ pub struct Engine {
     chapter_of_verse: Vec<u16>,
     book_of_chapter: Vec<u8>,
     pub force: Option<Method>,
+    /// Final forms told apart: the next searches read the exact stream.
+    pub exact: bool,
     codes: Vec<u8>,
     /// The last answers, most recent first: a query asked again — a redraw,
     /// a step back — is not searched again.
@@ -338,6 +369,7 @@ struct Answer {
     skips: (u32, u32),
     letters: (usize, usize),
     force: Option<Method>,
+    exact: bool,
     total: u64,
     hits: Vec<(u32, u32)>,
 }
@@ -382,11 +414,13 @@ impl Engine {
         }
         Engine {
             index: Index::new(stream()),
+            exact_index: None,
             scoped: Vec::new(),
             verse_at_block,
             chapter_of_verse,
             book_of_chapter,
             force: None,
+            exact: false,
             codes: Vec::new(),
             memo: Vec::new(),
             runs: 0,
@@ -424,10 +458,14 @@ impl Engine {
     pub fn hits_in(&mut self, query: &str, skip0: u32, skip1: u32, letters: Range<usize>) -> (u64, &[(u32, u32)]) {
         let n = stream().len();
         let letters = letters.start.min(n)..letters.end.min(n).max(letters.start.min(n));
-        pattern(query, &mut self.codes);
+        pattern_of(query, self.exact, &mut self.codes);
         let key = (letters.start, letters.end);
         let asked = |a: &Answer| {
-            a.codes == self.codes && a.skips == (skip0, skip1) && a.letters == key && a.force == self.force
+            a.codes == self.codes
+                && a.skips == (skip0, skip1)
+                && a.letters == key
+                && a.force == self.force
+                && a.exact == self.exact
         };
         let answer = match self.memo.iter().position(asked) {
             Some(k) => self.memo.remove(k),
@@ -442,7 +480,8 @@ impl Engine {
                         hit.0 += letters.start as u32;
                     }
                 }
-                Answer { codes: self.codes.clone(), skips: (skip0, skip1), letters: key, force, total, hits: found }
+                let exact = self.exact;
+                Answer { codes: self.codes.clone(), skips: (skip0, skip1), letters: key, force, exact, total, hits: found }
             }
         };
         self.memo.insert(0, answer);
@@ -455,9 +494,15 @@ impl Engine {
     fn index_of(&mut self, letters: Range<usize>) -> &mut Index<'static> {
         let n = stream().len();
         if letters.start == 0 && letters.end == n {
-            return &mut self.index;
+            return if self.exact {
+                self.exact_index.get_or_insert_with(|| Index::new(exact_stream()))
+            } else {
+                &mut self.index
+            };
         }
-        let text = &stream()[letters];
+        // The two streams are apart in memory: a stretch of one is never
+        // taken for the same stretch of the other.
+        let text = &stream_of(self.exact)[letters];
         let same = |i: &Index| i.text.as_ptr() == text.as_ptr() && i.text.len() == text.len();
         match self.scoped.iter().position(same) {
             Some(k) => {
@@ -477,11 +522,11 @@ impl Engine {
     pub fn cost(&mut self, query: &str, skip0: u32, skip1: u32, letters: Range<usize>) -> f64 {
         let n = stream().len();
         let letters = letters.start.min(n)..letters.end.min(n).max(letters.start.min(n));
-        pattern(query, &mut self.codes);
+        pattern_of(query, self.exact, &mut self.codes);
         let codes = std::mem::take(&mut self.codes);
         let estimate = if codes.len() <= 1 || skip0 > skip1 {
             // One letter is a lookup; an empty range searches nothing.
-            codes.first().map_or(0.0, |&c| self.index.freq[c as usize] as f64)
+            codes.first().map_or(0.0, |&c| self.index_of(0..n).freq[c as usize] as f64)
         } else {
             cost(&features(self.index_of(letters), &codes, skip0, skip1))
         };

@@ -46,15 +46,16 @@ pub extern "C" fn els_query_cap() -> u32 {
 
 /// Searches the `len` bytes written at `els_query_ptr` across the whole Tanakh,
 /// with any skip from `skip0` to `skip1` letters jumped between two letters
-/// of the query (0 = contiguous). Marks are ignored and final forms folded.
+/// of the query (0 = contiguous). Marks are ignored; final forms are folded,
+/// or with `exact` (1) told apart — the API's `exact`.
 ///
 /// Returns the exact number of hits — an f64, since a wide range of common
 /// letters exceeds a u32 — or -1 while the text has not landed. The records, `els_stride` words each and at most
 /// `els_cap` of them, sit at `els_hits_ptr`; `els_hits_len` says how many.
 ///
 #[cfg_attr(feature = "search", unsafe(no_mangle))]
-pub extern "C" fn els_search(len: u32, skip0: u32, skip1: u32) -> f64 {
-    els_search_in(len, skip0, skip1, 0, corpus::verse_count() as u32)
+pub extern "C" fn els_search(len: u32, skip0: u32, skip1: u32, exact: u32) -> f64 {
+    els_search_in(len, skip0, skip1, 0, corpus::verse_count() as u32, exact)
 }
 
 /// `els_search`, kept to the verses `first..end` (global indices): only the
@@ -63,7 +64,7 @@ pub extern "C" fn els_search(len: u32, skip0: u32, skip1: u32) -> f64 {
 /// An empty or out-of-bounds range finds nothing.
 #[cfg_attr(feature = "search", unsafe(no_mangle))]
 #[allow(static_mut_refs)]
-pub extern "C" fn els_search_in(len: u32, skip0: u32, skip1: u32, first: u32, end: u32) -> f64 {
+pub extern "C" fn els_search_in(len: u32, skip0: u32, skip1: u32, first: u32, end: u32, exact: u32) -> f64 {
     super::fault::guard();
     if !corpus::has_text() {
         return -1.0;
@@ -75,7 +76,9 @@ pub extern "C" fn els_search_in(len: u32, skip0: u32, skip1: u32, first: u32, en
     match (core::str::from_utf8(bytes), scope) {
         (Ok(query), Some(scope)) => {
             let letters = letters_of(Some(scope));
-            els_engine().search_in(query, skip0, skip1, letters, hits) as f64
+            let engine = els_engine();
+            engine.exact = exact != 0;
+            engine.search_in(query, skip0, skip1, letters, hits) as f64
         }
         _ => {
             hits.clear();

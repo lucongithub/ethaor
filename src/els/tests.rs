@@ -11,6 +11,7 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use super::method::window;
 use super::*;
+use crate::letter::ALPHABET;
 
 // ----------------------------------------------------------------- helpers
 
@@ -84,7 +85,7 @@ fn records(query: &str, skip0: u32, skip1: u32) -> (u64, Vec<[u32; STRIDE]>) {
 
 fn codes(query: &str) -> Vec<u8> {
     let mut out = Vec::new();
-    pattern(query, &mut out);
+    pattern_of(query, false, &mut out);
     out
 }
 
@@ -201,15 +202,16 @@ fn a_plane_bit_is_the_letter_at_that_step() {
 // ----------------------------------------------------------------- methods
 
 /// **Every method finds exactly what the naive search finds**, on random
-/// streams of every size from empty to thousands, over patterns of two to six
-/// letters, contiguous, one skip, narrow and wide ranges, and ranges past the
+/// streams of every size from empty to thousands — codes of the 27 forms
+/// included — over patterns of two to six letters, contiguous, one skip, narrow and wide ranges, and ranges past the
 /// end of the stream.
 #[test]
 fn every_method_finds_exactly_what_the_naive_search_finds() {
     let mut rng = Rng(2024);
     let mut checked = 0;
     for &n in &[0usize, 1, 2, 3, 5, 8, 63, 64, 65, 129, 400, 2000] {
-        for alphabet in [&[3u8, 8][..], &[0, 1, 2][..], &[5, 6, 7, 9][..]] {
+        // The last alphabet holds codes only the exact stream has: finals.
+        for alphabet in [&[3u8, 8][..], &[0, 1, 2][..], &[5, 6, 7, 9][..], &[11, 22, 26][..]] {
             let text = random_text(&mut rng, n, alphabet);
             let mut index = Index::new(&text);
             for _ in 0..6 {
@@ -625,7 +627,7 @@ fn a_scoped_search_finds_what_lies_wholly_in_its_stretch() {
         [("אל", 0, 30, 0, 31), ("יהוה", 0, 12, 50, 80), ("משה", 3, 40, 1533, 1600), ("ה", 2, 9, 7, 9)]
     {
         let range = starts[first] as usize..starts[end] as usize;
-        pattern(word, &mut codes);
+        pattern_of(word, false, &mut codes);
         let (total, found) = engine.hits_in(word, skip0, skip1, range.clone());
         let expected = naive_in(text, &codes, skip0, if codes.len() == 1 { skip0 } else { skip1 }, range);
         assert_eq!(total as usize, expected.len(), "{word}");
@@ -662,4 +664,119 @@ fn the_cost_is_estimated_without_searching() {
     assert!(light < wider && wider < flood, "{light} {wider} {flood}");
     assert!(flood > 1000.0 * light);
     assert!(scoped < flood, "a passage costs as much as the whole text");
+}
+
+/// An engine searching exact letters, built once for the tests that need
+/// it: the shared one stays folded, whatever runs beside.
+fn exact_records(query: &str, skip0: u32, skip1: u32) -> (u64, Vec<(u32, u32)>) {
+    static ONE: OnceLock<Mutex<Engine>> = OnceLock::new();
+    let mut engine = ONE
+        .get_or_init(|| {
+            let mut engine = Engine::new();
+            engine.exact = true;
+            Mutex::new(engine)
+        })
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let (total, hits) = engine.hits(query, skip0, skip1);
+    (total, hits.to_vec())
+}
+
+/// **The exact stream is the folded one with its finals told apart**: one
+/// byte for one byte, each folding onto the folded stream's — so a rank,
+/// and every verse start, name the same letter in both — and finals stand
+/// only where the text writes them.
+#[test]
+fn the_exact_stream_tells_the_finals_apart() {
+    let (folded, exact) = (stream(), exact_stream());
+    assert_eq!(exact.len(), folded.len());
+    for (k, (&e, &f)) in exact.iter().zip(folded).enumerate() {
+        let c = char::from_u32(0x05D0 + e as u32).unwrap();
+        assert_eq!(letter::code(c), Some(f), "letter {k}");
+    }
+    let mut seen = [false; letter::FORMS];
+    for v in (0..corpus::verse_count()).step_by(97) {
+        let written: Vec<u8> = corpus::verse_text(v).chars().filter_map(letter::exact_code).collect();
+        let starts = verse_starts();
+        assert_eq!(&exact[starts[v] as usize..starts[v + 1] as usize], &written[..], "verse {v}");
+        for &e in &written {
+            seen[e as usize] = true;
+        }
+    }
+    assert!(seen.iter().all(|&s| s), "a form never written");
+}
+
+/// **Folded is the union of the exact spellings**: every word, over a skip
+/// and a range, finds folded exactly what its spellings with each foldable
+/// letter final or not find exactly — counted and listed — and no hit twice.
+#[test]
+fn a_folded_search_is_the_union_of_its_exact_spellings() {
+    // Letters with a final form, and the form.
+    let finals = [('כ', 'ך'), ('מ', 'ם'), ('נ', 'ן'), ('פ', 'ף'), ('צ', 'ץ')];
+    for (word, skip0, skip1) in [("אדם", 0, 0), ("מלך", 0, 0), ("נפש", 0, 3), ("צדק", 5, 5)] {
+        let chars: Vec<char> = word.chars().collect();
+        let open: Vec<usize> = (0..chars.len()).filter(|&k| finals.iter().any(|f| f.0 == chars[k] || f.1 == chars[k])).collect();
+        let mut total = 0;
+        let mut union = Vec::new();
+        for bits in 0..1u32 << open.len() {
+            let mut spelled = chars.clone();
+            for (j, &k) in open.iter().enumerate() {
+                let f = finals.iter().find(|f| f.0 == chars[k] || f.1 == chars[k]).unwrap();
+                spelled[k] = if bits & 1 << j != 0 { f.1 } else { f.0 };
+            }
+            let spelled: String = spelled.into_iter().collect();
+            let (t, hits) = exact_records(&spelled, skip0, skip1);
+            total += t;
+            union.extend(hits);
+        }
+        let (folded, mut hits) = {
+            let mut engine = engine();
+            let (t, h) = engine.hits(word, skip0, skip1);
+            (t, h.to_vec())
+        };
+        assert_eq!(total, folded, "{word}: the spellings do not add up");
+        union.sort_by_key(|&(start, skip)| (skip, start));
+        hits.sort_by_key(|&(start, skip)| (skip, start));
+        assert_eq!(union, hits, "{word}: the spellings do not list the same hits");
+    }
+}
+
+/// **An exact hit is spelled as asked**: every letter of every hit of `אדמ`
+/// is in the exact stream the form the word gives — a mem never final — and
+/// `אדם` exactly finds its final mem only.
+#[test]
+fn an_exact_hit_is_spelled_as_asked() {
+    for word in ["אדמ", "אדם"] {
+        let want: Vec<u8> = word.chars().filter_map(letter::exact_code).collect();
+        let (total, hits) = exact_records(word, 0, 0);
+        assert!(total > 0, "{word}: nothing found");
+        for (start, skip) in hits {
+            let got: Vec<u8> =
+                (0..want.len()).map(|i| exact_stream()[start as usize + i * (skip as usize + 1)]).collect();
+            assert_eq!(got, want, "{word} at {start}");
+        }
+    }
+    let (folded, _) = engine().hits("אדם", 0, 0);
+    let (a, _) = exact_records("אדמ", 0, 0);
+    let (b, _) = exact_records("אדם", 0, 0);
+    assert!(a > 0 && b > 0 && a + b == folded, "{a} + {b} != {folded}");
+}
+
+/// **A query asked folded then exact is two answers**: the memory keys the
+/// mode — codes alone collide, folded `כ` and exact `ך` both being 10 — so a
+/// recall never hands one for the other.
+#[test]
+fn the_memory_keeps_folded_and_exact_apart() {
+    let mut exact_codes = Vec::new();
+    pattern_of("אך", true, &mut exact_codes);
+    assert_eq!((codes("אכ"), exact_codes), (vec![0, 10], vec![0, 10]), "the codes no longer collide");
+    // One engine, both modes, one after the other: what the memory holds.
+    let mut engine = Engine::new();
+    let (folded, _) = engine.hits("אכ", 0, 0);
+    engine.exact = true;
+    let (exact, _) = engine.hits("אך", 0, 0);
+    engine.exact = false;
+    let (again, _) = engine.hits("אכ", 0, 0);
+    assert!(exact < folded, "exact אך found as many as folded אכ: {exact} {folded}");
+    assert_eq!(again, folded, "the folded answer came back exact");
 }

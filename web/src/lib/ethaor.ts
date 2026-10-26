@@ -29,7 +29,16 @@ import { SearchCore, type Found } from './search-core';
 import { fragmentKey, inflate, lanes, range } from './text-open';
 import type { Command } from './keys';
 import { PORTION_TEXT } from './portions';
-import { missing, readChapter, readContents, type Chapter, type Contents } from './book-view';
+import { paint as markPaint, type Color } from './marks';
+import {
+	missing,
+	readChapter,
+	readContents,
+	type Chapter,
+	type Contents,
+	type Found as BookFound
+} from './book-view';
+import type { Found as Inked } from './passage';
 
 /**
  * Books fetched at once in the background. One at a time paid a round trip
@@ -66,6 +75,11 @@ const KIND_RECT = 0;
 const KIND_TEXT = 1;
 const KIND_CLIP = 2;
 const KIND_UNCLIP = 3;
+/** A search's dot by a name: centre, radius, its slot in the ink. */
+const KIND_DOT = 4;
+
+/** Ink of a run: ours, the other edition's, then a search's (`INK_MARK + slot`). */
+const INK_MARK = 2;
 
 /** Signature of the module's exports. Every float is CSS pixels. */
 interface Wasm {
@@ -86,6 +100,9 @@ interface Wasm {
 	/** Same, one step finer: the word under the point. */
 	select_verse(verse: number): number;
 	selection_ptr(): number;
+	/** The selected verse's found letters: `(from, to, slot)` triples. */
+	selection_marks_len(): number;
+	selection_marks_ptr(): number;
 	/** Breadcrumb from the centre of the view. */
 	focus(): void;
 	leave(mouse: number): void;
@@ -144,6 +161,19 @@ interface Wasm {
 	set_portion_size(px: number): void;
 	/** Back to a chapter at its reading level, the verse at the centre. */
 	show(chapter: number, verse: number): void;
+	/** Searches the map marks at once. */
+	marks_slots(): number;
+	/** Room for a search's hit records, in words: where they are copied. */
+	marks_buffer(words: number): number;
+	/** Marks those records in a slot, `span` letters each; the runs placed. */
+	marks_set(slot: number, span: number): number;
+	marks_show(slot: number, on: number): void;
+	marks_clear(slot: number): void;
+	/** A chapter's found letters as the book view shows it: `(from, to, slot)`. */
+	chapter_marks(chapter: number): number;
+	chapter_marks_ptr(): number;
+	/** The shown searches holding a portion (0), book (1) or chapter (2), as bits. */
+	marks_at(level: number, index: number): number;
 }
 
 /**
@@ -165,6 +195,8 @@ export interface Selection {
 	/** What precedes and follows the word inside the verse. */
 	head: string;
 	tail: string;
+	/** The letters the searches shown found in the verse, by bytes of it. */
+	found: Inked[];
 }
 
 /**
@@ -212,6 +244,8 @@ export interface Book {
 	 * the map's selection, named the same way. `null` for a verse not in.
 	 */
 	select(verse: number): Selection | null;
+	/** The slots of the shown searches holding a portion (0), a book (1) or a chapter (2). */
+	marks(level: 0 | 1 | 2, index: number): number[];
 }
 
 export interface TanakhMap {
@@ -228,11 +262,11 @@ export interface TanakhMap {
 	destroy(): void;
 	/**
 	 * ELS across the whole Tanakh: `query` read with `skip0..=skip1` letters
-	 * jumped between its letters. Runs in the search module's worker, so it
+	 * jumped between its letters, its final forms told apart with `exact`. Runs in the search module's worker, so it
 	 * never holds a frame; answers once the text has landed. Rejected if the
 	 * module failed on it — the next search runs on a new one.
 	 */
-	search(query: string, skip0: number, skip1: number): Promise<Found>;
+	search(query: string, skip0: number, skip1: number, exact?: boolean): Promise<Found>;
 	readonly books: number;
 	/** Where the view is: the chapter at its centre, the verse once read. */
 	here(): Place;
@@ -245,6 +279,21 @@ export interface TanakhMap {
 	/** Takes the map to a chapter at its reading level, the verse at the centre. */
 	show(place: Place): void;
 	readonly book: Book;
+	/** The searches marked on the map, one per slot. */
+	readonly marks: Marks;
+}
+
+/**
+ * A search's hits marked on the map: its letters inked in the text, a dot by
+ * each chapter, book and portion holding them — in the colour it is given.
+ */
+export interface Marks {
+	readonly slots: number;
+	/** Marks a search's hits in `slot`, `span` letters each, shown in `color`. */
+	set(slot: number, found: Found, span: number, color: Color): void;
+	show(slot: number, on: boolean): void;
+	color(slot: number, color: Color): void;
+	clear(slot: number): void;
 }
 
 export type { Found };
@@ -351,6 +400,9 @@ export async function createTanakhMap(
 
 	// --------------------------------------------------------------- drawing
 
+	// The colour each slot's search wears.
+	const markColors = new Map<number, Color>();
+
 	let width = 0;
 	let height = 0;
 	let dpr = 1;
@@ -383,6 +435,16 @@ export async function createTanakhMap(
 		ctx.textAlign = 'right';
 		ctx.textBaseline = 'alphabetic';
 		ctx.direction = 'rtl';
+
+		// A dot by a name, in its search's colour.
+		const dot = (i: number) => {
+			const color = markColors.get(commands[i + 9] - INK_MARK);
+			if (!color) return;
+			ctx.fillStyle = markPaint(color, commands[i + 5]);
+			ctx.beginPath();
+			ctx.arc(commands[i + 1], commands[i + 2], commands[i + 3], 0, 2 * Math.PI);
+			ctx.fill();
+		};
 
 		// The reading under the pointer, asked of the frame just built: only its
 		// runs wear the colour, and only while it is pointed at.
@@ -418,6 +480,11 @@ export async function createTanakhMap(
 				continue;
 			}
 
+			if (kind === KIND_DOT) {
+				dot(i);
+				continue;
+			}
+
 			// Fill without a frame: boxes are drawn by their tint alone.
 			if (kind === KIND_RECT) {
 				const fill = commands[i + 5];
@@ -430,14 +497,19 @@ export async function createTanakhMap(
 
 			// The last slot says what the run is: everything is white but the
 			// other edition's reading, which the module cut out as its own run —
-			// and that one wears its colour only while either form is pointed at.
+			// and that one wears its colour only while either form is pointed at
+			// — and the letters a search found, in that search's colour.
 			const offset = commands[i + 7];
+			const ink = commands[i + 9];
+			const marked = ink >= INK_MARK ? markColors.get(ink - INK_MARK) : undefined;
 			const tint =
-				commands[i + 9] > 0 && offset >= lit.from && offset < lit.to
+				ink > 0 && ink < INK_MARK && offset >= lit.from && offset < lit.to
 					? OTHER_READING
 					: '255,255,255';
 			ctx.font = `${commands[i + 6]}px ${HEBREW_FONT}`;
-			ctx.fillStyle = `rgba(${tint},${commands[i + 5]})`;
+			ctx.fillStyle = marked
+				? markPaint(marked, commands[i + 5])
+				: `rgba(${tint},${commands[i + 5]})`;
 			ctx.fillText(fragment(offset, commands[i + 8]), x, y);
 		}
 
@@ -716,6 +788,15 @@ export async function createTanakhMap(
 		const view = new Uint32Array(wasm.memory.buffer, wasm.selection_ptr(), 6);
 		const [book, chapter, offset, length, label, labelSize] = view;
 		if (length === 0) return null;
+		const marks = new Uint32Array(
+			wasm.memory.buffer,
+			wasm.selection_marks_ptr(),
+			wasm.selection_marks_len() * 3
+		);
+		const found: Inked[] = [];
+		for (let i = 0; i < marks.length; i += 3) {
+			found.push({ from: marks[i], to: marks[i + 1], slot: marks[i + 2] });
+		}
 
 		return {
 			book,
@@ -724,7 +805,8 @@ export async function createTanakhMap(
 			verse: fragment(offset, length),
 			word: '',
 			head: '',
-			tail: ''
+			tail: '',
+			found
 		};
 	}
 
@@ -808,11 +890,11 @@ export async function createTanakhMap(
 		{ done: (found: Found) => void; fail: (cause: Error) => void }
 	>();
 	let next = 0;
-	function search(query: string, skip0: number, skip1: number): Promise<Found> {
+	function search(query: string, skip0: number, skip1: number, exact = false): Promise<Found> {
 		return new Promise((done, fail) => {
 			const id = next++;
 			searches.set(id, { done, fail });
-			ask({ els: { id, query, skip0, skip1 } });
+			ask({ els: { id, query, skip0, skip1, exact } });
 		});
 	}
 	function landHere(first: number, end: number, codes: Uint8Array) {
@@ -846,11 +928,11 @@ export async function createTanakhMap(
 				here = SearchCore.create();
 				ask = (request) => {
 					if (!('els' in request)) return;
-					const { id, query, skip0, skip1 } = request.els;
+					const { id, query, skip0, skip1, exact } = request.els;
 					// Searches wait for the text, as in the worker.
 					textIn
 						.then(() => here!)
-						.then((core) => searches.get(id)?.done(core.els(query, skip0, skip1)))
+						.then((core) => searches.get(id)?.done(core.els(query, skip0, skip1, exact)))
 						.catch((cause) =>
 							searches.get(id)?.fail(fault(cause, 'search-failed-here', 'a search in the page'))
 						)
@@ -902,6 +984,13 @@ export async function createTanakhMap(
 		contents,
 		size: (chapter) => wasm.chapter_size(chapter),
 		select: (verse) => selected(wasm.select_verse(verse)),
+		marks(level, index) {
+			const bits = wasm.marks_at(level, index);
+			const slots: number[] = [];
+			for (let slot = 0; slot < wasm.marks_slots(); slot++)
+				if (bits & (1 << slot)) slots.push(slot);
+			return slots;
+		},
 		read(chapter) {
 			const words = wasm.chapter_record(chapter);
 			if (words === 0) return null;
@@ -912,7 +1001,14 @@ export async function createTanakhMap(
 			// whole text.
 			const text = (offset: number, length: number) =>
 				decoder.decode(new Uint8Array(wasm.memory.buffer, wasm.text_ptr() + offset, length));
-			return readChapter(chapter, record, text);
+			// The letters the searches shown found here, cut out with their slot.
+			const n = wasm.chapter_marks(chapter);
+			const marks = new Uint32Array(wasm.memory.buffer, wasm.chapter_marks_ptr(), n * 3);
+			const found: BookFound[] = [];
+			for (let i = 0; i < marks.length; i += 3) {
+				found.push({ from: marks[i], to: marks[i + 1], slot: marks[i + 2] });
+			}
+			return readChapter(chapter, record, text, found);
 		},
 		want(from, to) {
 			const runs = missing(from, to, (c) => askedChapters.has(c) || wasm.chapter_landed(c) === 1);
@@ -933,9 +1029,35 @@ export async function createTanakhMap(
 		}
 	};
 
+	const marks: Marks = {
+		slots: wasm.marks_slots(),
+		set(slot, found, span, color) {
+			const at = wasm.marks_buffer(found.hits.length);
+			// A view taken after the call: the allocation may grow the memory.
+			new Uint32Array(wasm.memory.buffer, at, found.hits.length).set(found.hits);
+			wasm.marks_set(slot, span);
+			markColors.set(slot, color);
+			draw();
+		},
+		show(slot, on) {
+			wasm.marks_show(slot, on ? 1 : 0);
+			draw();
+		},
+		color(slot, color) {
+			markColors.set(slot, color);
+			draw();
+		},
+		clear(slot) {
+			wasm.marks_clear(slot);
+			markColors.delete(slot);
+			draw();
+		}
+	};
+
 	return {
 		books,
 		book,
+		marks,
 		search,
 		here: () => ({ chapter: wasm.here_chapter(), verse: wasm.here_verse() }),
 		depth: () => wasm.here_depth(),

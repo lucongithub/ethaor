@@ -49,4 +49,16 @@ describe('SearchCore', () => {
 		core.els('אלהים', 0, 3);
 		expect(found.hits).toEqual(kept);
 	});
+
+	it('tells final forms apart when asked: each spelling its share of the folded search', async () => {
+		const core = await SearchCore.create();
+		booksShuffled().forEach((b) => core.tile(b.first, b.end, b.codes));
+		expect(core.readings(block(bookCuts.length - 2))).toBe(true);
+		const folded = core.els('אדם', 0, 0).total;
+		const final = core.els('אדם', 0, 0, true).total;
+		const open = core.els('אדמ', 0, 0, true).total;
+		expect(final).toBeGreaterThan(0);
+		expect(open).toBeGreaterThan(0);
+		expect(final + open).toBe(folded);
+	});
 });

@@ -5,7 +5,7 @@ use super::reference::{self, BOOKS, numeral_value};
 use crate::{corpus, els, letter, pack, variant};
 
 fn query(word: &str, skip_min: u32, skip_max: u32, offset: usize, limit: usize) -> Query {
-    Query { word: word.into(), skip_min, skip_max, offset, limit, scope: None }
+    Query { word: word.into(), exact: false, skip_min, skip_max, offset, limit, scope: None }
 }
 
 /// The English table walks the corpus' books in step: a book left out or
@@ -454,4 +454,29 @@ fn the_contents_walk_every_book_and_chapter_in_order() {
     }
     assert_eq!(next, corpus::chapter_count());
     assert_eq!([portion_hebrew(0), portion_hebrew(1), portion_hebrew(2)], ["תורה", "נביאים", "כתובים"]);
+}
+
+/// **Exact letters keep the finals the word writes**: folded, `אָדָם` is
+/// searched as `אדמ`; exact, as `אדם` — every letter placed is then the form
+/// the text writes there, and it finds a part of what folded finds. The
+/// estimate and the search read the same stream.
+#[test]
+fn an_exact_query_keeps_its_finals() {
+    let folded = query("אָדָם", 0, 0, 0, 50);
+    let exact = Query { exact: true, ..folded.clone() };
+    assert_eq!(search::check(&folded).unwrap(), "אדמ");
+    assert_eq!(search::check(&exact).unwrap(), "אדם");
+
+    let mut engine = Engine::new();
+    search::admit(&mut engine, &exact, f64::INFINITY).unwrap();
+    assert!(engine.exact, "admitted on the folded stream");
+    let page = search::search(&mut engine, &exact).unwrap();
+    assert!(!page.hits.is_empty());
+    for hit in &page.hits {
+        let word: String = hit.letters.iter().map(|l| l.char).collect();
+        assert_eq!(word, "אדם", "a letter placed as another form");
+    }
+    let all = search::search(&mut engine, &folded).unwrap();
+    assert!(!engine.exact, "the folded search ran exact");
+    assert!(page.total < all.total, "exact found as many as folded");
 }

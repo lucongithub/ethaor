@@ -13,12 +13,12 @@ name, what it holds (its doc comment), and its nature.
 
 | area | files | tests | ignored | without a doc |
 |---|---|---|---|---|
-| Rust core, module-private | 7 | 114 | 1 | 21 |
-| Rust app (`src/tests/`) | 11 | 151 | 0 | 12 |
+| Rust core, module-private | 7 | 119 | 1 | 21 |
+| Rust app (`src/tests/`) | 12 | 167 | 0 | 12 |
 | Corpus build (`tests/`) | 1 | 31 | 0 | 15 |
-| Server (`server/`) | 15 | 82 | 1 | 12 |
-| Page (`web/`) | 8 | 62 | 0 | 0 |
-| **total** | **42** | **440** | **2** | **60** |
+| Server (`server/`) | 15 | 84 | 1 | 12 |
+| Page (`web/`) | 10 | 81 | 0 | 0 |
+| **total** | **45** | **482** | **2** | **60** |
 
 ## By file
 
@@ -43,7 +43,7 @@ name, what it holds (its doc comment), and its nature.
           - `the_els_schemas_are_what_the_endpoints_take` — The schemas' numbers are the code's, every property they declare is accepted — the scope's one way at a time — and one they do not is refused; every refusal the code can give is declared. <sub>service, called in memory · async</sub>
           - `the_chapter_schema_is_what_the_endpoint_takes` — The chapter's tool declares what the endpoint takes — `ref`, and nothing else — and every code it can refuse with. <sub>service, called in memory · async</sub>
           - `the_contents_schema_is_what_the_endpoint_takes` — The contents' tool declares no parameter and refuses one, and its errors are the endpoint's. <sub>service, called in memory · async</sub>
-      - [`els.rs`](server/src/tests/els.rs) — 10 tests — covers [`server/src/api/els.rs`](server/src/api/els.rs)
+      - [`els.rs`](server/src/tests/els.rs) — 11 tests — covers [`server/src/api/els.rs`](server/src/api/els.rs)
         <br>`GET /api/els`: the answer's shape, its refusals, its pages.
         - module `tests::els` · ethaor-server
           - `a_hit_names_its_place_every_way` — `תורה` every fiftieth letter from the first tav of Genesis, named every way an agent may need. <sub>service, called in memory · async</sub>
@@ -56,6 +56,7 @@ name, what it holds (its doc comment), and its nature.
           - `a_missing_text_is_unavailable_not_bad` — The text not there is the service's state, not the caller's mistake. <sub>service, called in memory</sub>
           - `a_scope_keeps_every_letter_inside` — Each way of scoping keeps every letter of every hit inside, and says the verses it kept to. <sub>service, called in memory · async</sub>
           - `a_scope_mistake_says_which` — Each scoping mistake gets its own code. <sub>service, called in memory · async</sub>
+          - `exact_letters_tell_the_final_forms_apart` — **`exact=true` tells the final forms apart**: the answer says it searched exactly, its word keeps its final, every letter is that form, and it finds a part of what the folded search finds — each spelling its share. <sub>service, called in memory · async</sub>
       - [`faults.rs`](server/src/tests/faults.rs) — 10 tests — covers [`server/src/fault.rs`](server/src/fault.rs)
         <br>Faults: each numbered once, its number the same in the answer and the log, its code naming one place, its escalation logged whole only when verbose — and the page's own faults landing in the same log.
         - module `tests::faults` · ethaor-server
@@ -145,13 +146,14 @@ name, what it holds (its doc comment), and its nature.
           - `no_file_is_the_environment_alone` — *(no doc: say what it holds)* <sub>service, called in memory</sub>
           - `a_broken_file_is_ignored_whole` — A broken file is ignored whole — its good lines too — and says why. <sub>service, called in memory</sub>
           - `the_start_link_opens_in_a_browser` — The link printed at start opens in a browser: the address bound, and an unspecified one (every interface) named as this machine. <sub>service, called in memory</sub>
-      - [`stream.rs`](server/src/tests/stream.rs) — 4 tests
+      - [`stream.rs`](server/src/tests/stream.rs) — 5 tests
         <br>`GET /api/els/stream`: every listed hit as a line, the same hits the pages give, and nothing left running when the caller goes.
         - module `tests::stream` · ethaor-server
           - `a_stream_is_the_pages_in_one_go` — A head line, one line per hit — the pages' hits, in their order — and a closing line. <sub>service, called in memory · async</sub>
           - `a_stream_goes_past_a_page` — Past a page's bound: a stream lists thousands, up to the cap. <sub>service, called in memory · async</sub>
           - `a_refused_stream_answers_json` — A refusal is a plain JSON refusal, not a stream. <sub>service, called in memory · async</sub>
           - `a_stream_left_stops` — The caller gone after the first lines: the placing stops, and says so. <sub>service, called in memory · multi-thread</sub>
+          - `an_exact_stream_keeps_the_finals` — **A stream of exact letters places each letter as written**: its head says it searched exactly, and every hit spells the word with its final. <sub>service, called in memory · async</sub>
 - **src/**
   - **corpus/**
     - [`tests.rs`](src/corpus/tests.rs) — 18 tests — covers [`src/corpus.rs`](src/corpus.rs)
@@ -176,7 +178,7 @@ name, what it holds (its doc comment), and its nature.
         - `a_tile_range_is_its_chapters_stretch` — A tile asks for exactly its chapters' stretch of the opened text part: consecutive runs are contiguous, and the whole run covers the stream. <sub>unit, module-private</sub>
         - `books_land_in_any_order_then_the_readings` — **The text lands a book at a time, in any order, then the readings**: the readings refuse to land while a chapter is missing, and once every book is in they complete the corpus byte for byte. <sub>unit, module-private</sub>
   - **els/**
-    - [`tests.rs`](src/els/tests.rs) — 26 tests — covers [`src/els.rs`](src/els.rs)
+    - [`tests.rs`](src/els/tests.rs) — 30 tests — covers [`src/els.rs`](src/els.rs)
       <br>The search: the welded stream is the text's letters and nothing else, the derived indices say what the stream says, every method finds exactly what trying every start and every skip finds, and every record places its hit where it really is.
       - module `els::tests` · ethaor
         - `the_stream_is_every_verse_read_letter_by_letter` — The stream is the verses' consonants, folded, in order, and nothing else: `build.rs` and `letter::code` agree on every verse. <sub>unit, module-private</sub>
@@ -184,7 +186,7 @@ name, what it holds (its doc comment), and its nature.
         - `postings_list_every_position_of_every_letter` — Postings list every position of every letter, ascending, and the counts are theirs. <sub>unit, module-private</sub>
         - `residue_lists_split_a_letter_by_its_gap` — A residue list holds the positions of its letter with its residue, and only those, ascending. <sub>unit, module-private</sub>
         - `a_plane_bit_is_the_letter_at_that_step` — A plane's bit for an anchor and a step is the letter at that distance: forward for a gap after the anchor, backward for one before. And a window read anywhere gives the 64 bits that follow, wherever the word boundary. <sub>unit, module-private</sub>
-        - `every_method_finds_exactly_what_the_naive_search_finds` — **Every method finds exactly what the naive search finds**, on random streams of every size from empty to thousands, over patterns of two to six letters, contiguous, one skip, narrow and wide ranges, and ranges past the end of the stream. <sub>unit, module-private</sub>
+        - `every_method_finds_exactly_what_the_naive_search_finds` — **Every method finds exactly what the naive search finds**, on random streams of every size from empty to thousands — codes of the 27 forms included — over patterns of two to six letters, contiguous, one skip, narrow and wide ranges, and ranges past the end of the stream. <sub>unit, module-private</sub>
         - `the_methods_agree_on_the_corpus` — The methods agree on the corpus itself: all three over a narrow range, `Pairs` and `Planes` over ranges no naive search — nor `Direct` in a test build — could cover. Each is held to the naive search on random streams; here the real letter frequencies and the stream's ends are met. <sub>unit, module-private</sub>
         - `the_cap_keeps_the_first_hits_and_the_exact_total` — Past the cap, the total stays exact and the records are the first `cap` hits in (skip, start) order — for every cap, including one that falls in the middle of a skip. <sub>unit, module-private</sub>
         - `an_empty_query_finds_nothing` — *(no doc: say what it holds)* <sub>unit, module-private</sub>
@@ -205,6 +207,10 @@ name, what it holds (its doc comment), and its nature.
         - `a_scoped_search_finds_what_lies_wholly_in_its_stretch` — A search kept to a stretch finds exactly the occurrences lying wholly in it — tried one by one — given back as ranks in the whole stream. <sub>unit, module-private</sub>
         - `the_whole_stretch_is_the_plain_search` — The whole stream as a stretch is the plain search, and a stretch asked again is remembered like any query. <sub>unit, module-private</sub>
         - `the_cost_is_estimated_without_searching` — The estimate is read without searching, grows with the range of skips, and tells a light query from a flood by orders of magnitude. <sub>unit, module-private</sub>
+        - `the_exact_stream_tells_the_finals_apart` — **The exact stream is the folded one with its finals told apart**: one byte for one byte, each folding onto the folded stream's — so a rank, and every verse start, name the same letter in both — and finals stand only where the text writes them. <sub>unit, module-private</sub>
+        - `a_folded_search_is_the_union_of_its_exact_spellings` — **Folded is the union of the exact spellings**: every word, over a skip and a range, finds folded exactly what its spellings with each foldable letter final or not find exactly — counted and listed — and no hit twice. <sub>unit, module-private</sub>
+        - `an_exact_hit_is_spelled_as_asked` — **An exact hit is spelled as asked**: every letter of every hit of `אדמ` is in the exact stream the form the word gives — a mem never final — and `אדם` exactly finds its final mem only. <sub>unit, module-private</sub>
+        - `the_memory_keeps_folded_and_exact_apart` — **A query asked folded then exact is two answers**: the memory keys the mode — codes alone collide, folded `כ` and exact `ך` both being 10 — so a recall never hands one for the other. <sub>unit, module-private</sub>
   - **letter/**
     - [`tests.rs`](src/letter/tests.rs) — 7 tests — covers [`src/letter.rs`](src/letter.rs)
       <br>Splitting into letters: a consonant carries the marks that follow it, and nothing is ever lost on the way.
@@ -227,7 +233,7 @@ name, what it holds (its doc comment), and its nature.
         - `label_exceptions_carry_only_what_breaks_the_rule` — Labels that follow the rule cost nothing; one that breaks it is written whole, with the count it resumes from — and laying them gives the labels back. <sub>unit, module-private</sub>
         - `varints_round_trip` — *(no doc: say what it holds)* <sub>unit, module-private</sub>
   - **shared/**
-    - [`tests.rs`](src/shared/tests.rs) — 24 tests — covers [`src/shared.rs`](src/shared.rs)
+    - [`tests.rs`](src/shared/tests.rs) — 25 tests — covers [`src/shared.rs`](src/shared.rs)
       <br>The shared layer: what both transports answer, checked once.
       - module `shared::tests` · ethaor
         - `the_book_table_follows_the_corpus` — The English table walks the corpus' books in step: a book left out or swapped would name every later verse wrong. <sub>unit, module-private</sub>
@@ -254,8 +260,9 @@ name, what it holds (its doc comment), and its nature.
         - `a_reference_names_its_chapter_or_is_refused` — A reference names a chapter, or the chapter of a verse; a book, a chapter past its book, or nothing at all names none and is refused with its code. <sub>unit, module-private</sub>
         - `neighbours_run_across_books_and_stop_at_the_ends` — Neighbours run across books and stop at the Tanakh's two ends; a chapter out of range reads nothing. <sub>unit, module-private</sub>
         - `the_contents_walk_every_book_and_chapter_in_order` — The contents walk the Tanakh whole and in order: the 39 books each once, each under the portion `PORTIONS` puts it in, named as the corpus names it, its chapters running on from the last book's with no gap or overlap to the 929th, each numbered as the corpus numbers it. <sub>unit, module-private</sub>
+        - `an_exact_query_keeps_its_finals` — **Exact letters keep the finals the word writes**: folded, `אָדָם` is searched as `אדמ`; exact, as `אדם` — every letter placed is then the form the text writes there, and it finds a part of what folded finds. The estimate and the search read the same stream. <sub>unit, module-private</sub>
   - **tests/**
-    - [`api.rs`](src/tests/api.rs) — 21 tests
+    - [`api.rs`](src/tests/api.rs) — 25 tests
       <br>The interface the page really calls.
       - module `tests::api` · ethaor
         - `the_page_can_draw_a_frame_from_a_cold_start` — *(no doc: say what it holds)* <sub>app: the module as the page drives it</sub>
@@ -279,6 +286,10 @@ name, what it holds (its doc comment), and its nature.
         - `the_page_reads_the_depth_and_frames_the_books` — The depth as the page reads it to hand a level over: the opening 0, `frame_books` 1 — after a chapter too — a book shown at its chapters 2, and a chapter shown 3. <sub>app: the module as the page drives it</sub>
         - `the_page_gives_the_portions_size` — The book view's size as the page gives it: kept when it is one, a size not finite or not positive ignored. <sub>app: the module as the page drives it</sub>
         - `the_page_hands_the_place_back_and_forth` — The hand-off as the page drives it: the map names where its centre is, and `show` takes it back to a chapter and verse — a verse of -1 is the chapter's top, a chapter out of range moves nothing. <sub>app: the module as the page drives it</sub>
+        - `the_page_marks_a_search_s_hits_on_the_map` — **A search's hits reach the map as the page hands them**: the search module's records copied into `marks_buffer`, placed by `marks_set` — then the passage read carries runs in the slot's ink, `marks_show` hides them and shows them again, and `marks_clear` takes them away. <sub>app: the module as the page drives it</sub>
+        - `the_page_searches_exact_letters` — **The page asks for exact letters with the last argument**: `els_search` with 1 finds what the engine finds exactly, with 0 what it finds folded. <sub>app: the module as the page drives it</sub>
+        - `a_passage_selected_carries_its_found_letters` — **A passage selected carries its found letters**: `select_verse` on a verse a search marks leaves `(from, to, slot)` triples at `selection_marks_ptr`, cutting the selected verse's own text; a verse holding none, and a refused selection, leave none. <sub>app: the module as the page drives it</sub>
+        - `the_book_view_reads_found_letters_inside_its_record` — **The book view reads a chapter's found letters inside its record**: each triple `chapter_marks` leaves lies in one verse as the record shows it; `marks_at` gives the chapter, its book and its portion their bits. <sub>app: the module as the page drives it</sub>
     - [`breadcrumb.rs`](src/tests/breadcrumb.rs) — 14 tests
       <br>The breadcrumb: where one is, from the zoom and from the pointer.
       - module `tests::breadcrumb` · ethaor
@@ -408,6 +419,21 @@ name, what it holds (its doc comment), and its nature.
         - `the_nest_takes_seven_tenths_of_its_letter` — The nest is at the heart of a letter, and takes **seven tenths of its cell** — not a dot. <sub>app: the module as the page drives it</sub>
         - `the_zoom_target_tolerates_the_gaps` — The zoom target tolerates the gaps: aiming between two books must stay productive. <sub>app: the module as the page drives it</sub>
         - `the_breadcrumb_names_the_place_under_the_centre` — The breadcrumb always says where one is: section, book and chapter under the centre of the view, even when the title bands have left the screen. <sub>app: the module as the page drives it</sub>
+    - [`marks.rs`](src/tests/marks.rs) — 12 tests — covers [`src/map/marks.rs`](src/map/marks.rs)
+      <br>A search's marks: its letters inked in the text at the reading level, a dot beside the names of the chapters, books and portions holding them.
+      - module `tests::marks` · ethaor
+        - `a_verse_s_letters_are_ours_in_order_with_their_marks` — **Rank `k` among a verse's letters is the `k`-th consonant of our verse**, in the string it is drawn from: every verse, the eighty-eight carrying another reading included — their insertions are skipped whole. Each range starts on a consonant and holds its marks. <sub>app: the module as the page drives it</sub>
+        - `the_letters_inked_are_the_letters_found` — **Every hit is inked, letter for letter**: at skip 0 the runs placed spell the word as many times as it was found — its occurrences never overlap — and at a skip each letter stands alone. <sub>app: the module as the page drives it</sub>
+        - `a_hit_across_two_verses_is_inked_in_both` — **A word read across a verse break is inked on both sides**: its first letters end one verse, its last ones open the next. <sub>app: the module as the page drives it</sub>
+        - `the_places_marked_are_the_places_of_the_letters` — **A dot names the places of the letters, and only them**: a chapter is marked if and only if a run lies in one of its verses, a book if one of its chapters is, a portion if one of its books is. <sub>app: the module as the page drives it</sub>
+        - `a_search_hidden_shown_and_cleared` — **Hidden, a search marks nothing and keeps its places**; shown again, they come back; cleared, they are gone. A slot past the last is refused. <sub>app: the module as the page drives it</sub>
+        - `the_letters_found_are_their_own_runs_in_the_line` — **At the reading level, the found letters wear their slot's ink**, cut out as their own runs; the runs still tile the line from the right and recompose it, and a line holding none stays one command. <sub>app: the module as the page drives it</sub>
+        - `two_searches_on_one_letter_ink_it_once` — **Of two searches on the same letters, the first slot keeps them**: the line is cut once, never into runs laid over each other. <sub>app: the module as the page drives it</sub>
+        - `a_dot_sits_beside_each_name_holding_the_word` — **Above the text, five dots by each name holding the word, none by the others** — under a chapter's number, beside a book's name or a portion's — each in its slot's ink; none without a search, and none ever on a letter. <sub>app: the module as the page drives it</sub>
+        - `a_chapter_s_dots_stay_in_its_cell` — **A chapter's dots stay in its cell**, all five of them: in a row under its number, never across into a neighbour's. <sub>app: the module as the page drives it</sub>
+        - `a_cell_reading_its_text_has_no_dot_but_its_letters` — **Once the text is read, its letters speak**: a cell drawing its verses carries no dot, its found letters inked instead. <sub>app: the module as the page drives it</sub>
+        - `the_passage_carries_the_letters_the_map_inks` — **The passage carries the letters the map inks**, cut in our verse — the one it shows — not in the string drawn with the other edition's forms: on every verse a search marks, and on a verse holding another reading, marked after its insertion so every offset has moved. <sub>app: the module as the page drives it</sub>
+        - `the_book_view_carries_the_letters_the_map_inks` — **The book view carries the letters the map inks**, as offsets in the corpus of the very strings its record shows — so on every chapter a search marks, the stretches it is handed are the runs the map draws; nothing for a chapter not marked or hidden; and a place's bits are the dots the map draws by its name. <sub>app: the module as the page drives it</sub>
     - [`readings.rs`](src/tests/readings.rs) — 12 tests
       <br>The other edition's reading, drawn inside our text.
       - module `tests::readings` · ethaor
@@ -519,9 +545,10 @@ name, what it holds (its doc comment), and its nature.
 - **web/**
   - **src/**
     - **lib/**
-      - [`book-view.test.ts`](web/src/lib/book-view.test.ts) — 11 tests — covers [`web/src/lib/book-view.ts`](web/src/lib/book-view.ts)
+      - [`book-view.test.ts`](web/src/lib/book-view.test.ts) — 12 tests — covers [`web/src/lib/book-view.ts`](web/src/lib/book-view.ts)
         - module `a chapter read from the module` · vitest
           - `gives every chapter with its names and verses` — Every chapter reads whole: its number, its book's and portion's names, every verse numbered and holding text, Genesis opening the Torah. <sub>page logic, on the real artifacts</sub>
+          - `cuts a search's found letters out of our parts, with its slot` — A search's letters, marked as the bridge hands them, are cut out of our parts with their slot; the verse reads the same whole, and a chapter of the other reading keeps its forms apart — found letters never theirs. <sub>page logic, on the real artifacts</sub>
           - `cuts the other reading out of the verse as its own parts` — The other edition's forms are cut out of the verse as their own parts — each carrying its index, never ours — and the parts put back together are the verse as shown, with nothing lost at the cuts. <sub>page logic, on the real artifacts</sub>
           - `cuts our marked form out alone, before theirs` — Our form is cut out alone, just before theirs: one word carrying `¹`, no space in it — what the pointer must be on for the index to open — and every `¹` of a verse is in such a part, never left in our text. The two forms of a pair share their reading's number, and only they. <sub>page logic, on the real artifacts</sub>
         - module `top level` · vitest
@@ -570,6 +597,19 @@ name, what it holds (its doc comment), and its nature.
           - `closes a notice next` — closes a notice next. <sub>page logic, on the real artifacts</sub>
           - `goes back to the overview only with nothing open` — goes back to the overview only with nothing open. <sub>page logic, on the real artifacts</sub>
           - `leaves the book view where it is with nothing open` — The book view has no overview: its place is the scroll, never thrown away. <sub>page logic, on the real artifacts</sub>
+      - [`letters.test.ts`](web/src/lib/letters.test.ts) — 8 tests — covers [`web/src/lib/letters.ts`](web/src/lib/letters.ts)
+        - module `KEYS` · vitest
+          - `holds the 22 letters and the 5 finals once each, in alphabetical order, finals after their letter` — holds the 22 letters and the 5 finals once each, in alphabetical order, finals after their letter. <sub>page logic, on the real artifacts</sub>
+        - module `letters` · vitest
+          - `keeps the consonants, finals included, and drops marks, spaces, Latin and punctuation` — keeps the consonants, finals included, and drops marks, spaces, Latin and punctuation. <sub>page logic, on the real artifacts</sub>
+        - module `insert` · vitest
+          - `puts the letter at the caret and moves the caret past it` — puts the letter at the caret and moves the caret past it. <sub>page logic, on the real artifacts</sub>
+          - `replaces the selection, whichever way it was drawn` — replaces the selection, whichever way it was drawn. <sub>page logic, on the real artifacts</sub>
+          - `keeps offsets past the word inside it` — keeps offsets past the word inside it. <sub>page logic, on the real artifacts</sub>
+          - `inserts nothing that is not a letter` — inserts nothing that is not a letter. <sub>page logic, on the real artifacts</sub>
+        - module `erase` · vitest
+          - `erases the letter before the caret, nothing at the start` — erases the letter before the caret, nothing at the start. <sub>page logic, on the real artifacts</sub>
+          - `erases the selection alone when there is one` — erases the selection alone when there is one. <sub>page logic, on the real artifacts</sub>
       - [`logs-view.test.ts`](web/src/lib/logs-view.test.ts) — 13 tests — covers [`web/src/lib/logs-view.ts`](web/src/lib/logs-view.ts)
         - module `takeToken` · vitest
           - `takes the token out of the address and keeps the rest` — The token leaves the address, the rest of it stays: the history and a bookmark keep `/logs/` alone. <sub>page logic, on the real artifacts</sub>
@@ -590,17 +630,31 @@ name, what it holds (its doc comment), and its nature.
           - `clears what was shown even when the history is empty` — A level with no line yet clears the page all the same: the lines of the level before must not stay as if they were of this one. <sub>page logic, on the real artifacts</sub>
           - `stops on a refusal and says why` — A refusal says the service's code, message and incident, and is not asked again: a wrong token stays wrong. <sub>page logic, on the real artifacts</sub>
           - `says a page served without the service, and retries a bare 503` — Served without the service (`npm run dev`), the answer is not JSON: refused, its status said. A 503 without a code is a proxy: retried. <sub>page logic, on the real artifacts</sub>
-      - [`passage.test.ts`](web/src/lib/passage.test.ts) — 3 tests — covers [`web/src/lib/passage.ts`](web/src/lib/passage.ts)
+      - [`marks.test.ts`](web/src/lib/marks.test.ts) — 8 tests — covers [`web/src/lib/marks.ts`](web/src/lib/marks.ts)
+        - module `COLORS` · vitest
+          - `are Tailwind's 500 steps, value for value` — are Tailwind's 500 steps, value for value. <sub>page logic, on the real artifacts</sub>
+          - `paint adds the alpha inside the colour` — paint adds the alpha inside the colour. <sub>page logic, on the real artifacts</sub>
+        - module `add` · vitest
+          - `keeps whether the search tells final forms apart` — keeps whether the search tells final forms apart. <sub>page logic, on the real artifacts</sub>
+          - `starts in slot 0, sky, shown, still searching` — starts in slot 0, sky, shown, still searching. <sub>page logic, on the real artifacts</sub>
+          - `gives each search a slot and a colour of its own, and refuses a sixth` — gives each search a slot and a colour of its own, and refuses a sixth. <sub>page logic, on the real artifacts</sub>
+          - `takes the lowest slot freed, and a colour no search wears` — takes the lowest slot freed, and a colour no search wears. <sub>page logic, on the real artifacts</sub>
+          - `passes over a colour chosen for another search` — passes over a colour chosen for another search. <sub>page logic, on the real artifacts</sub>
+        - module `changes` · vitest
+          - `each touches its search alone` — each touches its search alone. <sub>page logic, on the real artifacts</sub>
+      - [`passage.test.ts`](web/src/lib/passage.test.ts) — 4 tests — covers [`web/src/lib/passage.ts`](web/src/lib/passage.ts)
         - module `passage` · vitest
           - `cuts a verse at its spaces, every pointed letter whole` — cuts a verse at its spaces, every pointed letter whole. <sub>page logic, on the real artifacts</sub>
           - `picks each word in place: head, word and tail give the verse back` — picks each word in place: head, word and tail give the verse back. <sub>page logic, on the real artifacts</sub>
           - `picks nothing out of the verse, and reads no word picked as none` — picks nothing out of the verse, and reads no word picked as none. <sub>page logic, on the real artifacts</sub>
-      - [`search-core.test.ts`](web/src/lib/search-core.test.ts) — 3 tests — covers [`web/src/lib/search-core.ts`](web/src/lib/search-core.ts)
+          - `cuts each word into the runs the searches found, by bytes, the word given back whole` — cuts each word into the runs the searches found, by bytes, the word given back whole. <sub>page logic, on the real artifacts</sub>
+      - [`search-core.test.ts`](web/src/lib/search-core.test.ts) — 4 tests — covers [`web/src/lib/search-core.ts`](web/src/lib/search-core.ts)
         - module `the books file` · vitest
           - `holds the 39 books then the readings, in order` — holds the 39 books then the readings, in order. <sub>page logic, on the real artifacts</sub>
           - `opens, block after block, to the plain text the tiles read` — opens, block after block, to the plain text the tiles read. <sub>page logic, on the real artifacts</sub>
         - module `SearchCore` · vitest
           - `answers -1 until the whole text is in, then finds` — answers -1 until the whole text is in, then finds. <sub>page logic, on the real artifacts</sub>
+          - `tells final forms apart when asked: each spelling its share of the folded search` — tells final forms apart when asked: each spelling its share of the folded search. <sub>page logic, on the real artifacts</sub>
       - [`search-worker.test.ts`](web/src/lib/search-worker.test.ts) — 2 tests — covers [`web/src/lib/search-worker.ts`](web/src/lib/search-worker.ts)
         - module `the search worker` · vitest
           - `holds a search until the text is in, then answers it by its id` — holds a search until the text is in, then answers it by its id. <sub>page logic, on the real artifacts</sub>
@@ -636,15 +690,16 @@ helper is often held by the test of its caller — but each is a question the
 - [`server/src/fault.rs`](server/src/fault.rs): `fmt`, `into_response`, `respond`, `retry_after`, `set_verbose`
 - [`server/src/lib.rs`](server/src/lib.rs): `open_browser`, `trace`
 - [`server/src/logs.rs`](server/src/logs.rs): `init_with`, `install`, `level_of`, `on_event`, `on_new_span`, `prune`, `read_range`, `record_bool`, `record_debug`, `record_f64`, `record_i64`, `record_str`, `record_u64`, `test_dir`
-- [`src/els.rs`](src/els.rs): `forget_answers`, `index_of`
+- [`src/els.rs`](src/els.rs): `forget_answers`, `index_of`, `stream_of`
 - [`src/els/index.rs`](src/els/index.rs): `make_room`
 - [`src/map/camera.rs`](src/map/camera.rs): `at_opening`, `overview_scale`, `sync_detail`
-- [`src/map/frame.rs`](src/map/frame.rs): `book_title_size`, `draw_book`, `emit_ink`, `emit_run`, `emit_text`, `overview_title`, `scale_of`
-- [`src/map/hit.rs`](src/map/hit.rs): `books_drawn`, `ink_of`, `locate_in`, `names_chapter`
+- [`src/map/frame.rs`](src/map/frame.rs): `book_title_size`, `dot_row`, `dots_under`, `draw_book`, `emit_ink`, `emit_run`, `emit_text`, `overview_title`, `scale_of`
+- [`src/map/hit.rs`](src/map/hit.rs): `books_drawn`, `ink_of`, `locate_in`, `names_chapter`, `pick_place`
 - [`src/map/landing.rs`](src/map/landing.rs): `line_height_once_in`, `push_tile`, `verses_in`
+- [`src/map/marks.rs`](src/map/marks.rs): `mask`
 - [`src/map/text.rs`](src/map/text.rs): `line_at`
 - [`src/pack.rs`](src/pack.rs): `get_str`, `get_string`, `lay_chapter`, `lay_readings`, `put_str`, `read_exceptions`, `unpack`, `write_exceptions`
-- [`src/shared/els.rs`](src/shared/els.rs): `check_up_to`, `last_verse`
+- [`src/shared/els.rs`](src/shared/els.rs): `char_of`, `check_up_to`, `last_verse`
 - [`src/shared/reference.rs`](src/shared/reference.rs): `book_english`, `book_hebrew`
 - [`src/variant.rs`](src/variant.rs): `seek`
 - [`src/wasm/chapter.rs`](src/wasm/chapter.rs): `write_contents`

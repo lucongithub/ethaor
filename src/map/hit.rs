@@ -24,9 +24,16 @@ impl App {
     /// Returns nothing above the reading zoom: **a click is only live on a
     /// passage one can read.**
     pub(crate) fn pick(&mut self, x: f32, y: f32) -> Option<[u32; 6]> {
+        let (chapter, verse) = self.pick_place(x, y)?;
+        selected(chapter, verse)
+    }
+
+    /// The chapter and verse a click selects, `pick`'s place: the passage
+    /// is read from it, and its found letters too.
+    pub(crate) fn pick_place(&mut self, x: f32, y: f32) -> Option<(usize, usize)> {
         let chapter = self.clickable_at(x, y)?;
         let line = self.line_at(chapter, y)?;
-        selected(chapter, line.verse)
+        Some((chapter, line.verse))
     }
 
     /// What a click on a verse the browser lays out selects — the book

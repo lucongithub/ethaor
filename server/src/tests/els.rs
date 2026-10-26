@@ -38,7 +38,7 @@ async fn a_hit_names_its_place_every_way() {
 #[tokio::test]
 async fn the_answer_is_the_shared_page() {
     let json = els(&[("word", "שלמה"), ("skip_min", "0"), ("skip_max", "4"), ("offset", "3"), ("limit", "20")]).await.json();
-    let query = shared::Query { word: "שלמה".into(), skip_min: 0, skip_max: 4, offset: 3, limit: 20, scope: None };
+    let query = shared::Query { word: "שלמה".into(), exact: false, skip_min: 0, skip_max: 4, offset: 3, limit: 20, scope: None };
     let page = shared::search(&mut Engine::new(), &query).unwrap();
     assert_eq!(json, serde_json::to_value(Answer::of(&query, &page)).unwrap());
 }
@@ -173,4 +173,28 @@ async fn a_scope_mistake_says_which() {
     }
     let named = els(&[("word", "אל"), ("book", "Matthew")]).await.json();
     assert!(named["error"]["message"].as_str().unwrap().contains("Matthew"));
+}
+
+/// **`exact=true` tells the final forms apart**: the answer says it searched
+/// exactly, its word keeps its final, every letter is that form, and it
+/// finds a part of what the folded search finds — each spelling its share.
+#[tokio::test]
+async fn exact_letters_tell_the_final_forms_apart() {
+    let folded = els(&[("word", "אדם"), ("limit", "0")]).await.json();
+    let mut totals = 0;
+    for word in ["אדם", "אדמ"] {
+        let json = els(&[("word", word), ("exact", "true"), ("limit", "20")]).await.json();
+        assert_eq!(json["query"]["exact"], true);
+        assert_eq!(json["query"]["letters"], word);
+        for hit in json["hits"].as_array().unwrap() {
+            let spelled: String = hit["letters"].as_array().unwrap().iter().map(|l| l["char"].as_str().unwrap()).collect();
+            assert_eq!(spelled, word, "a letter placed as another form");
+        }
+        totals += json["total"].as_u64().unwrap();
+    }
+    assert_eq!(folded["query"]["exact"], false);
+    assert_eq!(folded["query"]["letters"], "אדמ");
+    assert_eq!(Some(totals), folded["total"].as_u64(), "the spellings do not add up to the folded search");
+    let bad = els(&[("word", "אדם"), ("exact", "yes")]).await;
+    assert_eq!(bad.json()["error"]["code"], "bad_param", "exact=yes accepted");
 }

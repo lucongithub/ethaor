@@ -21,7 +21,7 @@ fn uri(word: &str, skip_min: u32, skip_max: u32) -> String {
 }
 
 fn estimate(word: &str, skip_min: u32, skip_max: u32) -> f64 {
-    let q = shared::Query { word: word.into(), skip_min, skip_max, offset: 0, limit: 1, scope: None };
+    let q = shared::Query { word: word.into(), exact: false, skip_min, skip_max, offset: 0, limit: 1, scope: None };
     shared::admit(&mut Engine::new(), &q, f64::MAX).unwrap()
 }
 

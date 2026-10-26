@@ -19,6 +19,15 @@ export interface Part {
 	 *  one pair share it, so the pointer on either colours theirs alone;
 	 *  -1 for the rest of the verse. */
 	reading: number;
+	/** The slot of the search that found these letters, -1 for none. */
+	slot: number;
+}
+
+/** Letters a search found: a byte range of the corpus text, and its slot. */
+export interface Found {
+	from: number;
+	to: number;
+	slot: number;
 }
 
 export interface Verse {
@@ -45,15 +54,22 @@ export interface Chapter {
 	readings: boolean;
 }
 
+const encoder = new TextEncoder();
+
 /**
  * A chapter's record, read. `text(offset, length)` decodes a stretch of the
  * corpus: every string is cut there by **byte** offsets, never in a decoded
  * string, since one pointed letter is several UTF-16 units.
+ *
+ * `found` are the letters the searches shown found, as byte ranges of the
+ * corpus text (`chapter_marks`): our parts are cut at them, each piece
+ * carrying its slot.
  */
 export function readChapter(
 	index: number,
 	record: ArrayLike<number>,
-	text: (offset: number, length: number) => string
+	text: (offset: number, length: number) => string,
+	found: readonly Found[] = []
 ): Chapter {
 	const verses: Verse[] = [];
 	let at = HEAD;
@@ -62,15 +78,17 @@ export function readChapter(
 		const [from, length] = [record[at + 3], record[at + 4]];
 		const runs = record[at + 5];
 		const parts: Part[] = [];
+		const inked = (offset: number, length: number, reading: number) =>
+			cut(ours(text(offset, length), reading), offset, found, text);
 		let cursor = from;
 		for (let k = 0; k < runs; k++) {
 			const [start, size] = [record[at + 6 + 2 * k], record[at + 7 + 2 * k]];
-			if (start > cursor) parts.push(...ours(text(cursor, start - cursor), k));
-			parts.push({ text: text(start, size), theirs: true, marked: false, reading: k });
+			if (start > cursor) parts.push(...inked(cursor, start - cursor, k));
+			parts.push({ text: text(start, size), theirs: true, marked: false, reading: k, slot: -1 });
 			cursor = start + size;
 		}
 		if (cursor < from + length || parts.length === 0) {
-			parts.push(...ours(text(cursor, from + length - cursor), -1));
+			parts.push(...inked(cursor, from + length - cursor, -1));
 		}
 		readings ||= runs > 0;
 		verses.push({ index: record[at], label: text(record[at + 1], record[at + 2]), parts });
@@ -90,6 +108,40 @@ export function readChapter(
 }
 
 /**
+ * Parts of ours laid from `offset` in the corpus, cut where the searches
+ * found letters: each piece keeps its part's flags, and takes the slot of
+ * the search that found it. Stretches are cut by bytes, then decoded.
+ */
+function cut(
+	parts: Part[],
+	offset: number,
+	found: readonly Found[],
+	text: (offset: number, length: number) => string
+): Part[] {
+	if (found.length === 0) return parts;
+	const out: Part[] = [];
+	let start = offset;
+	for (const part of parts) {
+		const end = start + encoder.encode(part.text).length;
+		const hits = found.filter((f) => f.to > start && f.from < end).sort((a, b) => a.from - b.from);
+		let cursor = start;
+		const piece = (from: number, to: number, slot: number) =>
+			out.push({ ...part, text: text(from, to - from), slot });
+		for (const hit of hits) {
+			const [from, to] = [Math.max(hit.from, cursor), Math.min(hit.to, end)];
+			if (to <= from) continue;
+			if (from > cursor) piece(cursor, from, -1);
+			piece(from, to, hit.slot);
+			cursor = to;
+		}
+		if (hits.length === 0) out.push(part);
+		else if (cursor < end) piece(cursor, end, -1);
+		start = end;
+	}
+	return out;
+}
+
+/**
  * A stretch of ours. Before the other edition's run `reading` (-1 for none)
  * it ends with our form, marked `¹`: that last word is cut out as its own
  * part, of the same reading.
@@ -97,10 +149,12 @@ export function readChapter(
 function ours(stretch: string, reading: number): Part[] {
 	const at = stretch.lastIndexOf(' ') + 1;
 	if (reading < 0 || !stretch.endsWith('¹'))
-		return [{ text: stretch, theirs: false, marked: false, reading: -1 }];
+		return [{ text: stretch, theirs: false, marked: false, reading: -1, slot: -1 }];
 	const head = stretch.slice(0, at);
-	const form = { text: stretch.slice(at), theirs: false, marked: true, reading };
-	return head ? [{ text: head, theirs: false, marked: false, reading: -1 }, form] : [form];
+	const form = { text: stretch.slice(at), theirs: false, marked: true, reading, slot: -1 };
+	return head
+		? [{ text: head, theirs: false, marked: false, reading: -1, slot: -1 }, form]
+		: [form];
 }
 
 /**

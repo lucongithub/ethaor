@@ -9,11 +9,25 @@
 	} from '$lib/ethaor';
 	import { escalate, reporter, watch, type Fault } from '$lib/fault';
 	import { command, escape } from '$lib/keys';
-	import Rail, { type View } from './Rail.svelte';
+	import Rail, { type Search, type View } from './Rail.svelte';
+	import LetterSearch from './LetterSearch.svelte';
+	import SearchBar from './SearchBar.svelte';
+	import { letters } from '$lib/letters';
+	import {
+		add,
+		COLORS,
+		counted,
+		MAX_SEARCHES,
+		recolor,
+		remove,
+		toggle,
+		type Color,
+		type Marked
+	} from '$lib/marks';
 	import Logo from './Logo.svelte';
 	import BookView, { type Reading } from './BookView.svelte';
 	import { CRUMB_GOES, fromMap, TANAKH, toMap, type Level } from '$lib/book-view';
-	import { pick, picked, words } from '$lib/passage';
+	import { inked, pick, picked, words } from '$lib/passage';
 
 	let canvas: HTMLCanvasElement;
 	let reload = $state<HTMLButtonElement | null>(null);
@@ -74,6 +88,71 @@
 		}
 		map.reset();
 		canvas.focus({ preventScroll: true });
+	}
+
+	// The search picked in the sidebar, its modal open. Only the consecutive
+	// letters have one yet.
+	let searching = $state<Search | null>(null);
+
+	function onSearch(name: Search) {
+		if (name === 'Consecutive letters' && kept.length < MAX_SEARCHES) searching = name;
+	}
+
+	// The searches kept on the map, five at most whatever their kind: each in
+	// a slot of the module's, its letters inked and its places dotted in its
+	// colour, until it is removed.
+	let kept = $state<Marked[]>([]);
+
+	// Closed, the focus goes back to the view read: while the modal was open
+	// the view beneath was inert.
+	function closeSearch() {
+		searching = null;
+		if (view === 'book') book?.focus();
+		else canvas.focus({ preventScroll: true });
+	}
+
+	// The word asked for, read as written: an ELS at skip 0. Kept at once,
+	// counting; marked once found. A search that fails is told by the bridge
+	// and leaves no chip behind.
+	function runConsecutive(word: string, exact: boolean) {
+		const next = add(kept, 'Consecutive letters', word, exact);
+		if (!next || !map) return;
+		const search = next[next.length - 1];
+		kept = next;
+		map.search(word, 0, 0, exact).then(
+			(found) => {
+				// Removed while it searched: nothing to mark.
+				const still = kept.find(
+					(m) => m.slot === search.slot && m.word === word && m.exact === exact
+				);
+				if (!still || !map) return;
+				map.marks.set(search.slot, found, letters(word).length, still.color);
+				if (!still.shown) map.marks.show(search.slot, false);
+				kept = counted(kept, search.slot, found.total);
+			},
+			() => (kept = remove(kept, search.slot))
+		);
+	}
+
+	// The colour a slot's search wears in the passage, while it is shown.
+	function foundColor(slot: number): string | undefined {
+		const search = kept.find((m) => m.slot === slot);
+		return search?.shown ? COLORS[search.color] : undefined;
+	}
+
+	function toggleSearch(slot: number) {
+		kept = toggle(kept, slot);
+		map?.marks.show(slot, kept.find((m) => m.slot === slot)?.shown ?? false);
+	}
+
+	function removeSearch(slot: number) {
+		kept = remove(kept, slot);
+		map?.marks.clear(slot);
+	}
+
+	function recolorSearch(slot: number, color: Color) {
+		kept = recolor(kept, slot, color);
+		map?.marks.color(slot, color);
 	}
 
 	// A step of the book's breadcrumb: a link up, brightened on hover as the
@@ -301,8 +380,17 @@
 		</div>
 	</header>
 
+	{#if kept.length > 0}
+		<SearchBar
+			list={kept}
+			ontoggle={toggleSearch}
+			onremove={removeSearch}
+			onrecolor={recolorSearch}
+		/>
+	{/if}
+
 	<div class="flex min-h-0 flex-1">
-		<Rail {view} onview={switchTo} />
+		<Rail {view} onview={switchTo} onsearch={onSearch} full={kept.length >= MAX_SEARCHES} />
 
 		<div dir="rtl" class="flex min-w-0 flex-1 flex-col">
 			<p class="sr-only" aria-live="polite">{spoken}</p>
@@ -332,6 +420,7 @@
 							start={opened}
 							startLevel={openedLevel}
 							{landed}
+							searches={kept}
 							onreading={(next) => (reading = next)}
 							onform={(on) => (onForm = on)}
 							onselect={(hit) => (selection = hit)}
@@ -433,10 +522,15 @@
 	</div>
 {/if}
 
+{#if searching}
+	<LetterSearch title={searching} onrun={runConsecutive} onclose={closeSearch} />
+{/if}
+
 {#if selection}
 	{@const where = map?.book.contents}
 	{@const at = picked(selection)}
 	{@const all = words(selection.verse)}
+	{@const runs = inked(selection.verse, selection.found)}
 	<!-- The passage, a modal centred over the map: read as a web page reads,
 	     Tailwind's type scale stepped up with the screen, the map pushed back
 	     beneath. A click on its backdrop closes it. -->
@@ -451,9 +545,7 @@
 		       duration-200 ease-out backdrop:bg-black/80 open:flex motion-reduce:transition-none
 		       lg:max-w-3xl starting:scale-[0.98] starting:opacity-0"
 	>
-		<header
-			class="flex shrink-0 items-center gap-3 border-b border-white/10 py-2 ps-5 pe-2 sm:ps-7 sm:pe-3"
-		>
+		<header class="flex shrink-0 items-center gap-3 py-2 ps-5 pe-2 sm:ps-7 sm:pe-3">
 			<!-- Where the passage is, every level named in Hebrew as the
 			     breadcrumb names it: book, then chapter and verse. -->
 			<h2 id="passage-place" class="flex-1 truncate font-hebrew text-xl">
@@ -480,7 +572,9 @@
 		<!-- The passage, word by word: each word wears the plate of the book's
 		     chapter buttons under the pointer, and a click picks it — shown big
 		     above its verse, in place inside it, the rest dimmed. A click on the
-		     word picked gives the verse back; another word, that one. -->
+		     word picked gives the verse back; another word, that one. The
+		     letters a search shown found wear its colour in the verse, dimmed
+		     with it; the word picked, big, is the text alone and stays white. -->
 		<div
 			aria-live="polite"
 			class="[scrollbar-width:thin] [scrollbar-color:rgb(255_255_255/0.25)_transparent] overflow-y-auto overscroll-contain px-5
@@ -509,7 +603,12 @@
 								? 'bg-white/12 text-white'
 								: 'hover:bg-white/6 hover:text-white focus-visible:text-white'
 						]}
-						onclick={() => pickWord(k)}>{word}</button
+						onclick={() => pickWord(k)}
+						>{#each runs[k] ?? [{ text: word, slot: -1 }] as run, r (r)}{@const color = foundColor(
+								run.slot
+							)}{#if color}<span class={[at >= 0 && k !== at && 'opacity-60']} style:color
+									>{run.text}</span
+								>{:else}{run.text}{/if}{/each}</button
 					>{k < all.length - 1 ? ' ' : ''}{/each}
 			</p>
 		</div>

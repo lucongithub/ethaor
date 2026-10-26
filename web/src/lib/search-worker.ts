@@ -19,7 +19,7 @@ import { SearchCore, type Found } from './search-core';
 export type Request =
 	| { tile: { first: number; end: number; codes: Uint8Array } }
 	| { readings: Uint8Array }
-	| { els: { id: number; query: string; skip0: number; skip1: number } };
+	| { els: { id: number; query: string; skip0: number; skip1: number; exact?: boolean } };
 
 /**
  * A search's answer, or its failure by its id; or a failure feeding the
@@ -66,7 +66,7 @@ function renew() {
 self.onmessage = (event: MessageEvent<Request>) => {
 	const message = event.data;
 	if ('els' in message) {
-		const { id, query, skip0, skip1 } = message.els;
+		const { id, query, skip0, skip1, exact } = message.els;
 		// The module the search runs on: the current one once the text queued
 		// before it is in — not the one when it was asked, which may be gone.
 		let searching = core;
@@ -74,7 +74,7 @@ self.onmessage = (event: MessageEvent<Request>) => {
 			.then(() => queue)
 			.then(() => (searching = core))
 			.then((c) => {
-				const found = c.els(query, skip0, skip1);
+				const found = c.els(query, skip0, skip1, exact);
 				self.postMessage({ id, found }, { transfer: [found.hits.buffer] });
 			})
 			.catch(async (cause) => {

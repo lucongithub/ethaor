@@ -400,7 +400,7 @@ fn the_page_searches_through_the_query_buffer() {
     let query = "אָדָם";
     assert!(query.len() <= els_query_cap() as usize);
     unsafe { core::ptr::copy_nonoverlapping(query.as_ptr(), els_query_ptr(), query.len()) };
-    let n = els_search(query.len() as u32, 0, 0) as usize;
+    let n = els_search(query.len() as u32, 0, 0, 0) as usize;
     assert_eq!(els_hits_len() as usize, n);
 
     let mut expected = Vec::new();
@@ -411,7 +411,7 @@ fn the_page_searches_through_the_query_buffer() {
     assert_eq!(read, &expected[..], "the page does not read the records written");
 
     unsafe { *els_query_ptr() = 0xFF };
-    assert_eq!(els_search(1, 0, 0), 0.0, "an invalid query finds something");
+    assert_eq!(els_search(1, 0, 0, 0), 0.0, "an invalid query finds something");
 }
 
 /// The landing exports, moved to `wasm/landing.rs`, as both modules call
@@ -441,7 +441,7 @@ fn the_page_searches_a_stretch_of_verses() {
     let query = "משה";
     unsafe { core::ptr::copy_nonoverlapping(query.as_ptr(), els_query_ptr(), query.len()) };
     let (first, end) = (1533u32, 4000u32);
-    let n = els_search_in(query.len() as u32, 0, 30, first, end) as usize;
+    let n = els_search_in(query.len() as u32, 0, 30, first, end, 0) as usize;
     let mut expected = Vec::new();
     let letters = crate::shared::els::letters_of(Some((first as usize, end as usize)));
     assert_eq!(els_engine().search_in(query, 0, 30, letters, &mut expected) as usize, n);
@@ -450,7 +450,7 @@ fn the_page_searches_a_stretch_of_verses() {
     assert_eq!(read, &expected[..]);
     assert!(read.chunks(stride).all(|r| (first..end).contains(&r[4]) && (first..end).contains(&r[6])));
     for (a, b) in [(9, 9), (9, 3), (0, u32::MAX)] {
-        assert_eq!(els_search_in(query.len() as u32, 0, 30, a, b), 0.0, "{a}..{b}");
+        assert_eq!(els_search_in(query.len() as u32, 0, 30, a, b, 0), 0.0, "{a}..{b}");
     }
 }
 
@@ -606,4 +606,128 @@ fn the_page_hands_the_place_back_and_forth() {
     let before = (cam_x(), cam_y(), cam_z());
     show(u32::MAX, 0);
     assert_eq!((cam_x(), cam_y(), cam_z()), before, "a chapter out of range moved the view");
+}
+
+/// **A search's hits reach the map as the page hands them**: the search
+/// module's records copied into `marks_buffer`, placed by `marks_set` — then
+/// the passage read carries runs in the slot's ink, `marks_show` hides them
+/// and shows them again, and `marks_clear` takes them away.
+#[test]
+fn the_page_marks_a_search_s_hits_on_the_map() {
+    let _hold = hold(REFERENCE.0, REFERENCE.1);
+    assert_eq!(marks_slots() as usize, MARK_SLOTS);
+
+    let query = "משה";
+    unsafe { core::ptr::copy_nonoverlapping(query.as_ptr(), els_query_ptr(), query.len()) };
+    let n = els_search(query.len() as u32, 0, 0, 0) as usize;
+    assert!(n > 0);
+    let words = els_hits_len() as usize * els_stride() as usize;
+    let hits = unsafe { core::slice::from_raw_parts(els_hits_ptr(), words) }.to_vec();
+    let at = marks_buffer(words as u32);
+    unsafe { core::ptr::copy_nonoverlapping(hits.as_ptr(), at, words) };
+    assert!(marks_set(2, 3) > 0, "nothing placed");
+    assert_eq!(marks_set(MARK_SLOTS as u32, 3), 0, "a slot past the last placed something");
+
+    let (verse, chapter) = (hits[4], hits[3]);
+    // Shown again once measured, as the page does: the widths move the lines.
+    show(chapter, verse as i32);
+    converge();
+    show(chapter, verse as i32);
+    converge();
+    let ink = INK_MARK + 2.0;
+    assert!(read_frame().iter().any(|c| c.is_text() && c.ink == ink), "the passage without its marks");
+
+    marks_show(2, 0);
+    assert!(!read_frame().iter().any(|c| c.ink == ink), "hidden, still inked");
+    marks_show(2, 1);
+    assert!(read_frame().iter().any(|c| c.is_text() && c.ink == ink), "shown again, not inked");
+
+    marks_clear(2);
+    converge();
+    assert!(!read_frame().iter().any(|c| c.ink == ink), "cleared, still inked");
+}
+
+/// **The page asks for exact letters with the last argument**: `els_search`
+/// with 1 finds what the engine finds exactly, with 0 what it finds folded.
+#[test]
+fn the_page_searches_exact_letters() {
+    let _hold = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    let query = "אדם";
+    unsafe { core::ptr::copy_nonoverlapping(query.as_ptr(), els_query_ptr(), query.len()) };
+    let exact = els_search(query.len() as u32, 0, 0, 1);
+    let folded = els_search(query.len() as u32, 0, 0, 0);
+    let mut engine = crate::els::Engine::new();
+    engine.exact = true;
+    let (want, _) = engine.hits(query, 0, 0);
+    assert_eq!(exact, want as f64, "the page's exact search");
+    assert!(exact > 0.0 && exact < folded, "{exact} exact, {folded} folded");
+}
+
+/// **A passage selected carries its found letters**: `select_verse` on a
+/// verse a search marks leaves `(from, to, slot)` triples at
+/// `selection_marks_ptr`, cutting the selected verse's own text; a verse
+/// holding none, and a refused selection, leave none.
+#[test]
+fn a_passage_selected_carries_its_found_letters() {
+    let _hold = hold(REFERENCE.0, REFERENCE.1);
+    let mut found = Vec::new();
+    crate::els::Engine::new().search("משה", 0, 0, &mut found);
+    let at = marks_buffer(found.len() as u32);
+    unsafe { core::ptr::copy_nonoverlapping(found.as_ptr(), at, found.len()) };
+    marks_set(4, 3);
+
+    let verse = found[4];
+    assert_eq!(select_verse(verse), 1);
+    let n = selection_marks_len() as usize;
+    assert!(n > 0, "the passage without its letters");
+    let triples = unsafe { core::slice::from_raw_parts(selection_marks_ptr(), n * 3) };
+    let text = corpus::verse_text(verse as usize);
+    for t in triples.chunks(3) {
+        assert_eq!(t[2], 4, "the slot");
+        let cut = &text[t[0] as usize..t[1] as usize];
+        assert!(cut.chars().any(|c| letter::code(c).is_some()), "{cut:?} holds no letter");
+    }
+
+    let bare = (0..corpus::verse_count() as u32).find(|&v| !app().marks[4].runs.iter().any(|r| r.0 == v)).unwrap();
+    assert_eq!(select_verse(bare), 1);
+    assert_eq!(selection_marks_len(), 0, "a verse holding none");
+    assert_eq!(select_verse(corpus::verse_count() as u32), 0);
+    assert_eq!(selection_marks_len(), 0, "a refused selection");
+    marks_clear(4);
+}
+
+/// **The book view reads a chapter's found letters inside its record**: each
+/// triple `chapter_marks` leaves lies in one verse as the record shows it;
+/// `marks_at` gives the chapter, its book and its portion their bits.
+#[test]
+fn the_book_view_reads_found_letters_inside_its_record() {
+    use crate::wasm::chapter::{HEAD, chapter_record, chapter_record_ptr};
+    let _hold = hold(REFERENCE.0, REFERENCE.1);
+    let mut found = Vec::new();
+    crate::els::Engine::new().search("משה", 0, 0, &mut found);
+    let at = marks_buffer(found.len() as u32);
+    unsafe { core::ptr::copy_nonoverlapping(found.as_ptr(), at, found.len()) };
+    marks_set(1, 3);
+
+    let (chapter, book) = (found[3], found[2]);
+    let words = chapter_record(chapter) as usize;
+    let record = unsafe { core::slice::from_raw_parts(chapter_record_ptr(), words) }.to_vec();
+    let mut shown = Vec::new();
+    let mut at = HEAD;
+    for _ in 0..record[9] {
+        shown.push((record[at + 3], record[at + 3] + record[at + 4]));
+        at += 6 + 2 * record[at + 5] as usize;
+    }
+    let n = chapter_marks(chapter) as usize;
+    assert!(n > 0, "the chapter without its letters");
+    let triples = unsafe { core::slice::from_raw_parts(chapter_marks_ptr(), n * 3) };
+    for t in triples.chunks(3) {
+        assert!(shown.iter().any(|&(a, b)| t[0] >= a && t[1] <= b && t[0] < t[1]), "{t:?} outside every verse");
+        assert_eq!(t[2], 1);
+    }
+    assert_eq!(marks_at(2, chapter), 1 << 1);
+    assert_eq!(marks_at(1, book), 1 << 1);
+    assert_eq!(chapter_marks(corpus::chapter_count() as u32), 0, "a chapter out of range");
+    marks_clear(1);
+    assert_eq!(chapter_marks(chapter), 0, "cleared, still marked");
 }

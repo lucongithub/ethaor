@@ -43,6 +43,16 @@ pub fn letter_count(s: &str) -> usize {
 /// Letters of the alphabet once final forms are folded: alef to tav.
 pub const ALPHABET: usize = 22;
 
+/// Forms a consonant takes when final forms are told apart: the 27 of the
+/// Unicode block, alef to tav, each final its own.
+pub const FORMS: usize = 27;
+
+/// Rank of a consonant among the 27 forms, **finals their own** — the code
+/// of the exact stream, where `ם` is not `מ`. `None` for anything else.
+pub fn exact_code(c: char) -> Option<u8> {
+    is_base(c).then(|| (c as u32 - 0x05D0) as u8)
+}
+
 /// Rank of a consonant in the alphabet, 0 = alef … 21 = tav, **final forms
 /// folded onto their letter** — the code `letters.bin` is written in. `None`
 /// for a mark, a space, anything that is not a consonant.

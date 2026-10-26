@@ -16,7 +16,8 @@ interface Exports {
 	readings_load(): number;
 	els_query_ptr(): number;
 	els_query_cap(): number;
-	els_search(length: number, skip0: number, skip1: number): number;
+	/** `exact` 1 tells final forms apart; 0 folds them. */
+	els_search(length: number, skip0: number, skip1: number, exact: number): number;
 	els_hits_ptr(): number;
 	els_hits_len(): number;
 	els_stride(): number;
@@ -79,11 +80,14 @@ export class SearchCore {
 		this.wasm.probe_panic();
 	}
 
-	/** ELS: `query` read with `skip0..=skip1` letters jumped between its letters. */
-	els(query: string, skip0: number, skip1: number): Found {
+	/**
+	 * ELS: `query` read with `skip0..=skip1` letters jumped between its
+	 * letters; with `exact`, its final forms told apart.
+	 */
+	els(query: string, skip0: number, skip1: number, exact = false): Found {
 		const bytes = encoder.encode(query).subarray(0, this.wasm.els_query_cap());
 		new Uint8Array(this.wasm.memory.buffer, this.wasm.els_query_ptr(), bytes.length).set(bytes);
-		const total = this.wasm.els_search(bytes.length, skip0, skip1);
+		const total = this.wasm.els_search(bytes.length, skip0, skip1, exact ? 1 : 0);
 		const stride = this.wasm.els_stride();
 		const words = this.wasm.els_hits_len() * stride;
 		const hits = new Uint32Array(this.wasm.memory.buffer, this.wasm.els_hits_ptr(), words).slice();
