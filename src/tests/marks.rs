@@ -1,11 +1,11 @@
 //! A search's marks: its letters inked in the text at the reading level, a
-//! bar beside the names of the chapters, books and portions holding them.
+//! square beside the names of the chapters, books and portions holding them.
 //!
 //! Three promises. **The letters inked are the letters found**, read off the
 //! search's own records, across verse breaks and the other edition's
-//! insertions. **A bar says where, and only where**: the chapter, book or
-//! portion holds a letter found. And **nothing covers anything**: a bar sits
-//! beside its name, in the room its box leaves.
+//! insertions. **A square says where, and only where**: the chapter, book or
+//! portion holds a letter found. And **nothing covers anything**: a square
+//! sits beside its name, in the room its box leaves.
 
 use super::*;
 use crate::els::{self, Engine};
@@ -40,8 +40,8 @@ fn marked_and_bare(app: &App, slot: usize) -> (usize, usize) {
     (marked, bare)
 }
 
-fn bars(commands: &[Command]) -> Vec<Command> {
-    commands.iter().copied().filter(|c| c.kind == KIND_BAR).collect()
+fn squares(commands: &[Command]) -> Vec<Command> {
+    commands.iter().copied().filter(|c| c.kind == KIND_SQUARE).collect()
 }
 
 /// **Rank `k` among a verse's letters is the `k`-th consonant of our verse**,
@@ -105,7 +105,7 @@ fn a_hit_across_two_verses_is_inked_in_both() {
     assert_eq!(verses, vec![across[4] as usize, across[6] as usize]);
 }
 
-/// **A bar names the places of the letters, and only them**: a chapter is
+/// **A square names the places of the letters, and only them**: a chapter is
 /// marked if and only if a run lies in one of its verses, a book if one of its
 /// chapters is, a portion if one of its books is.
 #[test]
@@ -256,15 +256,16 @@ fn a_letter_found_by_several_searches_carries_them_all() {
     assert!(shared > 0, "chapter {chapter}: no run in the three searches' ink");
 }
 
-/// **Above the text, a bar of each search by each name holding the word,
+/// **Above the text, a square of each search by each name holding the word,
 /// none by the others** — under a chapter's number, beside a book's name or
-/// a portion's — each in its slot's ink, one bit; none without a search, and
-/// none ever on a letter. Every slot is set: all of them fit by every name.
+/// a portion's — each in its slot's ink, one bit, as wide as it is high;
+/// none without a search, and none ever on a letter. Every slot is set: all
+/// of them fit by every name.
 #[test]
-fn a_bar_sits_beside_each_name_holding_the_word() {
+fn a_square_sits_beside_each_name_holding_the_word() {
     for (w, h) in WINDOWS {
         let mut bare = framed_app(w, h);
-        assert!(bars(&frame(&mut bare)).is_empty(), "{w}x{h}: a bar without a search");
+        assert!(squares(&frame(&mut bare)).is_empty(), "{w}x{h}: a square without a search");
 
         let mut app = framed_app(w, h);
         for slot in 0..MARK_SLOTS {
@@ -283,10 +284,12 @@ fn a_bar_sits_beside_each_name_holding_the_word() {
             app.camera = Camera { z, x: cx - wx * z, y: cy - wy * z };
             measure_all(&mut app);
             let all = frame(&mut app);
-            let found = bars(&all);
-            for bar in &found {
-                let bits = (bar.ink - INK_MARK) as u32;
-                assert!(bits.is_power_of_two() && bits < 1 << MARK_SLOTS, "a bar's ink is not one slot");
+            let found = squares(&all);
+            for square in &found {
+                let bits = (square.ink - INK_MARK) as u32;
+                assert!(bits.is_power_of_two() && bits < 1 << MARK_SLOTS, "a square's ink is not one slot");
+                let (sw, sh) = (square.w, square.h);
+                assert!((sw - sh).abs() < 1e-3, "{w}x{h} at {level}: a mark {sw}x{sh} is not a square");
             }
 
             // Each name drawn, with whether its place holds the word.
@@ -314,7 +317,7 @@ fn a_bar_sits_beside_each_name_holding_the_word() {
                 } else {
                     continue;
                 };
-                // Its bars: on its line or just under it, by its ink, within a
+                // Its squares: on its line or just under it, by its ink, within a
                 // few of its sizes — and in its box, a book's or a cell's.
                 let near = found
                     .iter()
@@ -328,57 +331,57 @@ fn a_bar_sits_beside_each_name_holding_the_word() {
                         by && inside
                     })
                     .count();
-                // A name so small its bars may fall under the visible floor
-                // has them all or none.
-                if text.size * BAR_UNDER < BAR_MIN * 4.0 {
-                    assert!(near == 0 || near == MARK_SLOTS, "{w}x{h} at {level}: {name:?} has {near} bars");
+                // A name so small its squares may fall under the visible
+                // floor has them all or none.
+                if text.size * SQUARE < SQUARE_MIN * 4.0 {
+                    assert!(near == 0 || near == MARK_SLOTS, "{w}x{h} at {level}: {name:?} has {near} squares");
                 } else {
                     let want = if holds { MARK_SLOTS } else { 0 };
                     assert_eq!(near, want, "{w}x{h} at {level}: {name:?}, marked {holds}");
                     named += usize::from(holds);
                 }
 
-                for bar in &found {
-                    let apart = bar.x + bar.w <= left
-                        || bar.x >= text.x
-                        || bar.y + bar.h <= top
-                        || bar.y >= text.y;
-                    assert!(apart, "{w}x{h} at {level}: a bar on {name:?}");
+                for square in &found {
+                    let apart = square.x + square.w <= left
+                        || square.x >= text.x
+                        || square.y + square.h <= top
+                        || square.y >= text.y;
+                    assert!(apart, "{w}x{h} at {level}: a square on {name:?}");
                 }
             }
         }
-        assert!(named > 0, "{w}x{h}: no name barred");
+        assert!(named > 0, "{w}x{h}: no name marked");
     }
 }
 
-/// **Each search shown adds its bar, and past a width they thin to fit**:
-/// the row grows bar by bar at the nominal width, never wider than
-/// `BAR_ROW` sizes of its name, its bars only ever thinner as it fills —
-/// so many fit where one does.
+/// **Each search shown adds its square, and past a width they shrink to
+/// fit**: the row grows square by square at the nominal side, never wider
+/// than `SQUARE_ROW` sizes of its name, its squares only ever smaller as it
+/// fills — so many fit where one does.
 #[test]
-fn a_row_of_bars_grows_with_each_search_then_thins_to_fit() {
+fn a_row_of_squares_grows_with_each_search_then_shrinks_to_fit() {
     let size = 40.0;
-    let (one, _) = bar_widths(1, size);
-    let (mut last_bar, mut last_row) = (f32::INFINITY, 0.0);
+    let (one, _) = square_sides(1, size);
+    let (mut last_side, mut last_row) = (f32::INFINITY, 0.0);
     // Past the slots too: the rule is the row's, not the slot count's.
     for n in 1..32 {
         let marks = (1u32 << n) - 1;
-        let (bar, space) = bar_widths(marks, size);
-        let row = n as f32 * bar + (n as f32 - 1.0) * space;
-        assert!(row <= BAR_ROW * size + 1e-3, "{n} bars wider than the row allows");
-        assert!(row >= last_row - 1e-3, "{n} bars narrower than {}", n - 1);
-        assert!(bar <= last_bar + 1e-6, "a bar widened as the row filled");
-        assert!(bar > 0.0 && space >= 0.0, "{n} bars of no width");
-        (last_bar, last_row) = (bar, row);
+        let (side, space) = square_sides(marks, size);
+        let row = n as f32 * side + (n as f32 - 1.0) * space;
+        assert!(row <= SQUARE_ROW * size + 1e-3, "{n} squares wider than the row allows");
+        assert!(row >= last_row - 1e-3, "{n} squares narrower than {}", n - 1);
+        assert!(side <= last_side + 1e-6, "a square grew as the row filled");
+        assert!(side > 0.0 && space >= 0.0, "{n} squares of no side");
+        (last_side, last_row) = (side, row);
     }
-    assert_eq!(bar_widths(0b11, size).0, one, "two bars already thinned");
-    assert!(last_bar < one, "a full row kept the nominal width");
+    assert_eq!(square_sides(0b11, size).0, one, "two squares already shrunk");
+    assert!(last_side < one, "a full row kept the nominal side");
 }
 
-/// **A chapter's bars stay in its cell**, every slot's: in a row
+/// **A chapter's squares stay in its cell**, every slot's: in a row
 /// under its number, never across into a neighbour's.
 #[test]
-fn a_chapter_s_bars_stay_in_its_cell() {
+fn a_chapter_s_squares_stay_in_its_cell() {
     for (w, h) in WINDOWS {
         let mut app = framed_app(w, h);
         for slot in 0..MARK_SLOTS {
@@ -398,29 +401,29 @@ fn a_chapter_s_bars_stay_in_its_cell() {
             let cells: Vec<Rect> = (0..corpus::chapter_count())
                 .map(|c| app.camera.project(app.layout.chapters[c]))
                 .collect();
-            // Every bar lies wholly inside a cell or wholly outside each: none
-            // straddles a cell's edge into its neighbour's room.
-            for bar in bars(&all) {
-                let (l, r, t, b) = (bar.x, bar.x + bar.w, bar.y, bar.y + bar.h);
+            // Every square lies wholly inside a cell or wholly outside each:
+            // none straddles a cell's edge into its neighbour's room.
+            for square in squares(&all) {
+                let (l, r, t, b) = (square.x, square.x + square.w, square.y, square.y + square.h);
                 for cell in &cells {
                     let e = 1e-3;
                     let inside =
                         l >= cell.x - e && r <= cell.x + cell.w + e && t >= cell.y - e && b <= cell.y + cell.h + e;
                     let outside =
                         r <= cell.x + e || l >= cell.x + cell.w - e || b <= cell.y + e || t >= cell.y + cell.h - e;
-                    assert!(inside || outside, "{w}x{h} notch {notch}: a bar across a cell's edge");
+                    assert!(inside || outside, "{w}x{h} notch {notch}: a square across a cell's edge");
                     seen += usize::from(inside);
                 }
             }
         }
-        assert!(seen > 0, "{w}x{h}: no chapter bar");
+        assert!(seen > 0, "{w}x{h}: no chapter square");
     }
 }
 
 /// **Once the text is read, its letters speak**: a cell drawing its verses
-/// carries no bar, its found letters inked instead.
+/// carries no square, its found letters inked instead.
 #[test]
-fn a_cell_reading_its_text_has_no_bar_but_its_letters() {
+fn a_cell_reading_its_text_has_no_square_but_its_letters() {
     let mut app = reference_app();
     measure_all(&mut app);
     app.set_marks(0, &records("משה", 0), 3);
@@ -434,9 +437,10 @@ fn a_cell_reading_its_text_has_no_bar_but_its_letters() {
         all.iter().any(|c| c.is_text() && c.ink == INK_MARK + 1.0),
         "chapter {chapter} read without its letters inked"
     );
-    for bar in bars(&all) {
-        let inside = bar.x >= cell.x && bar.x <= cell.x + cell.w && bar.y >= cell.y && bar.y <= cell.y + cell.h;
-        assert!(!inside, "a bar in a cell drawing its text");
+    for square in squares(&all) {
+        let inside =
+            square.x >= cell.x && square.x <= cell.x + cell.w && square.y >= cell.y && square.y <= cell.y + cell.h;
+        assert!(!inside, "a square in a cell drawing its text");
     }
 }
 
@@ -480,7 +484,7 @@ fn the_passage_carries_the_letters_the_map_inks() {
 /// corpus of the very strings its record shows — so on every chapter a
 /// search marks, the stretches it is handed are the runs the map draws;
 /// nothing for a chapter not marked or hidden; and a place's bits are the
-/// bars the map draws by its name.
+/// squares the map draws by its name.
 #[test]
 fn the_book_view_carries_the_letters_the_map_inks() {
     let mut app = reference_app();
@@ -718,4 +722,67 @@ fn the_searches_shown_make_passages_together() {
     app.set_marks(7, &[], 3);
     assert!(app.shown_passages(true).is_empty(), "a search found nowhere, yet passages of all");
     assert_eq!(app.shown_passages(false), any, "a search found nowhere changed the passages of any");
+}
+
+/// **Joined by all, the map draws a search only where every one is**: each
+/// shown search's letters stay in the passages of all and nowhere else, and
+/// a chapter, book or portion holds its square exactly when one of those
+/// letters lies there. Joined by any, each is drawn whole again, as it was;
+/// a search alone joined by all is drawn whole, its passages being its own.
+#[test]
+fn joined_by_all_the_map_draws_only_where_every_search_is() {
+    let mut app = reference_app();
+    app.set_marks(0, &records("משה", 0), 3);
+    app.set_marks(3, &records("אהרן", 0), 4);
+    let any: Vec<Vec<(u32, u32, u32)>> = app.marks.iter().map(|m| m.runs.clone()).collect();
+    let drawn = |app: &App, slot: usize| -> Vec<u32> {
+        (0..corpus::verse_count())
+            .filter(|&v| {
+                let mut runs = Vec::new();
+                app.verse_marks(v, &mut runs);
+                runs.iter().any(|r| (r.2 - INK_MARK) as u32 & (1 << slot) != 0)
+            })
+            .map(|v| v as u32)
+            .collect()
+    };
+    let verses = |runs: &[(u32, u32, u32)]| {
+        let mut v: Vec<u32> = runs.iter().map(|r| r.0).collect();
+        v.dedup();
+        v
+    };
+    let whole: Vec<Vec<u32>> = [0, 3].iter().map(|&s| drawn(&app, s)).collect();
+    let squares: Vec<u32> = (0..corpus::chapter_count()).map(|c| app.chapter_marks(c)).collect();
+
+    app.join_marks(true);
+    let passages = app.shown_passages(true);
+    let inside = |v: u32| passages.iter().any(|&(a, b)| a <= v && v <= b);
+    for slot in [0, 3] {
+        let want: Vec<u32> = verses(&any[slot]).into_iter().filter(|&v| inside(v)).collect();
+        assert!(!want.is_empty(), "slot {slot}: nothing where both are");
+        assert_eq!(drawn(&app, slot), want, "slot {slot}: drawn outside the passages of all, or missing in them");
+        assert!(want.len() < verses(&any[slot]).len(), "slot {slot}: nothing left out");
+        for chapter in 0..corpus::chapter_count() {
+            let holds = want.iter().any(|&v| corpus::verses_of(chapter).contains(&(v as usize)));
+            assert_eq!(app.chapter_marks(chapter) & (1 << slot) != 0, holds, "slot {slot}, chapter {chapter}");
+        }
+        for book in 0..corpus::book_count() {
+            let holds = corpus::chapters_of(book).any(|c| app.chapter_marks(c) & (1 << slot) != 0);
+            assert_eq!(app.book_marks(book) & (1 << slot) != 0, holds, "slot {slot}, book {book}");
+        }
+        for (section, &(_, first, last)) in treemap::SECTIONS.iter().enumerate() {
+            let holds = (first..last).any(|b| app.book_marks(b) & (1 << slot) != 0);
+            assert_eq!(app.section_marks(section) & (1 << slot) != 0, holds, "slot {slot}, portion {section}");
+        }
+    }
+
+    // One search left shown: its passages of all are its own.
+    app.show_marks(3, false);
+    assert_eq!(drawn(&app, 0), whole[0], "a search alone, joined by all, not drawn whole");
+    app.show_marks(3, true);
+    assert!(drawn(&app, 0).len() < whole[0].len(), "shown again, the join not kept");
+
+    app.join_marks(false);
+    assert_eq!([drawn(&app, 0), drawn(&app, 3)], [whole[0].clone(), whole[1].clone()], "joined by any, not whole");
+    let back: Vec<u32> = (0..corpus::chapter_count()).map(|c| app.chapter_marks(c)).collect();
+    assert_eq!(back, squares, "joined by any, the squares not as they were");
 }

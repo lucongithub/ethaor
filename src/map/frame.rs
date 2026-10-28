@@ -14,10 +14,10 @@ pub(crate) const KIND_TEXT: f32 = 1.0;
 /// neighbours, even if a badly measured width makes it overflow.
 pub(crate) const KIND_CLIP: f32 = 2.0;
 pub(crate) const KIND_UNCLIP: f32 = 3.0;
-/// A search's bar beside a name: its box (left, top, width, height), its
+/// A search's square beside a name: its box (left, top, side, side), its
 /// slot's bit as the ink. The one mark that is not a letter, and it carries
 /// information too: this chapter, book or portion holds what the search found.
-pub(crate) const KIND_BAR: f32 = 4.0;
+pub(crate) const KIND_SQUARE: f32 = 4.0;
 
 /// Ink of a text command, last slot of the record.
 ///
@@ -29,51 +29,49 @@ pub(crate) const KIND_BAR: f32 = 4.0;
 /// the module only says which run is which.
 pub(crate) const INK_OURS: f32 = 0.0;
 pub(crate) const INK_OTHER: f32 = 1.0;
-/// A search's letters, and its bars: `INK_MARK + bits`, one bit per slot
-/// holding them — a bar has one, a letter as many as searches found it. The
+/// A search's letters, and its squares: `INK_MARK + bits`, one bit per slot
+/// holding them — a square has one, a letter as many as searches found it. The
 /// page gives each slot the colour its search wears, and paints a letter of
 /// several in bands of theirs.
 pub(crate) const INK_MARK: f32 = 2.0;
 
-/// A bar's width and the space to the next one, its height beside a name,
-/// its gap from the name, in shares of the name's size; and how far above
-/// the box's middle its centre sits, at the height of a letter's body rather
-/// than of the line. Thin and upright, so ten line up where five dots did.
-const BAR_WIDTH: f32 = 0.08;
-const BAR_SPACE: f32 = 0.07;
-const BAR_HEIGHT: f32 = 0.42;
-const BAR_GAP: f32 = 0.35;
-const BAR_RISE: f32 = 0.06;
-/// The widest a row of bars grows, in shares of the name's size: each search
-/// shown adds its bar, and past this width they all thin to fit — the row
-/// fits under every chapter number, every cell sharing one size.
-pub(crate) const BAR_ROW: f32 = 1.4;
-/// Under a chapter number: how far under its baseline the bars' tops sit,
-/// and their height, in shares of its size — in the room the cell leaves
-/// below the digits.
-const BAR_DROP: f32 = 0.17;
-pub(crate) const BAR_UNDER: f32 = 0.26;
-/// A bar lower than this, in pixels, is not seen: not drawn.
-pub(crate) const BAR_MIN: f32 = 1.0;
+/// A square's side and the space to the next one, its gap from the name, in
+/// shares of the name's size; and how far above the box's middle its centre
+/// sits, at the height of a letter's body rather than of the line. The side
+/// is the room a cell leaves under its number, below the digits.
+pub(crate) const SQUARE: f32 = 0.26;
+const SQUARE_SPACE: f32 = 0.1;
+const SQUARE_GAP: f32 = 0.35;
+const SQUARE_RISE: f32 = 0.06;
+/// The widest a row of squares grows, in shares of the name's size: each
+/// search shown adds its square, and past this width they all shrink to fit —
+/// the row fits under every chapter number, every cell sharing one size.
+pub(crate) const SQUARE_ROW: f32 = 1.4;
+/// Under a chapter number: how far under its baseline the squares' tops
+/// sit, in shares of its size.
+const SQUARE_DROP: f32 = 0.17;
+/// A row whose single square would be smaller than this, in pixels, is not
+/// seen: not drawn.
+pub(crate) const SQUARE_MIN: f32 = 1.0;
 
-/// A bar's width and the space after it, for the bars of `marks` by a name
-/// of `size`: the nominal ones while the row is narrower than `BAR_ROW`,
-/// both thinned alike past it.
-pub(crate) fn bar_widths(marks: u32, size: f32) -> (f32, f32) {
+/// A square's side and the space after it, for the squares of `marks` by a
+/// name of `size`: the nominal ones while the row is narrower than
+/// `SQUARE_ROW`, both shrunk alike past it.
+pub(crate) fn square_sides(marks: u32, size: f32) -> (f32, f32) {
     let n = marks.count_ones().max(1) as f32;
-    let natural = n * BAR_WIDTH + (n - 1.0) * BAR_SPACE;
-    let k = (BAR_ROW / natural).min(1.0);
-    (size * BAR_WIDTH * k, size * BAR_SPACE * k)
+    let natural = n * SQUARE + (n - 1.0) * SQUARE_SPACE;
+    let k = (SQUARE_ROW / natural).min(1.0);
+    (size * SQUARE * k, size * SQUARE_SPACE * k)
 }
 
-/// The width a row of the bars of `marks` takes, end to end.
-fn row_width(marks: u32, width: f32, space: f32) -> f32 {
+/// The width a row of the squares of `marks` takes, end to end.
+fn row_width(marks: u32, side: f32, space: f32) -> f32 {
     let n = marks.count_ones() as f32;
-    n * width + (n - 1.0).max(0.0) * space
+    n * side + (n - 1.0).max(0.0) * space
 }
 
-/// A title's text, with the searches holding its place, as bits: their bars
-/// go by it.
+/// A title's text, with the searches holding its place, as bits: their
+/// squares go by it.
 #[derive(Clone, Copy)]
 struct Named {
     text: &'static str,
@@ -155,55 +153,59 @@ impl App {
         self.clip(Rect { x: box_.x, y: 0.0, w: box_.w, h: self.height });
         self.emit_text(content, area, size, alpha);
         if marks != 0 {
-            // A title filling its box has no room beside it: its bars go
+            // A title filling its box has no room beside it: its squares go
             // under it, in the room the box leaves below the letters.
             let w = self.width_of(content, size).min(area.w);
             let right = area.x + area.w;
             if full {
-                self.bars_under(marks, right - w / 2.0, area.y + area.h / 2.0 + size * 0.36, size);
+                self.squares_under(marks, right - w / 2.0, area.y + area.h / 2.0 + size * 0.36, size);
             } else {
-                self.bars(marks, right - w, box_.x, area, size);
+                self.squares(marks, right - w, box_.x, area, size);
             }
         }
         self.unclip();
     }
 
-    /// The bars of the slots in `marks`, laid leftwards from `left` — the
+    /// The squares of the slots in `marks`, laid leftwards from `left` — the
     /// left end of a name, where Hebrew ends — on the name's box, at its size,
     /// and never past `bound`: where the room is short, they shrink into it.
-    fn bars(&mut self, marks: u32, left: f32, bound: f32, area: Rect, size: f32) {
-        let (width, space) = bar_widths(marks, size);
-        let wide = row_width(marks, width, space);
-        let k = ((left - bound) / (size * BAR_GAP + wide)).min(1.0);
-        let h = size * BAR_HEIGHT * k;
-        let middle = area.y + area.h / 2.0 + size * BAR_RISE;
-        self.bar_row(marks, left - size * BAR_GAP * k, middle - h / 2.0, width * k, space * k, h);
+    fn squares(&mut self, marks: u32, left: f32, bound: f32, area: Rect, size: f32) {
+        let (side, space) = square_sides(marks, size);
+        let wide = row_width(marks, side, space);
+        let k = ((left - bound) / (size * SQUARE_GAP + wide)).min(1.0);
+        let middle = area.y + area.h / 2.0 + size * SQUARE_RISE;
+        let at = (left - size * SQUARE_GAP * k, middle - side * k / 2.0);
+        self.square_row(marks, at, side * k, space * k, size * SQUARE * k);
     }
 
-    /// The bars of a name, in a row under its baseline, centred on `middle`.
-    /// A chapter's number has them there — a cell is square, and beside its
-    /// number there is no room — and the row fits in the cell's width: every
-    /// cell and every number share one size, so it fits everywhere.
-    fn bars_under(&mut self, marks: u32, middle: f32, baseline: f32, size: f32) {
-        let (width, space) = bar_widths(marks, size);
-        let wide = row_width(marks, width, space);
-        self.bar_row(marks, middle + wide / 2.0, baseline + size * BAR_DROP, width, space, size * BAR_UNDER);
+    /// The squares of a name, in a row under its baseline, centred on
+    /// `middle`. A chapter's number has them there — a cell is square, and
+    /// beside its number there is no room — and the row fits in the cell's
+    /// width: every cell and every number share one size, so it fits
+    /// everywhere.
+    fn squares_under(&mut self, marks: u32, middle: f32, baseline: f32, size: f32) {
+        let (side, space) = square_sides(marks, size);
+        let wide = row_width(marks, side, space);
+        self.square_row(marks, (middle + wide / 2.0, baseline + size * SQUARE_DROP), side, space, size * SQUARE);
     }
 
-    /// A row of bars `width` wide and `h` high from `top`, the first one's
-    /// right edge at `right`, lowest slot first.
-    fn bar_row(&mut self, marks: u32, right: f32, top: f32, width: f32, space: f32, h: f32) {
-        if h < BAR_MIN {
+    /// A row of squares of `side`, the first one's top right corner `at`,
+    /// lowest slot first. Seen or not is `alone`'s to say, the side one
+    /// square would have by itself: a full row's squares go under a pixel
+    /// on a small number, and still read as a row of dots.
+    fn square_row(&mut self, marks: u32, at: (f32, f32), side: f32, space: f32, alone: f32) {
+        if alone < SQUARE_MIN {
             return;
         }
+        let (right, top) = at;
         let mut edge = right;
         for slot in 0..MARK_SLOTS {
             if marks & (1 << slot) == 0 {
                 continue;
             }
-            let x = edge - width;
+            let x = edge - side;
             self.commands
-                .extend_from_slice(&[KIND_BAR, x, top, width, h, 1.0, 0.0, 0.0, 0.0, INK_MARK + (1u32 << slot) as f32]);
+                .extend_from_slice(&[KIND_SQUARE, x, top, side, side, 1.0, 0.0, 0.0, 0.0, INK_MARK + (1u32 << slot) as f32]);
             edge = x - space;
         }
     }
@@ -494,7 +496,7 @@ impl App {
                 let marks = self.section_marks(section);
                 if marks != 0 {
                     let w = self.width_of(name, cards.size);
-                    self.bars(marks, area.x + area.w - w, area.x, area, cards.size);
+                    self.squares(marks, area.x + area.w - w, area.x, area, cards.size);
                 }
             }
             return;
@@ -591,7 +593,7 @@ impl App {
                 let marks = self.chapter_marks(chapter);
                 if marks != 0 {
                     let baseline = area.y + area.h / 2.0 + scale.chapter * 0.36;
-                    self.bars_under(marks, cell.x + cell.w / 2.0, baseline, scale.chapter);
+                    self.squares_under(marks, cell.x + cell.w / 2.0, baseline, scale.chapter);
                 }
             }
         }

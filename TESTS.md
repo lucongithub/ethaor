@@ -14,11 +14,11 @@ name, what it holds (its doc comment), and its nature.
 | area | files | tests | ignored | without a doc |
 |---|---|---|---|---|
 | Rust core, module-private | 7 | 119 | 1 | 21 |
-| Rust app (`src/tests/`) | 12 | 177 | 0 | 12 |
+| Rust app (`src/tests/`) | 12 | 178 | 0 | 12 |
 | Corpus build (`tests/`) | 1 | 31 | 0 | 15 |
 | Server (`server/`) | 15 | 84 | 1 | 12 |
 | Page (`web/`) | 11 | 101 | 0 | 0 |
-| **total** | **46** | **512** | **2** | **60** |
+| **total** | **46** | **513** | **2** | **60** |
 
 ## By file
 
@@ -291,7 +291,7 @@ name, what it holds (its doc comment), and its nature.
         - `a_passage_selected_carries_its_found_letters` — **A passage selected carries its found letters**: `select_verse` on a verse a search marks leaves `(from, to, slots)` triples at `selection_marks_ptr`, cutting the selected verse's own text; a verse holding none, and a refused selection, leave none. <sub>app: the module as the page drives it</sub>
         - `the_book_view_reads_found_letters_inside_its_record` — **The book view reads a chapter's found letters inside its record**: each triple `chapter_marks` leaves lies in one verse as the record shows it; `marks_at` gives the chapter, its book and its portion their bits. <sub>app: the module as the page drives it</sub>
         - `the_page_lists_a_search_s_passages` — **A search's passages reach the page as it lists them**: its records copied into `marks_buffer`, set by `results_set` — then `results_page` writes at `results_ptr` the record `App::results_page` writes, a page past the end writes nothing, and `results_clear` forgets the list. <sub>app: the module as the page drives it</sub>
-        - `the_page_counts_passages` — **The panel's counts reach the page as it asks them**: `passages_count` counts the hits at `marks_buffer` as `results_set` lists them, and `passages_shown` the shown searches' together, as `results_shown` lists them — of any, of all. <sub>app: the module as the page drives it</sub>
+        - `the_page_counts_passages` — **The panel's counts reach the page as it asks them**: `passages_count` counts the hits at `marks_buffer` as `results_set` lists them, and `passages_shown` the shown searches' together, as `results_shown` lists them — of any, of all; `marks_join` keeps the map's squares to the passages of all, and gives them back whole. <sub>app: the module as the page drives it</sub>
     - [`breadcrumb.rs`](src/tests/breadcrumb.rs) — 14 tests
       <br>The breadcrumb: where one is, from the zoom and from the pointer.
       - module `tests::breadcrumb` · ethaor
@@ -421,22 +421,22 @@ name, what it holds (its doc comment), and its nature.
         - `the_nest_takes_seven_tenths_of_its_letter` — The nest is at the heart of a letter, and takes **seven tenths of its cell** — not a dot. <sub>app: the module as the page drives it</sub>
         - `the_zoom_target_tolerates_the_gaps` — The zoom target tolerates the gaps: aiming between two books must stay productive. <sub>app: the module as the page drives it</sub>
         - `the_breadcrumb_names_the_place_under_the_centre` — The breadcrumb always says where one is: section, book and chapter under the centre of the view, even when the title bands have left the screen. <sub>app: the module as the page drives it</sub>
-    - [`marks.rs`](src/tests/marks.rs) — 20 tests — covers [`src/map/marks.rs`](src/map/marks.rs)
-      <br>A search's marks: its letters inked in the text at the reading level, a bar beside the names of the chapters, books and portions holding them.
+    - [`marks.rs`](src/tests/marks.rs) — 21 tests — covers [`src/map/marks.rs`](src/map/marks.rs)
+      <br>A search's marks: its letters inked in the text at the reading level, a square beside the names of the chapters, books and portions holding them.
       - module `tests::marks` · ethaor
         - `a_verse_s_letters_are_ours_in_order_with_their_marks` — **Rank `k` among a verse's letters is the `k`-th consonant of our verse**, in the string it is drawn from: every verse, the eighty-eight carrying another reading included — their insertions are skipped whole. Each range starts on a consonant and holds its marks. <sub>app: the module as the page drives it</sub>
         - `the_letters_inked_are_the_letters_found` — **Every hit is inked, letter for letter**: at skip 0 the runs placed spell the word as many times as it was found — its occurrences never overlap — and at a skip each letter stands alone. <sub>app: the module as the page drives it</sub>
         - `a_hit_across_two_verses_is_inked_in_both` — **A word read across a verse break is inked on both sides**: its first letters end one verse, its last ones open the next. <sub>app: the module as the page drives it</sub>
-        - `the_places_marked_are_the_places_of_the_letters` — **A bar names the places of the letters, and only them**: a chapter is marked if and only if a run lies in one of its verses, a book if one of its chapters is, a portion if one of its books is. <sub>app: the module as the page drives it</sub>
+        - `the_places_marked_are_the_places_of_the_letters` — **A square names the places of the letters, and only them**: a chapter is marked if and only if a run lies in one of its verses, a book if one of its chapters is, a portion if one of its books is. <sub>app: the module as the page drives it</sub>
         - `a_search_hidden_shown_and_cleared` — **Hidden, a search marks nothing and keeps its places**; shown again, they come back; cleared, they are gone. A slot past the last is refused. <sub>app: the module as the page drives it</sub>
         - `the_letters_found_are_their_own_runs_in_the_line` — **At the reading level, the found letters wear their slot's ink** (its bit), cut out as their own runs; the runs still tile the line from the right and recompose it, and a line holding none stays one command. <sub>app: the module as the page drives it</sub>
         - `a_letter_found_by_several_searches_carries_them_all` — **A letter several searches found carries every one of them**, as bits in its ink: on every verse the first search marks, the runs come in the order of the text, never overlap, neighbours of the same bits merged, and each byte's bits are exactly the shown slots whose letters hold it — a search identical to another, one finding part of its word (`שה` in `משה`), one hidden. On the line, the runs recompose it once, never laid over each other. <sub>app: the module as the page drives it</sub>
-        - `a_bar_sits_beside_each_name_holding_the_word` — **Above the text, a bar of each search by each name holding the word, none by the others** — under a chapter's number, beside a book's name or a portion's — each in its slot's ink, one bit; none without a search, and none ever on a letter. Every slot is set: all of them fit by every name. <sub>app: the module as the page drives it</sub>
-        - `a_row_of_bars_grows_with_each_search_then_thins_to_fit` — **Each search shown adds its bar, and past a width they thin to fit**: the row grows bar by bar at the nominal width, never wider than `BAR_ROW` sizes of its name, its bars only ever thinner as it fills — so many fit where one does. <sub>app: the module as the page drives it</sub>
-        - `a_chapter_s_bars_stay_in_its_cell` — **A chapter's bars stay in its cell**, every slot's: in a row under its number, never across into a neighbour's. <sub>app: the module as the page drives it</sub>
-        - `a_cell_reading_its_text_has_no_bar_but_its_letters` — **Once the text is read, its letters speak**: a cell drawing its verses carries no bar, its found letters inked instead. <sub>app: the module as the page drives it</sub>
+        - `a_square_sits_beside_each_name_holding_the_word` — **Above the text, a square of each search by each name holding the word, none by the others** — under a chapter's number, beside a book's name or a portion's — each in its slot's ink, one bit, as wide as it is high; none without a search, and none ever on a letter. Every slot is set: all of them fit by every name. <sub>app: the module as the page drives it</sub>
+        - `a_row_of_squares_grows_with_each_search_then_shrinks_to_fit` — **Each search shown adds its square, and past a width they shrink to fit**: the row grows square by square at the nominal side, never wider than `SQUARE_ROW` sizes of its name, its squares only ever smaller as it fills — so many fit where one does. <sub>app: the module as the page drives it</sub>
+        - `a_chapter_s_squares_stay_in_its_cell` — **A chapter's squares stay in its cell**, every slot's: in a row under its number, never across into a neighbour's. <sub>app: the module as the page drives it</sub>
+        - `a_cell_reading_its_text_has_no_square_but_its_letters` — **Once the text is read, its letters speak**: a cell drawing its verses carries no square, its found letters inked instead. <sub>app: the module as the page drives it</sub>
         - `the_passage_carries_the_letters_the_map_inks` — **The passage carries the letters the map inks**, cut in our verse — the one it shows — not in the string drawn with the other edition's forms: on every verse a search marks, and on a verse holding another reading, marked after its insertion so every offset has moved. <sub>app: the module as the page drives it</sub>
-        - `the_book_view_carries_the_letters_the_map_inks` — **The book view carries the letters the map inks**, as offsets in the corpus of the very strings its record shows — so on every chapter a search marks, the stretches it is handed are the runs the map draws; nothing for a chapter not marked or hidden; and a place's bits are the bars the map draws by its name. <sub>app: the module as the page drives it</sub>
+        - `the_book_view_carries_the_letters_the_map_inks` — **The book view carries the letters the map inks**, as offsets in the corpus of the very strings its record shows — so on every chapter a search marks, the stretches it is handed are the runs the map draws; nothing for a chapter not marked or hidden; and a place's bits are the squares the map draws by its name. <sub>app: the module as the page drives it</sub>
         - `every_hit_lies_whole_in_one_passage` — **Every hit lies whole in exactly one passage, and passages never touch**: in the order of the text, each from its first hit's first verse to the last verse any of its hits reaches, the next starting past it — so hits sharing a verse are one passage, and every verse of a hit is listed. <sub>app: the module as the page drives it</sub>
         - `a_hit_across_two_verses_lists_both` — **A hit across two verses is listed with both**: its passage reads the verse where it starts and the one where it ends, and the search's own letters are marked on each side. <sub>app: the module as the page drives it</sub>
         - `each_verse_of_a_passage_is_named_and_ours` — **Each verse is named and read as the passage reads it**: its book holds its chapter, its chapter holds it, its number is its label and its text is ours — the other edition's forms not in it — and every run is a slice of that text on a letter boundary. <sub>app: the module as the page drives it</sub>
@@ -444,6 +444,7 @@ name, what it holds (its doc comment), and its nature.
         - `pages_of_passages_tile_the_list` — **Pages tile the list**: read a few at a time they give back the whole list in order, past the end nothing; cleared, the list is gone. <sub>app: the module as the page drives it</sub>
         - `a_search_s_passages_are_counted_as_listed` — **A search's passages are counted as they are listed**: the count the panel shows is the length of the list its count opens. <sub>app: the module as the page drives it</sub>
         - `the_searches_shown_make_passages_together` — **The searches shown make passages together**: those of any are the passages of their hits taken as one search's, a hidden one left out; those of every one are exactly the ones among them holding a hit of each shown search. None while nothing is shown, and none of all once a shown search is found nowhere. <sub>app: the module as the page drives it</sub>
+        - `joined_by_all_the_map_draws_only_where_every_search_is` — **Joined by all, the map draws a search only where every one is**: each shown search's letters stay in the passages of all and nowhere else, and a chapter, book or portion holds its square exactly when one of those letters lies there. Joined by any, each is drawn whole again, as it was; a search alone joined by all is drawn whole, its passages being its own. <sub>app: the module as the page drives it</sub>
     - [`readings.rs`](src/tests/readings.rs) — 12 tests
       <br>The other edition's reading, drawn inside our text.
       - module `tests::readings` · ethaor
@@ -661,8 +662,8 @@ name, what it holds (its doc comment), and its nature.
           - `changes nothing for a number no search has` — changes nothing for a number no search has. <sub>page logic, on the real artifacts</sub>
         - module `a count` · vitest
           - `groups its thousands by a space` — Thousands grouped by a no-break space — a narrow one vanished in the interface font — never a comma or a point: 22 413. <sub>page logic, on the real artifacts</sub>
-        - module `the bars by a name` · vitest
-          - `grow one per search, then thin to fit the row` — Each search shown adds a bar at the nominal width, until the row is as wide as it may grow; past it, every bar thins so they all still fit. <sub>page logic, on the real artifacts</sub>
+        - module `the squares by a name` · vitest
+          - `grow one per search, then shrink to fit the row` — Each search shown adds a square at the nominal side, until the row is as wide as it may grow; past it, every square shrinks so they all still fit. <sub>page logic, on the real artifacts</sub>
         - module `a letter several searches found` · vitest
           - `reads its slots off the bits, lowest first` — The module names slots as bits: each bit read back, lowest first, none past the last slot. <sub>page logic, on the real artifacts</sub>
           - `wears the colours of the shown searches among its bits` — Only the shown searches among the bits lend their colour, in slot order: a hidden one, or a slot no search holds, adds none. <sub>page logic, on the real artifacts</sub>
@@ -731,10 +732,10 @@ helper is often held by the test of its caller — but each is a question the
 - [`src/els.rs`](src/els.rs): `forget_answers`, `index_of`, `stream_of`
 - [`src/els/index.rs`](src/els/index.rs): `make_room`
 - [`src/map/camera.rs`](src/map/camera.rs): `at_opening`, `overview_scale`, `sync_detail`
-- [`src/map/frame.rs`](src/map/frame.rs): `bar_row`, `bars_under`, `book_title_size`, `draw_book`, `emit_ink`, `emit_run`, `emit_text`, `overview_title`, `row_width`, `scale_of`
+- [`src/map/frame.rs`](src/map/frame.rs): `book_title_size`, `draw_book`, `emit_ink`, `emit_run`, `emit_text`, `overview_title`, `row_width`, `scale_of`, `square_row`, `squares_under`
 - [`src/map/hit.rs`](src/map/hit.rs): `books_drawn`, `ink_of`, `locate_in`, `names_chapter`, `pick_place`
 - [`src/map/landing.rs`](src/map/landing.rs): `line_height_once_in`, `push_tile`, `verses_in`
-- [`src/map/marks.rs`](src/map/marks.rs): `hit_verses`, `mask`, `passage_marks_with`, `verse_marks_with`
+- [`src/map/marks.rs`](src/map/marks.rs): `hit_verses`, `mask`, `passage_marks_with`, `rejoin`, `verse_marks_with`
 - [`src/map/text.rs`](src/map/text.rs): `line_at`
 - [`src/pack.rs`](src/pack.rs): `get_str`, `get_string`, `lay_chapter`, `lay_readings`, `put_str`, `read_exceptions`, `unpack`, `write_exceptions`
 - [`src/shared/els.rs`](src/shared/els.rs): `char_of`, `check_up_to`, `last_verse`

@@ -806,7 +806,7 @@ fn a_frame_is_built_in_a_blink() {
 #[test]
 fn a_record_keeps_the_layout_the_page_reads() {
     assert_eq!(STRIDE, 10, "the record's stride changed: tell ethaor.ts");
-    assert_eq!((KIND_TEXT, KIND_CLIP, KIND_UNCLIP, KIND_BAR), (1.0, 2.0, 3.0, 4.0));
+    assert_eq!((KIND_TEXT, KIND_CLIP, KIND_UNCLIP, KIND_SQUARE), (1.0, 2.0, 3.0, 4.0));
     assert_eq!((INK_OURS, INK_OTHER, INK_MARK), (0.0, 1.0, 2.0), "the inks changed: tell ethaor.ts");
 
     let mut app = reference_framed();

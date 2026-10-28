@@ -103,7 +103,7 @@
 
 	// The searches kept, as many as the reader runs, listed in the panel on
 	// the right. Ten at most are shown on the map, whatever their kind: each
-	// in a slot of the module's, its letters inked and its places marked by a bar in
+	// in a slot of the module's, its letters inked and its places marked by a square in
 	// its colour. A hidden one gives its slot back and keeps its hits here, to
 	// be marked again when shown — not reactive: they are records, not state
 	// the page draws.
@@ -204,6 +204,18 @@
 	let together = $state({ any: 0, all: 0 });
 	function retally() {
 		together = map ? map.results.together() : { any: 0, all: 0 };
+		// Under two shown the signs are gone: the map goes back to any, and
+		// the next pair starts there, the default.
+		if (kept.filter(isShown).length < 2) joinMarks('any');
+	}
+
+	// How the map joins the searches shown, picked by the panel's signs: any
+	// (∪), each drawn whole, or all (∩), each only where every one is.
+	let join = $state<'any' | 'all'>('any');
+	function joinMarks(next: 'any' | 'all') {
+		if (next === join) return;
+		join = next;
+		map?.marks.join(next === 'all');
 	}
 
 	// Passages listed in a modal over everything: a search's, opened by its
@@ -527,6 +539,7 @@
 							startLevel={openedLevel}
 							{landed}
 							searches={kept}
+							{join}
 							onreading={(next) => (reading = next)}
 							onform={(on) => (onForm = on)}
 							onselect={(hit) => (selection = hit)}
@@ -612,6 +625,8 @@
 				onresults={openResults}
 				{together}
 				ontogether={openTogether}
+				{join}
+				onjoin={joinMarks}
 			/>
 		{/if}
 	</div>

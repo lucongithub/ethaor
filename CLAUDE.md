@@ -858,7 +858,7 @@ At the heart of every letter, `NEST` reserves the place of the whole Tanakh —
 a large share of its cell, not a point.
 
 **No fill is ever painted.** Rendering emits text and clips only — and a
-search's bars, which carry information (see *Searches on the map*): no white
+search's squares, which carry information (see *Searches on the map*): no white
 square, zooming in or out. That was the patch over a hole, and the hole was
 plugged on both sides — a newborn world a thousand pixels wide on one side, a
 zoom-out floor on the other.
@@ -1070,7 +1070,7 @@ faded text rather than as a second reading.
 
 **The searches kept wear colours of their own** — the owner's rule: each
 search the reader runs takes one of Tailwind's 500 steps (`marks.ts`, sky
-first), its letters drawn in it at the reading level and a bar of it by each
+first), its letters drawn in it at the reading level and a square of it by each
 chapter, book and portion holding them. The colour says "found here", which
 the white cannot; the reader picks it, so two searches never read as one.
 
@@ -1240,15 +1240,17 @@ Rejected: one button naming where it goes — the rail never said where one was.
   Rejected: the first slot keeping it — a search lost its letters to
   another; dots or a bar by the letter — they hit the points (`חוֹלָם`,
   `שׁ`) and need room in the line; a colour alternating in time.
-- **Above the text, thin bars say where** (`KIND_BAR`, the slot in the
-  ink): beside a portion's name and a book's name in its band, under a
-  book's name filling its box at the framing, under a chapter's number — a
-  cell is square, and beside its number there is no room. Each search
-  shown adds its bar to the row; past `BAR_ROW` the bars thin so the row
-  never grows wider, and all ten fit under every number, since every
-  cell shares one size — the owner's rule. Rejected: dots — five filled
-  the room a number has. A cell reading its text has no bar: its letters
-  speak.
+- **Above the text, squares say where** (`KIND_SQUARE`, the slot in the
+  ink) — the owner's rule: beside a portion's name and a book's name in
+  its band, under a book's name filling its box at the framing, under a
+  chapter's number — a cell is square, and beside its number there is no
+  room. Each search shown adds its square to the row; past `SQUARE_ROW`
+  the squares shrink so the row never grows wider, and all ten fit under
+  every number, since every cell shares one size — the owner's rule.
+  Whether a row is drawn is the side one square would have alone: a full
+  row on a small number goes under a pixel and still reads as dots.
+  Rejected: thin upright bars, the first shape. A cell reading its text
+  has no square: its letters speak.
 - **As many searches as the reader runs, ten shown at most** — the
   owner's rule (`MARK_SLOTS`, `MAX_SHOWN`): every one is kept, the first
   ten on the map, each its slot and one of the sixteen colours no
@@ -1285,7 +1287,11 @@ Rejected: one button naming where it goes — the rail never said where one was.
   taken as one search's (`App::shown_passages`), so a passage of `∩` is a
   passage of `∪` holding a hit of each. Each count opens its list, every
   search's letters in its colour; while a shown search still searches, the
-  two counts wait. **It lies over the map, never taking its room** — the owner's
+  two counts wait. **Each sign picks what the map draws** — the owner's
+  rule (`App::join_marks`): `∪`, the default, every shown search whole;
+  `∩`, each only in the passages of `∩` — letters, squares, the book view
+  and the passage alike. The pick sits on a plate; under two shown the
+  signs go and the map is back to `∪`. **It lies over the map, never taking its room** — the owner's
   rule. On a wide screen (`md`) the map stays live beside it and it opens
   itself when a search is run; on a narrow one a veil lies beneath, every
   target a finger's size. The veil, its close button or Escape put it
@@ -1308,9 +1314,9 @@ Rejected: one button naming where it goes — the rail never said where one was.
 - **The book view shows them too**: a chapter's found letters come with
   its record (`chapter_marks`, offsets of the very strings the record
   shows) and cut our parts with their slot (`readChapter`), the other
-  edition's forms never touched; above the text, a bar of each search
+  edition's forms never touched; above the text, a square of each search
   beside a portion's and a book's name, under a chapter's number
-  (`marks_at`). As on the map, the text read has no bar: its letters
+  (`marks_at`). As on the map, the text read has no square: its letters
   speak. A search kept, shown, hidden or removed reads the chapters again.
 - No HTTP twin: marks are for a frame and a page, which only a browser
   reads.
@@ -1416,8 +1422,8 @@ anywhere must be an assertion.
 | `src/tests/landing.rs` | the next book fetched is the nearest to the view, follows it when it moves, each book once; before the text lands the map stays whole — no black frame however deep, no verse drawn, clicked or named — and the verses come once it lands; the overview is identical with and without the text; a chapter's tile is asked two notches or more ahead of its reading level, once, only for chapters on screen, with its exact byte range |
 | `src/variant/tests.rs` | the welded table: taking the insertions out gives the verse back byte for byte, every range is a slice on a letter boundary |
 | `src/tests/readings.rs` | the other reading **in the flow, never over it**: the runs of a line tile it from the right and recompose it, the ink marks theirs and only theirs, a verse without a variant stays one command, a click never names the other edition ; the index opens on the two forms alone, never on the rest of their chapter nor on its number; the answer is the pointed pair's reading, theirs alone, the very runs the frame cuts out |
-| `src/tests/marks.rs` | a verse's letters are ours, in order, with their marks; the letters inked are the letters found, across a verse break too; a chapter, book or portion is marked exactly when it holds one; hidden, shown, cleared; the found letters are runs of their own that still recompose the line, a letter several searches found carrying every shown one's bit; the passage carries the letters the map inks, cut in our verse; the book view carries them inside its record, and a place's bits are its bars; a bar of each search by each name holding the word and none by the others, never on a letter, every slot's in a chapter's cell; a row grows one bar per search then thins to fit; a cell reading its text inks its letters and has no bar; a search's passages hold every hit whole, never touching, every verse named and ours, its own letters marked shown or not, paged, counted as listed; the shown searches' passages of any are their hits as one search's, of all those holding each, a hidden one left out |
-| `web/src/lib/marks.test.ts` | the colours are Tailwind's 500 steps, sixteen, more than the ten slots the module marks; every search kept, the first ten shown each in its slot and colour, the rest hidden; hidden gives the slot back, shown takes the lowest free one and a colour no shown search wears; a freed slot and an unworn colour taken; each change touches its search alone; a letter of several searches wears the shown ones' colours, in equal bands cut sharp; the bars by a name grow one per search, then thin to fit the row; a count's thousands grouped by a space |
+| `src/tests/marks.rs` | a verse's letters are ours, in order, with their marks; the letters inked are the letters found, across a verse break too; a chapter, book or portion is marked exactly when it holds one; hidden, shown, cleared; the found letters are runs of their own that still recompose the line, a letter several searches found carrying every shown one's bit; the passage carries the letters the map inks, cut in our verse; the book view carries them inside its record, and a place's bits are its squares; a square of each search by each name holding the word and none by the others, never on a letter, every slot's in a chapter's cell; a row grows one square per search then shrinks to fit; a cell reading its text inks its letters and has no square; a search's passages hold every hit whole, never touching, every verse named and ours, its own letters marked shown or not, paged, counted as listed; the shown searches' passages of any are their hits as one search's, of all those holding each, a hidden one left out |
+| `web/src/lib/marks.test.ts` | the colours are Tailwind's 500 steps, sixteen, more than the ten slots the module marks; every search kept, the first ten shown each in its slot and colour, the rest hidden; hidden gives the slot back, shown takes the lowest free one and a colour no shown search wears; a freed slot and an unworn colour taken; each change touches its search alone; a letter of several searches wears the shown ones' colours, in equal bands cut sharp; the squares by a name grow one per search, then shrink to fit the row; a count's thousands grouped by a space |
 | `web/src/lib/letters.test.ts` | the keyboard's 27 letters in order, finals after theirs; only consonants kept; a letter put at the caret or over the selection, one erased before it |
 | `src/shared/tests.rs` | an exact query keeps its finals, its letters placed as written, admitted and searched on the exact stream; the English book table walks the corpus' books; numerals read as their values; every label is a numeral, chapters 1, 2, 3… and verses on from the last, joined ones included; a verse named every way; every letter placed back in its verse; refusals with distinct codes; a page is the engine's hits, letters spelling the word; pages tile the listed hits, `limit` 0 counts; a flood counted whole and listed to the cap, its last page closing the walk without searching again; bounds past any range (skips past the stream, offset at the top of its type) answer without panic; finals and marks fold, a word of marks alone has no letter; one letter is each of its occurrences; the portions are the map's; a book by its exact OSIS code alone, no other case, name or notation; an OSIS reference names its book, chapter or verse, every verse found back from its OSIS, another notation naming nothing; one scope way at a time; a scoped search stays in its verses; a query too costly refused before it runs; every chapter reads back its verses, its book, portion and number; a shown verse is ours with the other forms inserted; a reference names its chapter or is refused; neighbours across books |
 | `server/src/tests/` | the ELS answer names its place every way and is the shared page field for field; `next_offset` walks every listed hit; each refusal its code and a 400; `GET /api` lists tools whose schema is what the endpoint takes; the build served with ranges, no compression, a year of cache on hashed names and a 404 for a missing one, `/api` never shadowed; **the page's export and the API find the same hits**; a flood answers its total and last page; numbers past their type refused as `bad_param`; a missing text is a 503, a caller's mistake a 400; under `/api` a wrong path or method answers JSON, `/api/` describes, HEAD has no body; callers at once each get their own answer; no path climbs out of the build; a file asked again is a 304; searches run side by side, one engine each, never more than the pool, all back after; an answer searched once for everyone, at once or later; a refusal takes no engine; a full queue answers `busy` with `Retry-After` and is not kept; a caller gone gives its engine back; successes say `public`, refusals `no-store`; a scope keeps every letter inside, each scoping mistake its code; the page and the API keep to the same verses; a stream is the pages in one go, goes past a page, stops when left; a search too heavy refused before it runs; a client past its budget waits alone, a cached answer costs one; the proxy names the client only when trusted; a panic answered and the next request served; an engine that panicked replaced; a bad setting falls back; the logs closed without the token, a request found by its id, followed live and filtered by level; the log settings read and falling back; the files rolling within their budget, a new one per process, an unwritable directory refused at start; the history read back across files; a half-written line sent once whole; a follower reading across files, told what it missed; a flush writing the lines and waking a follower at once; no log file a 503; every answer has an id; a page of its own served at its directory, `/logs` sent there with its query whole; a settings file read, the environment winning over it and untouched, none the environment alone, a broken one ignored whole; an incident reads aloud and never repeats; an answer and its log share the incident, the log naming the code, the place and the user message; every refusal numbered; an escalation keeps its number and steps, verbose only adding chain and stack; a panic numbered at its own line; every code raised at one place; a page report logged under its number, bounded, a bad one refused; a chapter read verse by verse and named every way, carrying the other reading, its neighbours across books; each chapter refusal its code; **the book view's record and `/api/chapter` read the same chapter** |

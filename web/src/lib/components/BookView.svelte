@@ -43,7 +43,15 @@
 	} from '$lib/book-view';
 	import { escalate, reporter, type Fault } from '$lib/fault';
 	import { PORTION_TEXT } from '$lib/portions';
-	import { barRow, COLORS, inkStyle, isShown, worn, type Marked } from '$lib/marks';
+	import {
+		COLORS,
+		inkStyle,
+		isShown,
+		SQUARE_ROUND,
+		squareRow,
+		worn,
+		type Marked
+	} from '$lib/marks';
 
 	let {
 		book,
@@ -51,6 +59,7 @@
 		startLevel = 'text',
 		landed,
 		searches = [],
+		join = 'any',
 		onreading,
 		onform,
 		onselect,
@@ -62,8 +71,10 @@
 		startLevel?: Level;
 		/** Bumped whenever verses land: the chapters near the screen are read again. */
 		landed: number;
-		/** The searches kept: their letters coloured in the text, their bars by the names above it. */
+		/** The searches kept: their letters coloured in the text, their squares by the names above it. */
 		searches?: Marked[];
+		/** How the searches shown join, as the map draws them: any, or all. */
+		join?: 'any' | 'all';
 		onreading: (reading: Reading | null) => void;
 		/** The pointer is on one of the two forms, ours `¹` or theirs `[…]²`, or has left it. */
 		onform: (on: boolean) => void;
@@ -139,9 +150,12 @@
 		void tick().then(land);
 	});
 
-	// A search kept, shown, hidden or removed: the chapters read are read
-	// again, their found letters cut anew. A colour changed needs no reading.
-	const marking = $derived(searches.map((m) => `${m.id}:${m.slot}:${m.total}`).join('|'));
+	// A search kept, shown, hidden or removed, or the join changed: the
+	// chapters read are read again, their found letters cut anew. A colour
+	// changed needs no reading.
+	const marking = $derived(
+		`${join}|` + searches.map((m) => `${m.id}:${m.slot}:${m.total}`).join('|')
+	);
 	let marked = '';
 	$effect(() => {
 		if (marking === marked) return;
@@ -154,8 +168,10 @@
 		return inkStyle(worn(searches, slots));
 	}
 
-	/** The colours of the bars by a portion's, book's or chapter's name. */
-	function bars(level: 0 | 1 | 2, index: number): string[] {
+	/** The colours of the squares by a portion's, book's or chapter's name. */
+	function squares(level: 0 | 1 | 2, index: number): string[] {
+		// Read again when the join changes: the module keeps fewer places by all.
+		void join;
 		if (!searches.some((m) => isShown(m) && m.total)) return [];
 		return book
 			.marks(level, index)
@@ -680,43 +696,49 @@
 	const opensPortion = (text: Chapter) => text.opens && [0, 5, 26].includes(text.book);
 </script>
 
-<!-- A search's bars, as the map draws them: beside a name, where Hebrew
+<!-- A search's squares, as the map draws them: beside a name, where Hebrew
      ends, in the search's colour; under a chapter's number, its cell too
      narrow beside it. Sized in the name's own em, so they follow its step;
-     each search adds one, and past the row's widest they thin (`barRow`). -->
+     each search adds one, and past the row's widest they shrink
+     (`squareRow`). -->
 {#snippet beside(colors: string[])}
-	{@const row = barRow(colors.length)}
+	{@const row = squareRow(colors.length)}
 	{#if colors.length}<span
-			class="ms-[0.35em] inline-flex h-[0.42em] align-middle"
+			class="ms-[0.35em] inline-flex align-middle"
+			style:height="{row.side}em"
 			style:gap="{row.space}em"
 			aria-hidden="true"
 			>{#each colors as color, k (k)}<span
 					class="h-full"
-					style:width="{row.bar}em"
+					style:width="{row.side}em"
+					style:border-radius="{row.side * SQUARE_ROUND}em"
 					style:background-color={color}
 				></span>{/each}</span
 		>{/if}
 {/snippet}
 
 <!-- The same, out of the flow: the three portions alone keep the place the
-     map's opening gives them, to the pixel, bars or none — inline, the bars
-     widened the block and moved it off the map's. Sized and spaced as the
-     map draws them (`BAR_WIDTH`, `BAR_SPACE`, `BAR_HEIGHT`, `BAR_GAP`,
-     `BAR_RISE`). -->
+     map's opening gives them, to the pixel, squares or none — inline, the
+     squares widened the block and moved it off the map's. Sized and spaced
+     as the map draws them (`SQUARE`, `SQUARE_SPACE`, `SQUARE_GAP`,
+     `SQUARE_RISE`). -->
 {#snippet outside(colors: string[])}
-	<!-- Hung on the name's own baseline, as the map hangs them: each bar an
-	     empty inline block, which sits on the baseline by its bottom margin —
-	     its centre 0.30 em above it, where the canvas sets it (its baseline
-	     0.36 em under the line's middle, the bar `BAR_RISE` under it),
-	     whatever the font's metrics. Centring on the line box put them a
-	     little low. -->
-	{@const row = barRow(colors.length)}
+	<!-- Hung on the name's own baseline, as the map hangs them: each square
+	     an empty inline block, which sits on the baseline by its bottom
+	     margin — its centre 0.30 em above it, where the canvas sets it (its
+	     baseline 0.36 em under the line's middle, the square `SQUARE_RISE`
+	     under it), whatever the font's metrics. Centring on the line box put
+	     them a little low. -->
+	{@const row = squareRow(colors.length)}
 	{#if colors.length}<span
 			class="absolute top-0 right-full mr-[0.35em] whitespace-nowrap"
 			aria-hidden="true"
 			>{#each colors as color, k (k)}<span
-					class="mb-[0.09em] inline-block h-[0.42em] align-baseline"
-					style:width="{row.bar}em"
+					class="inline-block align-baseline"
+					style:width="{row.side}em"
+					style:border-radius="{row.side * SQUARE_ROUND}em"
+					style:height="{row.side}em"
+					style:margin-bottom="{0.3 - row.side / 2}em"
 					style:margin-inline-start={k ? `${row.space}em` : null}
 					style:background-color={color}
 				></span>{/each}</span
@@ -724,14 +746,16 @@
 {/snippet}
 
 {#snippet under(colors: string[])}
-	{@const row = barRow(colors.length)}
+	{@const row = squareRow(colors.length)}
 	{#if colors.length}<span
-			class="absolute inset-x-0 bottom-[0.2em] flex h-[0.24em] justify-center"
+			class="absolute inset-x-0 bottom-[0.2em] flex justify-center"
+			style:height="{row.side}em"
 			style:gap="{row.space}em"
 			aria-hidden="true"
 			>{#each colors as color, k (k)}<span
 					class="h-full"
-					style:width="{row.bar}em"
+					style:width="{row.side}em"
+					style:border-radius="{row.side * SQUARE_ROUND}em"
 					style:background-color={color}
 				></span>{/each}</span
 		>{/if}
@@ -858,13 +882,13 @@
 							<h2
 								class="pt-6 pb-4 text-xl leading-tight text-white xl:text-2xl 2xl:text-3xl min-[120rem]:text-4xl"
 							>
-								{contents.portions[b.section]}{@render beside(bars(0, b.section))}
+								{contents.portions[b.section]}{@render beside(squares(0, b.section))}
 							</h2>
 						{/if}
 						<h3
 							class="pb-3 text-lg leading-tight text-white/78 xl:text-xl 2xl:text-2xl min-[120rem]:text-3xl"
 						>
-							{b.name}{@render beside(bars(1, b.index))}
+							{b.name}{@render beside(squares(1, b.index))}
 						</h3>
 						<ol class="grid grid-cols-6 gap-1 sm:grid-cols-10 xl:grid-cols-12">
 							{#each { length: b.end - b.first }, k (k)}
@@ -885,7 +909,7 @@
 										]}
 										onclick={() => go(c)}
 									>
-										{contents.labels[c]}{@render under(bars(2, c))}
+										{contents.labels[c]}{@render under(squares(2, c))}
 									</button>
 								</li>
 							{/each}
@@ -920,7 +944,7 @@
 				{#each contents.portions as portion, p (p)}
 					<section data-portion={p} class="pb-6 last:pb-0 xl:pb-8">
 						<h2 class="pb-2 text-xl leading-tight xl:text-2xl 2xl:text-3xl min-[120rem]:text-4xl">
-							{portion}{@render beside(bars(0, p))}
+							{portion}{@render beside(squares(0, p))}
 						</h2>
 						<ul class="-mx-2 grid grid-cols-2 gap-x-4 sm:grid-cols-3">
 							{#each contents.books.filter((b) => b.section === p) as b (b.index)}
@@ -939,7 +963,7 @@
 										]}
 										onclick={() => openBook(b.index)}
 									>
-										{b.name}{@render beside(bars(1, b.index))}
+										{b.name}{@render beside(squares(1, b.index))}
 									</button>
 								</li>
 							{/each}
@@ -977,7 +1001,7 @@
 						       focus-visible:outline-white/60"
 						onclick={() => openPortion(p)}
 					>
-						{portion}{@render outside(bars(0, p))}
+						{portion}{@render outside(squares(0, p))}
 					</button>
 				{/each}
 			</div>

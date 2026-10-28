@@ -8,7 +8,9 @@
 	// search will open. The count is a control of its own, the owner's rule:
 	// it opens the list of the search's passages (`ResultsModal`). Above the
 	// rows, once two are shown, the passages they make together: holding any
-	// (∪) or every one (∩), each count opening its list.
+	// (∪) or every one (∩), each count opening its list. Each sign picks what
+	// the map draws, the owner's rule: ∪ by default, every search whole; ∩,
+	// each only in the passages of all.
 	//
 	// It slides over the map from the right and takes no room from it — the
 	// owner's rule. On a wide screen the map stays live beside it; on a narrow
@@ -34,7 +36,9 @@
 		onrecolor,
 		onresults,
 		together = { any: 0, all: 0 },
-		ontogether
+		ontogether,
+		join = 'any',
+		onjoin
 	}: {
 		list: Marked[];
 		/** A veil beneath, the map inert: a narrow screen. */
@@ -49,6 +53,10 @@
 		together?: { any: number; all: number };
 		/** Those passages asked for: of all (`true`), of any (`false`). */
 		ontogether?: (all: boolean) => void;
+		/** How the map joins the searches shown: any (∪), each drawn whole, or all (∩). */
+		join?: 'any' | 'all';
+		/** A join picked by its sign. */
+		onjoin?: (join: 'any' | 'all') => void;
 	} = $props();
 
 	const names = Object.keys(COLORS) as Color[];
@@ -108,10 +116,21 @@
 	const count = grouped;
 	const passagesOf = (n: number) => `${grouped(n)} ${n === 1 ? 'passage' : 'passages'}`;
 
-	// The two ways the searches shown join: their sign, and the tip naming it.
+	// The two ways the searches shown join: their sign, the tip naming their
+	// passages, and the tip naming what the map then draws.
 	const joins = [
-		{ all: false, sign: '∪', name: 'Passages holding any search shown' },
-		{ all: true, sign: '∩', name: 'Passages holding every search shown' }
+		{
+			all: false,
+			sign: '∪',
+			name: 'Passages holding any search shown',
+			map: 'On the map: any search shown'
+		},
+		{
+			all: true,
+			sign: '∩',
+			name: 'Passages holding every search shown',
+			map: 'On the map: every search shown'
+		}
 	] as const;
 
 	// The name a row shows, on hover of its word or eye, or keyboard focus of
@@ -189,7 +208,7 @@
 	>
 		<h2 class="text-sm tracking-wide text-white">Searches</h2>
 		<!-- How many the map shows, of the ten it can. -->
-		<p class="flex-1 text-xs text-white/55 tabular-nums" aria-live="polite">
+		<p class="flex-1 text-sm text-white/55 tabular-nums" aria-live="polite">
 			{shown} of {MAX_SHOWN} on the map
 		</p>
 		<button
@@ -207,38 +226,72 @@
 	</header>
 
 	{#if shown >= 2}
-		<!-- The searches shown, together: each count opens its passages. -->
-		<div class="flex shrink-0 gap-1 border-y border-white/10 px-1.5 py-1">
+		<!-- The searches shown, together: each sign picks what the map draws,
+		     the one picked on a plate as the rail's view is; each count opens
+		     its passages. -->
+		<div class="flex shrink-0 gap-1 border-y border-white/10 px-1.5 py-0.5">
 			{#each joins as j (j.sign)}
 				{@const n = j.all ? together.all : together.any}
 				{@const off = waiting || n === 0}
-				<button
-					id={`together-${j.all ? 'all' : 'any'}`}
-					type="button"
+				{@const picked = join === (j.all ? 'all' : 'any')}
+				<div
 					class={[
-						'flex h-11 min-w-0 flex-1 items-center gap-2 rounded px-2.5 text-xs tabular-nums md:h-9',
-						'transition-colors duration-150 focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-white/60',
-						off
-							? 'cursor-default text-white/35'
-							: 'cursor-pointer text-white/58 hover:bg-white/[0.06] hover:text-white focus-visible:text-white'
+						'flex min-w-0 flex-1 items-center rounded transition-colors duration-150',
+						picked && 'bg-white/[0.08]'
 					]}
-					aria-disabled={off}
-					aria-label={`${j.name}: ${waiting ? 'counting' : passagesOf(n)}`}
-					onclick={() => {
-						if (!off) ontogether?.(j.all);
-					}}
-					onpointerenter={(event) => {
-						if (hovers(event)) showTip(j.name, event.currentTarget);
-					}}
-					onpointerleave={hideTip}
-					onfocus={(event) => {
-						if (event.currentTarget.matches(':focus-visible')) showTip(j.name, event.currentTarget);
-					}}
-					onblur={hideTip}
 				>
-					<span class="text-base leading-none text-white/80" aria-hidden="true">{j.sign}</span>
-					<span class="truncate">{waiting ? '…' : passagesOf(n)}</span>
-				</button>
+					<button
+						type="button"
+						class={[
+							'grid size-11 shrink-0 cursor-pointer place-items-center rounded text-base leading-none md:size-9',
+							'transition-colors duration-150 focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-white/60',
+							picked
+								? 'text-white'
+								: 'text-white/58 hover:bg-white/[0.06] hover:text-white focus-visible:text-white'
+						]}
+						aria-pressed={picked}
+						aria-label={j.map}
+						onclick={() => onjoin?.(j.all ? 'all' : 'any')}
+						onpointerenter={(event) => {
+							if (hovers(event)) showTip(j.map, event.currentTarget);
+						}}
+						onpointerleave={hideTip}
+						onfocus={(event) => {
+							if (event.currentTarget.matches(':focus-visible'))
+								showTip(j.map, event.currentTarget);
+						}}
+						onblur={hideTip}
+					>
+						{j.sign}
+					</button>
+					<button
+						id={`together-${j.all ? 'all' : 'any'}`}
+						type="button"
+						class={[
+							'flex h-11 min-w-0 flex-1 items-center rounded px-1.5 text-sm tabular-nums md:h-9',
+							'transition-colors duration-150 focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-white/60',
+							off
+								? 'cursor-default text-white/35'
+								: 'cursor-pointer text-white/58 hover:bg-white/[0.06] hover:text-white focus-visible:text-white'
+						]}
+						aria-disabled={off}
+						aria-label={`${j.name}: ${waiting ? 'counting' : passagesOf(n)}`}
+						onclick={() => {
+							if (!off) ontogether?.(j.all);
+						}}
+						onpointerenter={(event) => {
+							if (hovers(event)) showTip(j.name, event.currentTarget);
+						}}
+						onpointerleave={hideTip}
+						onfocus={(event) => {
+							if (event.currentTarget.matches(':focus-visible'))
+								showTip(j.name, event.currentTarget);
+						}}
+						onblur={hideTip}
+					>
+						<span class="truncate">{waiting ? '…' : passagesOf(n)}</span>
+					</button>
+				</div>
 			{/each}
 		</div>
 	{/if}
@@ -298,7 +351,7 @@
 						id={`count-${search.id}`}
 						type="button"
 						class={[
-							'h-11 rounded px-2 text-right text-xs tabular-nums transition-colors duration-150 md:h-9',
+							'h-11 rounded px-2 text-right text-sm tabular-nums transition-colors duration-150 md:h-9',
 							'focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-white/60',
 							search.passages === null
 								? 'cursor-default text-white/35'

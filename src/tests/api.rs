@@ -762,7 +762,8 @@ fn the_page_lists_a_search_s_passages() {
 /// **The panel's counts reach the page as it asks them**: `passages_count`
 /// counts the hits at `marks_buffer` as `results_set` lists them, and
 /// `passages_shown` the shown searches' together, as `results_shown` lists
-/// them — of any, of all.
+/// them — of any, of all; `marks_join` keeps the map's squares to the
+/// passages of all, and gives them back whole.
 #[test]
 fn the_page_counts_passages() {
     let _hold = hold(REFERENCE.0, REFERENCE.1);
@@ -786,6 +787,14 @@ fn the_page_counts_passages() {
     assert_eq!(results_shown(1), all);
     assert_eq!(results_shown(0), any);
     results_clear();
+
+    // Joined by all, fewer places hold a square; by any, as many as before.
+    let held = || (0..corpus::chapter_count() as u32).filter(|&c| marks_at(2, c) != 0).count();
+    let whole = held();
+    marks_join(1);
+    assert!(held() < whole, "joined by all, every chapter still marked");
+    marks_join(0);
+    assert_eq!(held(), whole, "joined by any, not as before");
     marks_clear(1);
     marks_clear(2);
 }

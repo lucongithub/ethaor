@@ -29,7 +29,7 @@ import { SearchCore, type Found } from './search-core';
 import { fragmentKey, inflate, lanes, range } from './text-open';
 import type { Command } from './keys';
 import { PORTION_TEXT } from './portions';
-import { bands, paint as markPaint, slotsOf, type Color } from './marks';
+import { bands, paint as markPaint, slotsOf, SQUARE_ROUND, type Color } from './marks';
 import {
 	missing,
 	readChapter,
@@ -76,8 +76,8 @@ const KIND_RECT = 0;
 const KIND_TEXT = 1;
 const KIND_CLIP = 2;
 const KIND_UNCLIP = 3;
-/** A search's bar by a name: its box, its slot in the ink. */
-const KIND_BAR = 4;
+/** A search's square by a name: its box, its slot in the ink. */
+const KIND_SQUARE = 4;
 
 /** Ink of a run: ours, the other edition's, then the searches' (`INK_MARK + bits`, a bit per slot). */
 const INK_MARK = 2;
@@ -170,6 +170,8 @@ interface Wasm {
 	marks_set(slot: number, span: number): number;
 	marks_show(slot: number, on: number): void;
 	marks_clear(slot: number): void;
+	/** Joins the searches shown by any (0), each drawn whole, or by all (1), each only where every one is. */
+	marks_join(all: number): void;
 	/** A chapter's found letters as the book view shows it: `(from, to, slots)`, slots as bits. */
 	chapter_marks(chapter: number): number;
 	chapter_marks_ptr(): number;
@@ -317,7 +319,7 @@ export interface Results {
 }
 
 /**
- * A search's hits marked on the map: its letters inked in the text, a bar by
+ * A search's hits marked on the map: its letters inked in the text, a square by
  * each chapter, book and portion holding them — in the colour it is given.
  */
 export interface Marks {
@@ -326,6 +328,8 @@ export interface Marks {
 	set(slot: number, found: Found, span: number, color: Color): void;
 	color(slot: number, color: Color): void;
 	clear(slot: number): void;
+	/** Draws the searches shown joined by any (∪), each whole, or by all (∩), each only where every one is. */
+	join(all: boolean): void;
 }
 
 export type { Found, Passage };
@@ -472,12 +476,18 @@ export async function createTanakhMap(
 		const inked = (ink: number): Color[] =>
 			slotsOf(ink - INK_MARK).flatMap((slot) => markColors.get(slot) ?? []);
 
-		// A bar by a name, in its search's colour: one slot.
-		const bar = (i: number) => {
+		// A square by a name, in its search's colour: one slot.
+		const square = (i: number) => {
 			const [color] = inked(commands[i + 9]);
 			if (!color) return;
 			ctx.fillStyle = markPaint(color, commands[i + 5]);
-			ctx.fillRect(commands[i + 1], commands[i + 2], commands[i + 3], commands[i + 4]);
+			const [x, y, w, h] = [commands[i + 1], commands[i + 2], commands[i + 3], commands[i + 4]];
+			// Rounded as the panel's swatch; sharp where the browser has no
+			// `roundRect`.
+			if (!ctx.roundRect) return ctx.fillRect(x, y, w, h);
+			ctx.beginPath();
+			ctx.roundRect(x, y, w, h, w * SQUARE_ROUND);
+			ctx.fill();
 		};
 
 		// The reading under the pointer, asked of the frame just built: only its
@@ -514,8 +524,8 @@ export async function createTanakhMap(
 				continue;
 			}
 
-			if (kind === KIND_BAR) {
-				bar(i);
+			if (kind === KIND_SQUARE) {
+				square(i);
 				continue;
 			}
 
@@ -1115,6 +1125,10 @@ export async function createTanakhMap(
 		clear(slot) {
 			wasm.marks_clear(slot);
 			markColors.delete(slot);
+			draw();
+		},
+		join(all) {
+			wasm.marks_join(all ? 1 : 0);
 			draw();
 		}
 	};

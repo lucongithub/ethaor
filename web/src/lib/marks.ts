@@ -3,11 +3,11 @@
  * rule — listed in the panel on the right. Those **shown** are marked on
  * the map, each in a slot of the module's (`MARK_SLOTS` in
  * `src/map/marks.rs`) and a colour no other shown one wears: its letters in
- * the text, its bars by the names above it. Ten at most are shown at
+ * the text, its squares by the names above it. Ten at most are shown at
  * once, every kind together — past that the map reads as noise —
  * and a hidden search holds no slot.
  *
- * The module says which slots a run or a bar belongs to, as bits; which
+ * The module says which slots a run or a square belongs to, as bits; which
  * colour each slot wears is decided here.
  */
 
@@ -157,15 +157,22 @@ export function paint(color: Color, alpha: number): string {
 }
 
 /**
- * A row of `n` bars by a name, as the map draws it (`BAR_WIDTH`,
- * `BAR_SPACE`, `BAR_ROW` in `src/map/frame.rs`), in the name's em: each
- * bar's width and the space between two — the nominal ones while the row
- * is narrower than its widest, both thinned alike past it.
+ * A square's corner radius, in shares of its side: the swatch's in the
+ * panel (`size-3 rounded-[2px]`), so the map's and the book view's squares
+ * read as the same mark.
  */
-export function barRow(n: number): { bar: number; space: number; width: number } {
-	const natural = n * 0.08 + Math.max(n - 1, 0) * 0.07;
+export const SQUARE_ROUND = 1 / 6;
+
+/**
+ * A row of `n` squares by a name, as the map draws it (`SQUARE`,
+ * `SQUARE_SPACE`, `SQUARE_ROW` in `src/map/frame.rs`), in the name's em:
+ * each square's side and the space between two — the nominal ones while the
+ * row is narrower than its widest, both shrunk alike past it.
+ */
+export function squareRow(n: number): { side: number; space: number; width: number } {
+	const natural = n * 0.26 + Math.max(n - 1, 0) * 0.1;
 	const k = Math.min(1, 1.4 / natural);
-	return { bar: 0.08 * k, space: 0.07 * k, width: natural * k };
+	return { side: 0.26 * k, space: 0.1 * k, width: natural * k };
 }
 
 /**

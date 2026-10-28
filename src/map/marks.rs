@@ -1,10 +1,10 @@
 //! The searches' marks: where each search the page keeps found its word,
 //! as the frame paints it — the letters themselves in the search's ink at
-//! the reading level, a bar beside a chapter's number, a book's or a
+//! the reading level, a square beside a chapter's number, a book's or a
 //! portion's name above it.
 //!
 //! Which colour a search wears is the page's business: the module only says
-//! which slots a run or a bar belongs to, as bits.
+//! which slots a run or a square belongs to, as bits.
 
 use super::*;
 use crate::els;
@@ -17,7 +17,7 @@ pub(crate) const MARK_SLOTS: usize = 10;
 /// walked again at drawing time.
 #[derive(Clone, Default)]
 pub(crate) struct Marks {
-    /// Hidden, its letters are drawn as ours and its bars are gone; its
+    /// Hidden, its letters are drawn as ours and its squares are gone; its
     /// places are kept for when it is shown again.
     pub(crate) shown: bool,
     /// `(verse, from, to)`: byte ranges of `drawn(verse)` holding a letter
@@ -30,6 +30,46 @@ pub(crate) struct Marks {
     pub(crate) chapters: Vec<bool>,
     pub(crate) books: Vec<bool>,
     pub(crate) sections: [bool; 3],
+    /// While the searches shown are joined by `all` (`App::join_marks`):
+    /// its letters and places kept to the passages holding a hit of every
+    /// one — what the map draws then. `None` joined by any: all of them.
+    pub(crate) joined: Option<Box<Marks>>,
+}
+
+impl Marks {
+    /// Shown, the runs `runs` and the hits `hits`, with the chapters, books
+    /// and portions holding a run.
+    fn of(runs: Vec<(u32, u32, u32)>, hits: Vec<(u32, u32)>) -> Marks {
+        let mut marks = Marks {
+            shown: true,
+            runs,
+            hits,
+            chapters: vec![false; corpus::chapter_count()],
+            books: vec![false; corpus::book_count()],
+            sections: [false; 3],
+            joined: None,
+        };
+        let mut chapter = 0;
+        for &(verse, _, _) in &marks.runs {
+            while !corpus::verses_of(chapter).contains(&(verse as usize)) {
+                chapter += 1;
+            }
+            marks.chapters[chapter] = true;
+        }
+        for book in 0..corpus::book_count() {
+            marks.books[book] = corpus::chapters_of(book).any(|c| marks.chapters[c]);
+        }
+        for (section, &(_, first, last)) in treemap::SECTIONS.iter().enumerate() {
+            marks.sections[section] = (first..last).any(|b| marks.books[b]);
+        }
+        marks
+    }
+
+    /// What the map draws of it: all of it, or only what lies in the
+    /// passages every search shown holds.
+    fn seen(&self) -> &Marks {
+        self.joined.as_deref().unwrap_or(self)
+    }
 }
 
 impl App {
@@ -45,30 +85,10 @@ impl App {
         if slot >= MARK_SLOTS {
             return 0;
         }
-        let mut marks = Marks {
-            shown: true,
-            runs: placed(records, span),
-            hits: hit_verses(records),
-            chapters: vec![false; corpus::chapter_count()],
-            books: vec![false; corpus::book_count()],
-            sections: [false; 3],
-        };
-        let mut chapter = 0;
-        for &(verse, _, _) in &marks.runs {
-            while !corpus::verses_of(chapter).contains(&(verse as usize)) {
-                chapter += 1;
-            }
-            marks.chapters[chapter] = true;
-        }
-        for book in 0..corpus::book_count() {
-            marks.books[book] = corpus::chapters_of(book).any(|c| marks.chapters[c]);
-        }
-        for (section, &(_, first, last)) in treemap::SECTIONS.iter().enumerate() {
-            marks.sections[section] = (first..last).any(|b| marks.books[b]);
-        }
-
+        let marks = Marks::of(placed(records, span), hit_verses(records));
         let placed = marks.runs.len();
         self.marks[slot] = marks;
+        self.rejoin();
         placed
     }
 
@@ -76,6 +96,7 @@ impl App {
     pub(crate) fn show_marks(&mut self, slot: usize, on: bool) {
         if let Some(marks) = self.marks.get_mut(slot) {
             marks.shown = on;
+            self.rejoin();
         }
     }
 
@@ -83,6 +104,35 @@ impl App {
     pub(crate) fn clear_marks(&mut self, slot: usize) {
         if let Some(marks) = self.marks.get_mut(slot) {
             *marks = Marks::default();
+            self.rejoin();
+        }
+    }
+
+    /// How the map joins the searches shown — the reader's choice in the
+    /// panel: by any (`all` false), each drawn whole, or by all, each drawn
+    /// only in the passages holding a hit of every one (`shown_passages`).
+    /// Every mark follows: letters, squares, the book view's, the passage's.
+    pub(crate) fn join_marks(&mut self, all: bool) {
+        self.join_all = all;
+        self.rejoin();
+    }
+
+    /// Keeps each shown slot's marks to the passages of all, joined by all;
+    /// lets them go joined by any. Run whenever what is shown changes.
+    fn rejoin(&mut self) {
+        let passages = if self.join_all { self.shown_passages(true) } else { Vec::new() };
+        let all = self.join_all;
+        for marks in &mut self.marks {
+            marks.joined = None;
+            if !all || !marks.shown {
+                continue;
+            }
+            let inside = |verse: u32| {
+                let at = passages.partition_point(|p| p.1 < verse);
+                passages.get(at).is_some_and(|p| p.0 <= verse)
+            };
+            let runs = marks.runs.iter().copied().filter(|r| inside(r.0)).collect();
+            marks.joined = Some(Box::new(Marks::of(runs, Vec::new())));
         }
     }
 
@@ -102,7 +152,7 @@ impl App {
     fn mask(&self, holds: impl Fn(&Marks) -> bool) -> u32 {
         let mut bits = 0;
         for (slot, marks) in self.marks.iter().enumerate() {
-            if marks.shown && holds(marks) {
+            if marks.shown && holds(marks.seen()) {
                 bits |= 1 << slot;
             }
         }
@@ -135,7 +185,8 @@ impl App {
             if !marks.shown {
                 continue;
             }
-            for &(_, a, b) in &marks.runs[of_verse(&marks.runs)] {
+            let runs = &marks.seen().runs;
+            for &(_, a, b) in &runs[of_verse(runs)] {
                 out.push((a as usize, b as usize, (1u32 << slot) as f32));
             }
         }

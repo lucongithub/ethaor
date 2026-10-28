@@ -120,7 +120,7 @@
 			id="results-count"
 			dir="ltr"
 			lang="en"
-			class="order-last basis-full pb-1.5 text-xs text-white/58 tabular-nums sm:order-none sm:me-auto sm:min-w-0 sm:basis-auto sm:truncate sm:pb-0 sm:text-sm"
+			class="order-last basis-full pb-1 text-sm text-white/58 tabular-nums sm:order-none sm:me-auto sm:min-w-0 sm:basis-auto sm:truncate sm:pb-0"
 		>
 			<!-- One search: its hits and passages, named. The searches together:
 			     the count bare, the owner's rule — the screen reader still hears

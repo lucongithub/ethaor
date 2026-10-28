@@ -103,6 +103,9 @@ pub(crate) struct App {
     /// The searches the page keeps, one per slot: their letters inked, their
     /// places dotted.
     pub(crate) marks: [Marks; MARK_SLOTS],
+    /// The searches shown joined by all (∩) rather than any (∪): each drawn
+    /// only where every one is (`join_marks`).
+    join_all: bool,
     /// One search's hits as passages, while the page lists them.
     pub(crate) results: Results,
     /// Where a line is cut into runs, reused from line to line: `(from, to,
@@ -145,6 +148,7 @@ impl App {
             books_asked: vec![false; corpus::book_count()],
             tiles: Vec::new(),
             marks: Default::default(),
+            join_all: false,
             results: Results::default(),
             cuts: Vec::new(),
         };

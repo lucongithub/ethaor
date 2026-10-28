@@ -4,7 +4,7 @@ import { map } from './tests/artifacts';
 import {
 	add,
 	bands,
-	barRow,
+	squareRow,
 	canShow,
 	COLORS,
 	counted,
@@ -159,22 +159,22 @@ describe('a count', () => {
 	});
 });
 
-describe('the bars by a name', () => {
-	// Each search shown adds a bar at the nominal width, until the row is as
-	// wide as it may grow; past it, every bar thins so they all still fit.
-	it('grow one per search, then thin to fit the row', () => {
-		const one = barRow(1);
-		expect(barRow(2).bar).toBe(one.bar);
-		let last = { bar: Infinity, width: 0 };
+describe('the squares by a name', () => {
+	// Each search shown adds a square at the nominal side, until the row is as
+	// wide as it may grow; past it, every square shrinks so they all still fit.
+	it('grow one per search, then shrink to fit the row', () => {
+		const one = squareRow(1);
+		expect(squareRow(2).side).toBe(one.side);
+		let last = { side: Infinity, width: 0 };
 		for (let n = 1; n <= 24; n++) {
-			const row = barRow(n);
-			expect(row.width).toBeCloseTo(n * row.bar + (n - 1) * row.space, 9);
+			const row = squareRow(n);
+			expect(row.width).toBeCloseTo(n * row.side + (n - 1) * row.space, 9);
 			expect(row.width).toBeLessThanOrEqual(1.4 + 1e-9);
 			expect(row.width).toBeGreaterThanOrEqual(last.width - 1e-9);
-			expect(row.bar).toBeLessThanOrEqual(last.bar);
+			expect(row.side).toBeLessThanOrEqual(last.side);
 			last = row;
 		}
-		expect(last.bar).toBeLessThan(one.bar);
+		expect(last.side).toBeLessThan(one.side);
 	});
 });
 

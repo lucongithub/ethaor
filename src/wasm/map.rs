@@ -547,6 +547,13 @@ pub extern "C" fn marks_clear(slot: u32) {
     app().clear_marks(slot as usize);
 }
 
+/// Joins the searches shown by any (`all` 0), each drawn whole, or by all
+/// (1), each drawn only in the passages holding a hit of every one.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+pub extern "C" fn marks_join(all: u32) {
+    app().join_marks(all != 0);
+}
+
 /// The found letters of the chapter the book view last read.
 static mut CHAPTER_MARKS: Vec<u32> = Vec::new();
 
@@ -636,7 +643,7 @@ pub extern "C" fn results_ptr() -> *const u32 {
 }
 
 /// The shown searches holding a place, as bits of their slots: a portion
-/// (`level` 0), a book (1) or a chapter (2) — the book view's bars.
+/// (`level` 0), a book (1) or a chapter (2) — the book view's squares.
 #[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn marks_at(level: u32, index: u32) -> u32 {
     app().place_marks(level, index as usize)
