@@ -634,7 +634,7 @@ fn the_page_marks_a_search_s_hits_on_the_map() {
     converge();
     show(chapter, verse as i32);
     converge();
-    let ink = INK_MARK + 2.0;
+    let ink = INK_MARK + (1 << 2) as f32;
     assert!(read_frame().iter().any(|c| c.is_text() && c.ink == ink), "the passage without its marks");
 
     marks_show(2, 0);
@@ -664,7 +664,7 @@ fn the_page_searches_exact_letters() {
 }
 
 /// **A passage selected carries its found letters**: `select_verse` on a
-/// verse a search marks leaves `(from, to, slot)` triples at
+/// verse a search marks leaves `(from, to, slots)` triples at
 /// `selection_marks_ptr`, cutting the selected verse's own text; a verse
 /// holding none, and a refused selection, leave none.
 #[test]
@@ -683,7 +683,7 @@ fn a_passage_selected_carries_its_found_letters() {
     let triples = unsafe { core::slice::from_raw_parts(selection_marks_ptr(), n * 3) };
     let text = corpus::verse_text(verse as usize);
     for t in triples.chunks(3) {
-        assert_eq!(t[2], 4, "the slot");
+        assert_eq!(t[2], 1 << 4, "the slot's bit");
         let cut = &text[t[0] as usize..t[1] as usize];
         assert!(cut.chars().any(|c| letter::code(c).is_some()), "{cut:?} holds no letter");
     }
@@ -723,11 +723,38 @@ fn the_book_view_reads_found_letters_inside_its_record() {
     let triples = unsafe { core::slice::from_raw_parts(chapter_marks_ptr(), n * 3) };
     for t in triples.chunks(3) {
         assert!(shown.iter().any(|&(a, b)| t[0] >= a && t[1] <= b && t[0] < t[1]), "{t:?} outside every verse");
-        assert_eq!(t[2], 1);
+        assert_eq!(t[2], 1 << 1, "the slot's bit");
     }
     assert_eq!(marks_at(2, chapter), 1 << 1);
     assert_eq!(marks_at(1, book), 1 << 1);
     assert_eq!(chapter_marks(corpus::chapter_count() as u32), 0, "a chapter out of range");
     marks_clear(1);
     assert_eq!(chapter_marks(chapter), 0, "cleared, still marked");
+}
+
+/// **A search's passages reach the page as it lists them**: its records
+/// copied into `marks_buffer`, set by `results_set` — then `results_page`
+/// writes at `results_ptr` the record `App::results_page` writes, a page
+/// past the end writes nothing, and `results_clear` forgets the list.
+#[test]
+fn the_page_lists_a_search_s_passages() {
+    let _hold = hold(REFERENCE.0, REFERENCE.1);
+    let query = "משה";
+    unsafe { core::ptr::copy_nonoverlapping(query.as_ptr(), els_query_ptr(), query.len()) };
+    assert!(els_search(query.len() as u32, 0, 0, 0) as usize > 0);
+    let words = els_hits_len() as usize * els_stride() as usize;
+    let hits = unsafe { core::slice::from_raw_parts(els_hits_ptr(), words) }.to_vec();
+    let at = marks_buffer(words as u32);
+    unsafe { core::ptr::copy_nonoverlapping(hits.as_ptr(), at, words) };
+    let count = results_set(3);
+    assert!(count > 0, "no passage");
+
+    let mut want = Vec::new();
+    app().results_page(5, 20, &mut want);
+    let n = results_page(5, 20) as usize;
+    assert_eq!(unsafe { core::slice::from_raw_parts(results_ptr(), n) }, &want[..]);
+    assert_eq!(results_page(count, 20), 0, "a page past the end");
+
+    results_clear();
+    assert_eq!(results_page(0, 20), 0, "cleared, still listed");
 }

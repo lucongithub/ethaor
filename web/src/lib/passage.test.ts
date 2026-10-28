@@ -30,26 +30,28 @@ describe('passage', () => {
 		const bytes = (s: string) => new TextEncoder().encode(s).length;
 		// The letters of בָּרָא, the second word: from its first byte to its end.
 		const second = bytes('בְּרֵאשִׁית ');
-		const found = [{ from: second, to: second + bytes('בָּרָא'), slot: 2 }];
+		const found = [{ from: second, to: second + bytes('בָּרָא'), slots: 1 << 2 }];
 		const runs = inked(verse, found);
 		expect(runs.map((w) => w.map((r) => r.text).join(''))).toEqual(words(verse));
-		expect(runs[1]).toEqual([{ text: 'בָּרָא', slot: 2 }]);
-		expect(runs[0]).toEqual([{ text: 'בְּרֵאשִׁית', slot: -1 }]);
+		expect(runs[1]).toEqual([{ text: 'בָּרָא', slots: 1 << 2 }]);
+		expect(runs[0]).toEqual([{ text: 'בְּרֵאשִׁית', slots: 0 }]);
 
-		// Part of a word, across a space into the next, two slots on one letter.
+		// Part of a word, across a space into the next; a letter two slots
+		// found, as the module hands it — one range with both bits.
 		const ra = bytes('בְּרֵאשִׁית בָּ');
 		const parts = inked(verse, [
-			{ from: ra, to: second + bytes('בָּרָא') + 1 + bytes('אֱ'), slot: 0 },
-			{ from: ra, to: ra + bytes('רָ'), slot: 3 }
+			{ from: ra, to: ra + bytes('רָ'), slots: 0b1001 },
+			{ from: ra + bytes('רָ'), to: second + bytes('בָּרָא') + 1 + bytes('אֱ'), slots: 0b0001 }
 		]);
 		expect(parts[1]).toEqual([
-			{ text: 'בָּ', slot: -1 },
-			{ text: 'רָא', slot: 0 }
+			{ text: 'בָּ', slots: 0 },
+			{ text: 'רָ', slots: 0b1001 },
+			{ text: 'א', slots: 0b0001 }
 		]);
 		expect(parts[2]).toEqual([
-			{ text: 'אֱ', slot: 0 },
-			{ text: 'לֹהִים', slot: -1 }
+			{ text: 'אֱ', slots: 0b0001 },
+			{ text: 'לֹהִים', slots: 0 }
 		]);
-		expect(inked(verse, []).every((w) => w.length === 1 && w[0].slot === -1)).toBe(true);
+		expect(inked(verse, []).every((w) => w.length === 1 && w[0].slots === 0)).toBe(true);
 	});
 });

@@ -103,6 +103,8 @@ pub(crate) struct App {
     /// The searches the page keeps, one per slot: their letters inked, their
     /// places dotted.
     pub(crate) marks: [Marks; MARK_SLOTS],
+    /// One search's hits as passages, while the page lists them.
+    pub(crate) results: Results,
     /// Where a line is cut into runs, reused from line to line: `(from, to,
     /// ink)` in bytes of the string it is drawn from.
     cuts: Vec<(usize, usize, f32)>,
@@ -143,6 +145,7 @@ impl App {
             books_asked: vec![false; corpus::book_count()],
             tiles: Vec::new(),
             marks: Default::default(),
+            results: Results::default(),
             cuts: Vec::new(),
         };
         app.base = app.base_scale();

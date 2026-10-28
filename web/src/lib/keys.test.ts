@@ -46,6 +46,17 @@ describe('command', () => {
 });
 
 describe('escape', () => {
+	// A search's passages lie over everything: Escape closes them first.
+	it('closes the passages of a search first', () => {
+		expect(escape({ results: true, selection: true, notice: true, searches: true })).toBe(
+			'results'
+		);
+		expect(escape({ results: true, selection: false, notice: false, book: true })).toBe('results');
+		expect(escape({ results: false, selection: false, notice: false, searches: true })).toBe(
+			'searches'
+		);
+	});
+
 	it('closes an open passage before anything else, the view kept', () => {
 		expect(escape({ selection: true, notice: true })).toBe('selection');
 		expect(escape({ selection: true, notice: false })).toBe('selection');
@@ -53,6 +64,17 @@ describe('escape', () => {
 
 	it('closes a notice next', () => {
 		expect(escape({ selection: false, notice: true })).toBe('notice');
+	});
+
+	// The searches' panel lying over the view is closed after the passage and
+	// the notice, before the overview — in the book view too.
+	it('closes the searches lying over the view next', () => {
+		expect(escape({ selection: true, notice: false, searches: true })).toBe('selection');
+		expect(escape({ selection: false, notice: true, searches: true })).toBe('notice');
+		expect(escape({ selection: false, notice: false, searches: true })).toBe('searches');
+		expect(escape({ selection: false, notice: false, searches: true, book: true })).toBe(
+			'searches'
+		);
 	});
 
 	it('goes back to the overview only with nothing open', () => {

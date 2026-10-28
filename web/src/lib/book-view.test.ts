@@ -67,7 +67,7 @@ function chapterOf(module: Module, chapter: number, inked = false): Chapter | nu
 	if (inked) {
 		const n = module.chapter_marks(chapter);
 		const t = new Uint32Array(module.memory.buffer, module.chapter_marks_ptr(), n * 3);
-		for (let i = 0; i < t.length; i += 3) found.push({ from: t[i], to: t[i + 1], slot: t[i + 2] });
+		for (let i = 0; i < t.length; i += 3) found.push({ from: t[i], to: t[i + 1], slots: t[i + 2] });
 	}
 	return readChapter(chapter, record, text, found);
 }
@@ -118,9 +118,9 @@ describe('a chapter read from the module', () => {
 	});
 
 	// A search's letters, marked as the bridge hands them, are cut out of our
-	// parts with their slot; the verse reads the same whole, and a chapter of
+	// parts with their slot's bit; the verse reads the same whole, and a chapter of
 	// the other reading keeps its forms apart — found letters never theirs.
-	it("cuts a search's found letters out of our parts, with its slot", () => {
+	it("cuts a search's found letters out of our parts, with its slot's bit", () => {
 		// One hit, as the search module records it: the first verse's letters
 		// 3 to 5, and in a verse holding the other reading, its last two.
 		const plain = chapterOf(module, 0)!;
@@ -154,8 +154,8 @@ describe('a chapter read from the module', () => {
 					before.verses[k].parts.filter((p) => p.theirs)
 				);
 			}
-			const inked = after.verses.flatMap((v) => v.parts.filter((p) => p.slot >= 0));
-			expect(inked.every((p) => p.slot === slot && !p.theirs)).toBe(true);
+			const inked = after.verses.flatMap((v) => v.parts.filter((p) => p.slots !== 0));
+			expect(inked.every((p) => p.slots === 1 << slot && !p.theirs)).toBe(true);
 			expect(
 				inked
 					.map((p) => p.text)
@@ -166,8 +166,34 @@ describe('a chapter read from the module', () => {
 		module.marks_clear(2);
 		module.marks_clear(4);
 		expect(
-			chapterOf(module, 0, true)!.verses.every((v) => v.parts.every((p) => p.slot === -1))
+			chapterOf(module, 0, true)!.verses.every((v) => v.parts.every((p) => p.slots === 0))
 		).toBe(true);
+	});
+
+	// Two searches on the same letters: the letters both found carry both
+	// slots' bits, the others their own search's alone — never one search
+	// losing a letter to the other.
+	it('gives letters two searches found the bits of both', () => {
+		const first = chapterOf(module, 0)!.verses[0].index;
+		const mark = (slot: number, rank: number, span: number) => {
+			const at = module.marks_buffer(7);
+			new Uint32Array(module.memory.buffer, at, 7).set([0, 0, 0, 0, first, rank, first]);
+			expect(module.marks_set(slot, span)).toBeGreaterThan(0);
+		};
+		mark(1, 3, 3);
+		mark(3, 4, 2);
+		const parts = chapterOf(module, 0, true)!.verses[0].parts;
+		const letters = (bits: number) =>
+			parts
+				.filter((p) => p.slots === bits)
+				.map((p) => p.text)
+				.join('')
+				.match(/[א-ת]/g)?.length ?? 0;
+		expect(letters(0b0010)).toBe(1);
+		expect(letters(0b1010)).toBe(2);
+		expect(letters(0b1000)).toBe(0);
+		module.marks_clear(1);
+		module.marks_clear(3);
 	});
 
 	// The other edition's forms are cut out of the verse as their own parts —

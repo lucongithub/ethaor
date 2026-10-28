@@ -61,7 +61,7 @@ src/map.rs, src/map/            the map: `App`, one window's state, one file
                                 per subject — camera, measure, text (verse
                                 layout), hit (click, cursor, breadcrumb),
                                 landing, frame, settings, marks (a search's
-                                letters inked, its places dotted)
+                                letters inked, its places barred)
 src/wasm.rs, src/wasm/          WebAssembly exports only, no computation: els,
                                 map, chapter (the book view's records),
                                 landing (taken by both modules), fault
@@ -94,9 +94,11 @@ web/                            SvelteKit 2 + Svelte 5 + Tailwind 4
   src/lib/components/Rail.svelte        the sidebar: a rail of icons, never opened
   src/lib/components/Logo.svelte        the mark: two nuns and a point, as `[·]`
   src/lib/components/LetterSearch.svelte  a word asked for, typed or tapped
-  src/lib/components/SearchBar.svelte   the searches kept: colour and word, centred
+  src/lib/components/SearchPanel.svelte the searches kept, in a panel on the right
   src/lib/letters.ts            that word's letters: typed, inserted, erased
-  src/lib/marks.ts              the searches kept: slots, colours, five at most
+  src/lib/marks.ts              the searches kept: slots, colours, ten shown
+  src/lib/components/ResultsModal.svelte  a search's passages, opened by its count
+  src/lib/results.ts            that list's record read, places, colours
   src/lib/components/BookView.svelte    the Tanakh read by scrolling
   src/lib/book-view.ts          that view's logic: records read, heights, zoom
   src/routes/+page.svelte
@@ -856,7 +858,7 @@ At the heart of every letter, `NEST` reserves the place of the whole Tanakh —
 a large share of its cell, not a point.
 
 **No fill is ever painted.** Rendering emits text and clips only — and a
-search's dots, which carry information (see *Searches on the map*): no white
+search's bars, which carry information (see *Searches on the map*): no white
 square, zooming in or out. That was the patch over a hole, and the hole was
 plugged on both sides — a newborn world a thousand pixels wide on one side, a
 zoom-out floor on the other.
@@ -1068,7 +1070,7 @@ faded text rather than as a second reading.
 
 **The searches kept wear colours of their own** — the owner's rule: each
 search the reader runs takes one of Tailwind's 500 steps (`marks.ts`, sky
-first), its letters drawn in it at the reading level and a dot of it by each
+first), its letters drawn in it at the reading level and a bar of it by each
 chapter, book and portion holding them. The colour says "found here", which
 the white cannot; the reader picks it, so two searches never read as one.
 
@@ -1226,23 +1228,64 @@ Rejected: one button naming where it goes — the rail never said where one was.
   are: the line is cut where the ink changes, the runs still tile it from
   the right and recompose it, and a line holding none stays one command. A
   letter is a consonant and its marks; ranks are ours, the other edition's
-  insertions skipped whole. Two searches on one letter: the first slot keeps
-  it.
-- **Above the text, dots say where** (`KIND_DOT`, the slot in the ink):
-  beside a portion's name and a book's name in its band, under a book's name
-  filling its box at the framing, under a chapter's number — a cell is
-  square, and beside its number there is no room. Five fit under every
-  number, since every cell shares one size. A cell reading its text has no
-  dot: its letters speak.
-- **Five searches at most, every kind together** (`MARK_SLOTS`,
-  `MAX_SEARCHES`): the sidebar's menu is closed to a sixth until one is
-  removed. Each is a chip under the top bar: its colour opens the palette,
-  its word shows or hides its marks (kept while hidden), the cross removes
-  it.
+  insertions skipped whole.
+- **A letter several searches found wears all their colours** — the
+  owner's choice: its run carries their slots as bits (`INK_MARK + bits`),
+  and the page paints it in bands of equal height, top to bottom, lowest
+  slot first, cut sharp — on the canvas a gradient of hard stops, in the
+  book view and the passage the same bands clipped to the glyphs
+  (`marks.ts`, `bands`). Nothing is added beside the letter, so nothing
+  covers anything. The bands are horizontal: the points sit mostly under
+  the letter, and a narrow letter (`י`, `ו`) has no width to share.
+  Rejected: the first slot keeping it — a search lost its letters to
+  another; dots or a bar by the letter — they hit the points (`חוֹלָם`,
+  `שׁ`) and need room in the line; a colour alternating in time.
+- **Above the text, thin bars say where** (`KIND_BAR`, the slot in the
+  ink): beside a portion's name and a book's name in its band, under a
+  book's name filling its box at the framing, under a chapter's number — a
+  cell is square, and beside its number there is no room. Each search
+  shown adds its bar to the row; past `BAR_ROW` the bars thin so the row
+  never grows wider, and all ten fit under every number, since every
+  cell shares one size — the owner's rule. Rejected: dots — five filled
+  the room a number has. A cell reading its text has no bar: its letters
+  speak.
+- **As many searches as the reader runs, ten shown at most** — the
+  owner's rule (`MARK_SLOTS`, `MAX_SHOWN`): every one is kept, the first
+  ten on the map, each its slot and one of the sixteen colours no
+  other shown one wears — violet left out, too near its neighbours; the
+  next is kept hidden until one is hidden or removed. A hidden search
+  holds no slot: its hits stay in the page, marked again in the slot it
+  takes when shown.
+- **They are listed in a panel on the right** (`SearchPanel.svelte`),
+  opened by a button at the view's top right, under the top bar, where
+  the panel slides in and its close button then stands — the owner's
+  rule; the button says how many are kept, and is there while a search
+  is. The row of chips under the top bar is gone.
+  One row each: its colour, a square, opens the palette (four by four;
+  colours worn by another shown search are not offered to a shown one),
+  its word, its count, the eye shows or hides its marks, the cross
+  removes it — each its own control, the owner's rule: the word is kept
+  free for what a search will open, the count for its hits.
+- **The count opens the search's passages** (`ResultsModal.svelte`,
+  `results.ts`, `App::results_page`): a modal over everything, each
+  passage named portion › book › chapter, then every verse its hits reach
+  — a word read across a verse break shows both — hits sharing a verse
+  sharing a passage. **Its colours are always worn** — the owner's rule:
+  the search listed inks its own letters in its colour, shown on the map
+  or hidden (`OWN`, the bit past every slot), the other shown searches
+  theirs, in bands where they meet; nothing is dimmed. The module places
+  the list once when it opens and hands it a page at a time as the reader
+  scrolls (a common word has thousands); closed, it is forgotten. **It lies over the map, never taking its room** — the owner's
+  rule. On a wide screen (`md`) the map stays live beside it and it opens
+  itself when a search is run; on a narrow one a veil lies beneath, every
+  target a finger's size. The veil, its close button or Escape put it
+  away (`keys.ts`, after the passage and the notice). A row's tip lies in
+  the top layer, left of the panel: no scroll clips it, no colour hides
+  under it.
 - **Consecutive letters** is an ELS at skip 0: a word typed, or tapped on a
   keyboard of the 27 letters in alphabetical order, each final after its
   letter (`letters.ts`), only consonants kept. A switch, **Exact letters
-  (final forms)**, off by default, tells the finals apart. A chip names
+  (final forms)**, off by default, tells the finals apart. A row names
   its search in a tip on hover or keyboard focus, as the rail's icons do —
   its kind, and `Exact letters (final forms)` when it is — never a label
   under the word: the owner's rule.
@@ -1255,9 +1298,9 @@ Rejected: one button naming where it goes — the rail never said where one was.
 - **The book view shows them too**: a chapter's found letters come with
   its record (`chapter_marks`, offsets of the very strings the record
   shows) and cut our parts with their slot (`readChapter`), the other
-  edition's forms never touched; above the text, a dot of each search
+  edition's forms never touched; above the text, a bar of each search
   beside a portion's and a book's name, under a chapter's number
-  (`marks_at`). As on the map, the text read has no dot: its letters
+  (`marks_at`). As on the map, the text read has no bar: its letters
   speak. A search kept, shown, hidden or removed reads the chapters again.
 - No HTTP twin: marks are for a frame and a page, which only a browser
   reads.
@@ -1358,13 +1401,13 @@ anywhere must be an assertion.
 | `web/src/lib/search-core.test.ts` | the books file: 39 books then the readings, in order, and opened they give back the plain text the tiles read; the search module answers -1 until the last book and the readings are in, in any order, then finds, its hits a copy |
 | `web/src/lib/fault.test.ts` | an incident reads aloud and never repeats; a fault raised at its caller, keeping its number through every layer, made of anything thrown, crossing from a worker unchanged, sent bounded as the service reads it; a real WebAssembly trap traced to its Rust place; the reporter sends each incident once, a bounded number a minute, never throwing; what nothing caught becomes a fault, reported and shown — but the browser's ResizeObserver loop notice, which is none; each code raised at one place |
 | `web/src/lib/logs-view.test.ts` | the token leaves the address, the rest of it stays; events whole across any cut of the stream; a log line read for the eye, a line not JSON shown as it is; each row numbered once, the survivors keeping their numbers; the page bounded to its newest lines; what was shown cleared at each opening, an empty history too; the token sent in the header, never the URL; a stream that ends or fails opened again, the history afresh; a refusal not retried and said with its code and incident; a page served without the service said, a bare 503 retried |
-| `web/src/lib/keys.test.ts` | each key its command, Shift farther; a key held with Ctrl, Cmd or Alt left to the browser; Escape closes the passage, then the notice, and only then returns to the overview — never in the book view |
+| `web/src/lib/keys.test.ts` | each key its command, Shift farther; a key held with Ctrl, Cmd or Alt left to the browser; Escape closes the passage, then the notice, then the searches lying over the view, and only then returns to the overview — never in the book view |
 | `web/src/lib/search-worker.test.ts` | a search asked before the text is held, then answered by its id; the next one answers the same; a failed search answered by its id, the next on a new module; a failure answered with its numbered fault, a real trap traced to its Rust place |
 | `src/tests/landing.rs` | the next book fetched is the nearest to the view, follows it when it moves, each book once; before the text lands the map stays whole — no black frame however deep, no verse drawn, clicked or named — and the verses come once it lands; the overview is identical with and without the text; a chapter's tile is asked two notches or more ahead of its reading level, once, only for chapters on screen, with its exact byte range |
 | `src/variant/tests.rs` | the welded table: taking the insertions out gives the verse back byte for byte, every range is a slice on a letter boundary |
 | `src/tests/readings.rs` | the other reading **in the flow, never over it**: the runs of a line tile it from the right and recompose it, the ink marks theirs and only theirs, a verse without a variant stays one command, a click never names the other edition ; the index opens on the two forms alone, never on the rest of their chapter nor on its number; the answer is the pointed pair's reading, theirs alone, the very runs the frame cuts out |
-| `src/tests/marks.rs` | a verse's letters are ours, in order, with their marks; the letters inked are the letters found, across a verse break too; a chapter, book or portion is marked exactly when it holds one; hidden, shown, cleared; the found letters are runs of their own that still recompose the line, the first slot keeping a shared letter; the passage carries the letters the map inks, cut in our verse; the book view carries them inside its record, and a place's bits are its dots; five dots by each name holding the word and none by the others, never on a letter, a chapter's in its cell; a cell reading its text inks its letters and has no dot |
-| `web/src/lib/marks.test.ts` | the colours are Tailwind's 500 steps; each search its slot and colour, a sixth refused, a freed slot and an unworn colour taken; each change touches its search alone |
+| `src/tests/marks.rs` | a verse's letters are ours, in order, with their marks; the letters inked are the letters found, across a verse break too; a chapter, book or portion is marked exactly when it holds one; hidden, shown, cleared; the found letters are runs of their own that still recompose the line, a letter several searches found carrying every shown one's bit; the passage carries the letters the map inks, cut in our verse; the book view carries them inside its record, and a place's bits are its bars; a bar of each search by each name holding the word and none by the others, never on a letter, every slot's in a chapter's cell; a row grows one bar per search then thins to fit; a cell reading its text inks its letters and has no bar; a search's passages hold every hit whole, never touching, every verse named and ours, its own letters marked shown or not, paged |
+| `web/src/lib/marks.test.ts` | the colours are Tailwind's 500 steps, sixteen, more than the ten slots the module marks; every search kept, the first ten shown each in its slot and colour, the rest hidden; hidden gives the slot back, shown takes the lowest free one and a colour no shown search wears; a freed slot and an unworn colour taken; each change touches its search alone; a letter of several searches wears the shown ones' colours, in equal bands cut sharp; the bars by a name grow one per search, then thin to fit the row; a count's thousands grouped by a space |
 | `web/src/lib/letters.test.ts` | the keyboard's 27 letters in order, finals after theirs; only consonants kept; a letter put at the caret or over the selection, one erased before it |
 | `src/shared/tests.rs` | an exact query keeps its finals, its letters placed as written, admitted and searched on the exact stream; the English book table walks the corpus' books; numerals read as their values; every label is a numeral, chapters 1, 2, 3… and verses on from the last, joined ones included; a verse named every way; every letter placed back in its verse; refusals with distinct codes; a page is the engine's hits, letters spelling the word; pages tile the listed hits, `limit` 0 counts; a flood counted whole and listed to the cap, its last page closing the walk without searching again; bounds past any range (skips past the stream, offset at the top of its type) answer without panic; finals and marks fold, a word of marks alone has no letter; one letter is each of its occurrences; the portions are the map's; a book by its exact OSIS code alone, no other case, name or notation; an OSIS reference names its book, chapter or verse, every verse found back from its OSIS, another notation naming nothing; one scope way at a time; a scoped search stays in its verses; a query too costly refused before it runs; every chapter reads back its verses, its book, portion and number; a shown verse is ours with the other forms inserted; a reference names its chapter or is refused; neighbours across books |
 | `server/src/tests/` | the ELS answer names its place every way and is the shared page field for field; `next_offset` walks every listed hit; each refusal its code and a 400; `GET /api` lists tools whose schema is what the endpoint takes; the build served with ranges, no compression, a year of cache on hashed names and a 404 for a missing one, `/api` never shadowed; **the page's export and the API find the same hits**; a flood answers its total and last page; numbers past their type refused as `bad_param`; a missing text is a 503, a caller's mistake a 400; under `/api` a wrong path or method answers JSON, `/api/` describes, HEAD has no body; callers at once each get their own answer; no path climbs out of the build; a file asked again is a 304; searches run side by side, one engine each, never more than the pool, all back after; an answer searched once for everyone, at once or later; a refusal takes no engine; a full queue answers `busy` with `Retry-After` and is not kept; a caller gone gives its engine back; successes say `public`, refusals `no-store`; a scope keeps every letter inside, each scoping mistake its code; the page and the API keep to the same verses; a stream is the pages in one go, goes past a page, stops when left; a search too heavy refused before it runs; a client past its budget waits alone, a cached answer costs one; the proxy names the client only when trusted; a panic answered and the next request served; an engine that panicked replaced; a bad setting falls back; the logs closed without the token, a request found by its id, followed live and filtered by level; the log settings read and falling back; the files rolling within their budget, a new one per process, an unwritable directory refused at start; the history read back across files; a half-written line sent once whole; a follower reading across files, told what it missed; a flush writing the lines and waking a follower at once; no log file a 503; every answer has an id; a page of its own served at its directory, `/logs` sent there with its query whole; a settings file read, the environment winning over it and untouched, none the environment alone, a broken one ignored whole; an incident reads aloud and never repeats; an answer and its log share the incident, the log naming the code, the place and the user message; every refusal numbered; an escalation keeps its number and steps, verbose only adding chain and stack; a panic numbered at its own line; every code raised at one place; a page report logged under its number, bounded, a bad one refused; a chapter read verse by verse and named every way, carrying the other reading, its neighbours across books; each chapter refusal its code; **the book view's record and `/api/chapter` read the same chapter** |
@@ -1432,6 +1475,9 @@ anywhere must be an assertion.
 
 ## Forbidden
 
+- `cargo fmt` / `rustfmt` on the crate: the Rust is formatted by hand, and
+  no rustfmt configuration reproduces it — one run rewrites hundreds of
+  lines no change touched. Denied in `.claude/settings.json`.
 - Computation added or changed without a test (see *Tests*).
 - Computation in a transport (`src/wasm/`, `server/src/api/`): it belongs in
   `src/shared/`, or the twins drift apart.

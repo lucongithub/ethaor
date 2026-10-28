@@ -25,14 +25,11 @@
 	let {
 		view,
 		onview,
-		onsearch,
-		full = false
+		onsearch
 	}: {
 		view: View;
 		onview: (next: View) => void;
 		onsearch: (name: Search) => void;
-		/** Every search slot taken: none can be picked until one is removed. */
-		full?: boolean;
 	} = $props();
 
 	const ICON = {
@@ -187,9 +184,7 @@
 						role="menuitem"
 						tabindex="-1"
 						class={entry}
-						aria-disabled={full}
 						onclick={() => {
-							if (full) return;
 							hide(true);
 							onsearch(name);
 						}}
@@ -197,11 +192,6 @@
 						{name}
 					</button>
 				{/each}
-				{#if full}
-					<p class="max-w-48 px-3 pt-1 pb-2 text-xs leading-snug text-white/55">
-						Five searches at most. Remove one to search again.
-					</p>
-				{/if}
 			</div>
 		{/if}
 	</div>

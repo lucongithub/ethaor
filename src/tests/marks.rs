@@ -1,10 +1,10 @@
 //! A search's marks: its letters inked in the text at the reading level, a
-//! dot beside the names of the chapters, books and portions holding them.
+//! bar beside the names of the chapters, books and portions holding them.
 //!
 //! Three promises. **The letters inked are the letters found**, read off the
 //! search's own records, across verse breaks and the other edition's
-//! insertions. **A dot says where, and only where**: the chapter, book or
-//! portion holds a letter found. And **nothing covers anything**: a dot sits
+//! insertions. **A bar says where, and only where**: the chapter, book or
+//! portion holds a letter found. And **nothing covers anything**: a bar sits
 //! beside its name, in the room its box leaves.
 
 use super::*;
@@ -40,8 +40,8 @@ fn marked_and_bare(app: &App, slot: usize) -> (usize, usize) {
     (marked, bare)
 }
 
-fn dots(commands: &[Command]) -> Vec<Command> {
-    commands.iter().copied().filter(|c| c.kind == KIND_DOT).collect()
+fn bars(commands: &[Command]) -> Vec<Command> {
+    commands.iter().copied().filter(|c| c.kind == KIND_BAR).collect()
 }
 
 /// **Rank `k` among a verse's letters is the `k`-th consonant of our verse**,
@@ -105,7 +105,7 @@ fn a_hit_across_two_verses_is_inked_in_both() {
     assert_eq!(verses, vec![across[4] as usize, across[6] as usize]);
 }
 
-/// **A dot names the places of the letters, and only them**: a chapter is
+/// **A bar names the places of the letters, and only them**: a chapter is
 /// marked if and only if a run lies in one of its verses, a book if one of its
 /// chapters is, a portion if one of its books is.
 #[test]
@@ -152,7 +152,8 @@ fn a_search_hidden_shown_and_cleared() {
     assert_eq!(app.set_marks(MARK_SLOTS, &found, 3), 0, "a slot past the last");
 }
 
-/// **At the reading level, the found letters wear their slot's ink**, cut
+/// **At the reading level, the found letters wear their slot's ink** (its
+/// bit), cut
 /// out as their own runs; the runs still tile the line from the right and
 /// recompose it, and a line holding none stays one command.
 #[test]
@@ -177,7 +178,7 @@ fn the_letters_found_are_their_own_runs_in_the_line() {
             assert_close(c.x, right, 1e-2, "a run does not touch the previous one");
             right = c.x - c.w;
         }
-        let inked: Vec<&Command> = out.iter().filter(|c| c.ink == INK_MARK + 3.0).collect();
+        let inked: Vec<&Command> = out.iter().filter(|c| c.ink == INK_MARK + 8.0).collect();
         for c in &inked {
             let letters = folded(c.text());
             assert!(!letters.is_empty(), "an inked run without a letter");
@@ -195,36 +196,75 @@ fn the_letters_found_are_their_own_runs_in_the_line() {
     assert!(marked > 0 && plain > 0, "chapter {chapter}: {marked} lines marked, {plain} not");
 }
 
-/// **Of two searches on the same letters, the first slot keeps them**: the
-/// line is cut once, never into runs laid over each other.
+/// **A letter several searches found carries every one of them**, as bits in
+/// its ink: on every verse the first search marks, the runs come in the
+/// order of the text, never overlap, neighbours of the same bits merged, and
+/// each byte's bits are exactly the shown slots whose letters hold it — a
+/// search identical to another, one finding part of its word (`שה` in
+/// `משה`), one hidden. On the line, the runs recompose it once, never laid
+/// over each other.
 #[test]
-fn two_searches_on_one_letter_ink_it_once() {
+fn a_letter_found_by_several_searches_carries_them_all() {
     let mut app = reference_app();
     measure_all(&mut app);
-    let found = records("משה", 0);
-    app.set_marks(1, &found, 3);
-    app.set_marks(4, &found, 3);
-    let (chapter, _) = marked_and_bare(&app, 1);
+    let moshe = records("משה", 0);
+    app.set_marks(0, &moshe, 3);
+    app.set_marks(1, &records("שה", 0), 2);
+    app.set_marks(3, &moshe, 3);
+    app.set_marks(4, &moshe, 3);
+    app.show_marks(4, false);
+
+    let mut verses: Vec<usize> = app.marks[0].runs.iter().map(|r| r.0 as usize).collect();
+    verses.dedup();
+    let (mut all, mut mem) = (0, 0);
+    for &verse in &verses {
+        let mut runs = Vec::new();
+        app.verse_marks(verse, &mut runs);
+        for pair in runs.windows(2) {
+            assert!(pair[0].1 <= pair[1].0, "verse {verse}: runs overlap or out of order");
+            assert!(pair[0].1 < pair[1].0 || pair[0].2 != pair[1].2, "verse {verse}: same bits not merged");
+        }
+        let own: Vec<Vec<(usize, usize)>> = (0..MARK_SLOTS)
+            .map(|s| {
+                let runs = app.marks[s].runs.iter().filter(|r| r.0 as usize == verse);
+                runs.map(|r| (r.1 as usize, r.2 as usize)).collect()
+            })
+            .collect();
+        for byte in 0..drawn(verse).len() {
+            let want = (0..MARK_SLOTS)
+                .filter(|&s| app.marks[s].shown && own[s].iter().any(|&(a, b)| (a..b).contains(&byte)))
+                .fold(0u32, |bits, s| bits | 1 << s);
+            let got = runs.iter().find(|r| (r.0..r.1).contains(&byte)).map_or(0, |r| (r.2 - INK_MARK) as u32);
+            assert_eq!(got, want, "verse {verse}, byte {byte}: the slots of the letter");
+            all += usize::from(got == 0b01011);
+            mem += usize::from(got == 0b01001);
+        }
+    }
+    assert!(all > 0 && mem > 0, "no letter of the three searches ({all}), or of two ({mem})");
+
+    let (chapter, _) = marked_and_bare(&app, 0);
     let row = Rect { x: 100.0, y: 50.0, w: 900.0, h: 30.0 };
+    let mut shared = 0;
     for line in app.chapter_lines(chapter) {
         app.commands.clear();
         app.draw_line(line, row, MIN_TEXT * 2.0 / line.size, 1.0);
         let out = commands(&app);
         let joined: String = out.iter().map(|c| c.text()).collect();
-        assert_eq!(joined, line.text, "a letter drawn twice");
-        assert!(out.iter().all(|c| c.ink != INK_MARK + 4.0), "the later slot took a letter");
+        assert_eq!(joined, line.text, "a letter drawn twice, or lost");
+        shared += out.iter().filter(|c| c.ink == INK_MARK + 11.0).count();
     }
+    assert!(shared > 0, "chapter {chapter}: no run in the three searches' ink");
 }
 
-/// **Above the text, five dots by each name holding the word, none by the
-/// others** — under a chapter's number, beside a book's name or a
-/// portion's — each in its slot's ink; none without a search, and none ever
-/// on a letter.
+/// **Above the text, a bar of each search by each name holding the word,
+/// none by the others** — under a chapter's number, beside a book's name or
+/// a portion's — each in its slot's ink, one bit; none without a search, and
+/// none ever on a letter. Every slot is set: all of them fit by every name.
 #[test]
-fn a_dot_sits_beside_each_name_holding_the_word() {
+fn a_bar_sits_beside_each_name_holding_the_word() {
     for (w, h) in WINDOWS {
         let mut bare = framed_app(w, h);
-        assert!(dots(&frame(&mut bare)).is_empty(), "{w}x{h}: a dot without a search");
+        assert!(bars(&frame(&mut bare)).is_empty(), "{w}x{h}: a bar without a search");
 
         let mut app = framed_app(w, h);
         for slot in 0..MARK_SLOTS {
@@ -243,9 +283,10 @@ fn a_dot_sits_beside_each_name_holding_the_word() {
             app.camera = Camera { z, x: cx - wx * z, y: cy - wy * z };
             measure_all(&mut app);
             let all = frame(&mut app);
-            let found = dots(&all);
-            for dot in &found {
-                assert!(dot.ink >= INK_MARK && dot.ink < INK_MARK + MARK_SLOTS as f32, "a dot's ink");
+            let found = bars(&all);
+            for bar in &found {
+                let bits = (bar.ink - INK_MARK) as u32;
+                assert!(bits.is_power_of_two() && bits < 1 << MARK_SLOTS, "a bar's ink is not one slot");
             }
 
             // Each name drawn, with whether its place holds the word.
@@ -273,46 +314,71 @@ fn a_dot_sits_beside_each_name_holding_the_word() {
                 } else {
                     continue;
                 };
-                // Its dots: on its line or just under it, by its ink, within a
+                // Its bars: on its line or just under it, by its ink, within a
                 // few of its sizes — and in its box, a book's or a cell's.
                 let near = found
                     .iter()
-                    .filter(|d| {
-                        let by = d.x < text.x + text.size
-                            && d.x > left - 3.0 * text.size
-                            && d.y > top
-                            && d.y < text.y + text.size * 0.6;
-                        let inside = room.is_none_or(|r| d.x > r.x && d.x < r.x + r.w && d.y > r.y && d.y < r.y + r.h);
+                    .filter(|b| {
+                        let (x, y) = (b.x + b.w / 2.0, b.y + b.h / 2.0);
+                        let by = x < text.x + text.size
+                            && x > left - 3.0 * text.size
+                            && y > top
+                            && y < text.y + text.size * 0.6;
+                        let inside = room.is_none_or(|r| x > r.x && x < r.x + r.w && y > r.y && y < r.y + r.h);
                         by && inside
                     })
                     .count();
-                // A name so small its dots may fall under the visible floor
+                // A name so small its bars may fall under the visible floor
                 // has them all or none.
-                if text.size * DOT_RADIUS < DOT_MIN * 4.0 {
-                    assert!(near == 0 || near == MARK_SLOTS, "{w}x{h} at {level}: {name:?} has {near} dots");
+                if text.size * BAR_UNDER < BAR_MIN * 4.0 {
+                    assert!(near == 0 || near == MARK_SLOTS, "{w}x{h} at {level}: {name:?} has {near} bars");
                 } else {
                     let want = if holds { MARK_SLOTS } else { 0 };
                     assert_eq!(near, want, "{w}x{h} at {level}: {name:?}, marked {holds}");
                     named += usize::from(holds);
                 }
 
-                for dot in &found {
-                    let apart = dot.x + dot.w <= left
-                        || dot.x - dot.w >= text.x
-                        || dot.y + dot.w <= top
-                        || dot.y - dot.w >= text.y;
-                    assert!(apart, "{w}x{h} at {level}: a dot on {name:?}");
+                for bar in &found {
+                    let apart = bar.x + bar.w <= left
+                        || bar.x >= text.x
+                        || bar.y + bar.h <= top
+                        || bar.y >= text.y;
+                    assert!(apart, "{w}x{h} at {level}: a bar on {name:?}");
                 }
             }
         }
-        assert!(named > 0, "{w}x{h}: no name dotted");
+        assert!(named > 0, "{w}x{h}: no name barred");
     }
 }
 
-/// **A chapter's dots stay in its cell**, all five of them: in a row under
-/// its number, never across into a neighbour's.
+/// **Each search shown adds its bar, and past a width they thin to fit**:
+/// the row grows bar by bar at the nominal width, never wider than
+/// `BAR_ROW` sizes of its name, its bars only ever thinner as it fills —
+/// so many fit where one does.
 #[test]
-fn a_chapter_s_dots_stay_in_its_cell() {
+fn a_row_of_bars_grows_with_each_search_then_thins_to_fit() {
+    let size = 40.0;
+    let (one, _) = bar_widths(1, size);
+    let (mut last_bar, mut last_row) = (f32::INFINITY, 0.0);
+    // Past the slots too: the rule is the row's, not the slot count's.
+    for n in 1..32 {
+        let marks = (1u32 << n) - 1;
+        let (bar, space) = bar_widths(marks, size);
+        let row = n as f32 * bar + (n as f32 - 1.0) * space;
+        assert!(row <= BAR_ROW * size + 1e-3, "{n} bars wider than the row allows");
+        assert!(row >= last_row - 1e-3, "{n} bars narrower than {}", n - 1);
+        assert!(bar <= last_bar + 1e-6, "a bar widened as the row filled");
+        assert!(bar > 0.0 && space >= 0.0, "{n} bars of no width");
+        (last_bar, last_row) = (bar, row);
+    }
+    assert_eq!(bar_widths(0b11, size).0, one, "two bars already thinned");
+    assert!(last_bar < one, "a full row kept the nominal width");
+}
+
+/// **A chapter's bars stay in its cell**, every slot's: in a row
+/// under its number, never across into a neighbour's.
+#[test]
+fn a_chapter_s_bars_stay_in_its_cell() {
     for (w, h) in WINDOWS {
         let mut app = framed_app(w, h);
         for slot in 0..MARK_SLOTS {
@@ -332,29 +398,29 @@ fn a_chapter_s_dots_stay_in_its_cell() {
             let cells: Vec<Rect> = (0..corpus::chapter_count())
                 .map(|c| app.camera.project(app.layout.chapters[c]))
                 .collect();
-            // Every dot lies wholly inside a cell or wholly outside each: none
+            // Every bar lies wholly inside a cell or wholly outside each: none
             // straddles a cell's edge into its neighbour's room.
-            for dot in dots(&all) {
-                let (l, r, t, b) = (dot.x - dot.w, dot.x + dot.w, dot.y - dot.w, dot.y + dot.w);
+            for bar in bars(&all) {
+                let (l, r, t, b) = (bar.x, bar.x + bar.w, bar.y, bar.y + bar.h);
                 for cell in &cells {
                     let e = 1e-3;
                     let inside =
                         l >= cell.x - e && r <= cell.x + cell.w + e && t >= cell.y - e && b <= cell.y + cell.h + e;
                     let outside =
                         r <= cell.x + e || l >= cell.x + cell.w - e || b <= cell.y + e || t >= cell.y + cell.h - e;
-                    assert!(inside || outside, "{w}x{h} notch {notch}: a dot across a cell's edge");
+                    assert!(inside || outside, "{w}x{h} notch {notch}: a bar across a cell's edge");
                     seen += usize::from(inside);
                 }
             }
         }
-        assert!(seen > 0, "{w}x{h}: no chapter dot");
+        assert!(seen > 0, "{w}x{h}: no chapter bar");
     }
 }
 
 /// **Once the text is read, its letters speak**: a cell drawing its verses
-/// carries no dot, its found letters inked instead.
+/// carries no bar, its found letters inked instead.
 #[test]
-fn a_cell_reading_its_text_has_no_dot_but_its_letters() {
+fn a_cell_reading_its_text_has_no_bar_but_its_letters() {
     let mut app = reference_app();
     measure_all(&mut app);
     app.set_marks(0, &records("משה", 0), 3);
@@ -365,12 +431,12 @@ fn a_cell_reading_its_text_has_no_dot_but_its_letters() {
     let all = frame(&mut app);
     let cell = app.camera.project(app.layout.chapters[chapter]);
     assert!(
-        all.iter().any(|c| c.is_text() && c.ink == INK_MARK),
+        all.iter().any(|c| c.is_text() && c.ink == INK_MARK + 1.0),
         "chapter {chapter} read without its letters inked"
     );
-    for dot in dots(&all) {
-        let inside = dot.x >= cell.x && dot.x <= cell.x + cell.w && dot.y >= cell.y && dot.y <= cell.y + cell.h;
-        assert!(!inside, "a dot in a cell drawing its text");
+    for bar in bars(&all) {
+        let inside = bar.x >= cell.x && bar.x <= cell.x + cell.w && bar.y >= cell.y && bar.y <= cell.y + cell.h;
+        assert!(!inside, "a bar in a cell drawing its text");
     }
 }
 
@@ -401,7 +467,7 @@ fn the_passage_carries_the_letters_the_map_inks() {
             let cut = &ours[piece[0] as usize..piece[1] as usize];
             let shown = &drawn(verse)[from..to];
             assert_eq!(cut, shown, "verse {verse}: the passage cuts other letters");
-            assert_eq!(piece[2] as f32 + INK_MARK, ink, "verse {verse}: the slot");
+            assert_eq!(piece[2] as f32 + INK_MARK, ink, "verse {verse}: the slots");
         }
     }
 
@@ -414,7 +480,7 @@ fn the_passage_carries_the_letters_the_map_inks() {
 /// corpus of the very strings its record shows — so on every chapter a
 /// search marks, the stretches it is handed are the runs the map draws;
 /// nothing for a chapter not marked or hidden; and a place's bits are the
-/// dots the map draws by its name.
+/// bars the map draws by its name.
 #[test]
 fn the_book_view_carries_the_letters_the_map_inks() {
     let mut app = reference_app();
@@ -432,7 +498,7 @@ fn the_book_view_carries_the_letters_the_map_inks() {
         }
         let got: Vec<&str> = out.chunks(3).map(|t| &corpus::text()[t[0] as usize..t[1] as usize]).collect();
         assert_eq!(got, want, "chapter {chapter}");
-        assert!(out.chunks(3).all(|t| t[2] == 2), "chapter {chapter}: the slot");
+        assert!(out.chunks(3).all(|t| t[2] == 1 << 2), "chapter {chapter}: the slot's bit");
         assert_eq!(got.is_empty(), !app.marks[2].chapters[chapter], "chapter {chapter}");
     }
     assert_eq!(app.place_marks(2, marked), 1 << 2);
@@ -446,4 +512,161 @@ fn the_book_view_carries_the_letters_the_map_inks() {
     app.show_marks(2, false);
     app.book_marks_of(marked, &mut out);
     assert!(out.is_empty() && app.place_marks(2, marked) == 0, "a hidden search marks the book");
+}
+
+/// One verse of a page of passages, read back as the page reads it.
+struct Row {
+    book: usize,
+    chapter: usize,
+    verse: usize,
+    label: &'static str,
+    text: &'static str,
+    runs: Vec<[u32; 3]>,
+}
+
+/// A page of passages, read back: each passage its verses.
+fn passages(app: &App, from: usize, count: usize) -> Vec<Vec<Row>> {
+    let mut out = Vec::new();
+    let written = app.results_page(from, count, &mut out);
+    let text = |at: u32, len: u32| &corpus::text()[at as usize..(at + len) as usize];
+    let (mut at, mut page) = (0, Vec::new());
+    while at < out.len() {
+        let verses = out[at] as usize;
+        at += 1;
+        let mut rows = Vec::new();
+        for _ in 0..verses {
+            let head = &out[at..at + RESULT_VERSE_HEAD];
+            at += RESULT_VERSE_HEAD;
+            let n = head[7] as usize;
+            let runs = out[at..at + 3 * n].chunks(3).map(|t| [t[0], t[1], t[2]]).collect();
+            at += 3 * n;
+            rows.push(Row {
+                book: head[0] as usize,
+                chapter: head[1] as usize,
+                verse: head[2] as usize,
+                label: text(head[3], head[4]),
+                text: text(head[5], head[6]),
+                runs,
+            });
+        }
+        page.push(rows);
+    }
+    assert_eq!(page.len(), written, "the passages written and those read back");
+    page
+}
+
+/// **Every hit lies whole in exactly one passage, and passages never touch**:
+/// in the order of the text, each from its first hit's first verse to the
+/// last verse any of its hits reaches, the next starting past it — so hits
+/// sharing a verse are one passage, and every verse of a hit is listed.
+#[test]
+fn every_hit_lies_whole_in_one_passage() {
+    for (word, skip) in [("משה", 0), ("אב", 0), ("תורה", 49)] {
+        let mut app = reference_app();
+        let found = records(word, skip);
+        let count = app.set_results(&found, folded(word).len());
+        let list = app.results.passages.clone();
+        assert_eq!(count, list.len());
+        assert!(list.iter().all(|&(a, b)| a <= b), "{word}: a passage ends before it starts");
+        assert!(list.windows(2).all(|w| w[1].0 > w[0].1), "{word}: two passages overlap or touch");
+        for hit in found.chunks_exact(els::STRIDE) {
+            let holding = list.iter().filter(|&&(a, b)| a <= hit[4] && hit[6] <= b).count();
+            assert_eq!(holding, 1, "{word}: hit at {} in {holding} passages", hit[0]);
+        }
+        for &(a, b) in &list {
+            let starts = found.chunks_exact(els::STRIDE).any(|h| h[4] == a);
+            let reaches = found.chunks_exact(els::STRIDE).filter(|h| a <= h[4] && h[4] <= b).map(|h| h[6]).max();
+            assert!(starts && reaches == Some(b), "{word}: passage {a}..={b} is not its hits' span");
+        }
+    }
+}
+
+/// **A hit across two verses is listed with both**: its passage reads the
+/// verse where it starts and the one where it ends, and the search's own
+/// letters are marked on each side.
+#[test]
+fn a_hit_across_two_verses_lists_both() {
+    let found = records("אב", 0);
+    let across = found.chunks_exact(els::STRIDE).find(|r| r[4] != r[6]).expect("no hit of אב across two verses");
+    let mut app = reference_app();
+    assert_eq!(app.set_results(across, 2), 1);
+    let page = passages(&app, 0, 10);
+    let verses: Vec<usize> = page[0].iter().map(|r| r.verse).collect();
+    assert_eq!(verses, (across[4] as usize..=across[6] as usize).collect::<Vec<_>>());
+    assert!(page[0].iter().all(|r| r.runs.iter().any(|t| t[2] & OWN != 0)), "a side without its letters");
+}
+
+/// **Each verse is named and read as the passage reads it**: its book holds
+/// its chapter, its chapter holds it, its number is its label and its text
+/// is ours — the other edition's forms not in it — and every run is a slice
+/// of that text on a letter boundary.
+#[test]
+fn each_verse_of_a_passage_is_named_and_ours() {
+    let mut app = reference_app();
+    app.set_results(&records("ישראל", 0), 5);
+    let page = passages(&app, 0, 400);
+    assert_eq!(page.len(), 400);
+    for row in page.iter().flatten() {
+        assert!(corpus::chapters_of(row.book).contains(&row.chapter), "verse {}: its book", row.verse);
+        assert!(corpus::verses_of(row.chapter).contains(&row.verse), "verse {}: its chapter", row.verse);
+        assert_eq!(row.label, corpus::verse_label(row.verse));
+        assert_eq!(row.text, corpus::verse_text(row.verse));
+        for t in &row.runs {
+            assert!(t[0] < t[1] && row.text.is_char_boundary(t[0] as usize) && row.text.is_char_boundary(t[1] as usize));
+        }
+    }
+}
+
+/// **The search's own letters always wear its colour**, shown on the map
+/// or not: with no slot set, the runs under `OWN` spell the word once per
+/// hit, across the whole list; another search shown adds its slot's bit
+/// to the letters it found, and only there.
+#[test]
+fn a_search_s_own_letters_are_marked_shown_or_not() {
+    let mut app = reference_app();
+    let found = records("משה", 0);
+    let hits = found.len() / els::STRIDE;
+    let count = app.set_results(&found, 3);
+    let spelled = |app: &App, bit: u32| -> Vec<u8> {
+        passages(app, 0, count)
+            .iter()
+            .flatten()
+            .flat_map(|r| {
+                r.runs.iter().filter(|t| t[2] & bit != 0).flat_map(|t| folded(&r.text[t[0] as usize..t[1] as usize]))
+            })
+            .collect()
+    };
+    assert_eq!(spelled(&app, OWN), folded("משה").repeat(hits), "its own letters, hidden");
+
+    app.set_marks(4, &records("ה", 0), 1);
+    let page = passages(&app, 0, count);
+    for row in page.iter().flatten() {
+        let mut want = Vec::new();
+        app.passage_marks(row.verse, &mut want);
+        let theirs: Vec<[u32; 3]> = row.runs.iter().filter(|t| t[2] & (1 << 4) != 0).copied().collect();
+        let letters = |runs: &[[u32; 3]]| -> Vec<u8> {
+            runs.iter().flat_map(|t| folded(&row.text[t[0] as usize..t[1] as usize])).collect()
+        };
+        let shown: Vec<[u32; 3]> = want.chunks(3).map(|t| [t[0], t[1], t[2]]).collect();
+        assert_eq!(letters(&theirs), letters(&shown), "verse {}: the shown search's letters", row.verse);
+    }
+    assert_eq!(spelled(&app, OWN), folded("משה").repeat(hits), "its own letters, beside another");
+}
+
+/// **Pages tile the list**: read a few at a time they give back the whole
+/// list in order, past the end nothing; cleared, the list is gone.
+#[test]
+fn pages_of_passages_tile_the_list() {
+    let mut app = reference_app();
+    let count = app.set_results(&records("אהרן", 0), 4);
+    assert!(count > 100);
+    let whole: Vec<usize> = passages(&app, 0, count).iter().map(|p| p[0].verse).collect();
+    let mut walked = Vec::new();
+    for from in (0..count).step_by(37) {
+        walked.extend(passages(&app, from, 37).iter().map(|p| p[0].verse));
+    }
+    assert_eq!(walked, whole);
+    assert!(passages(&app, count, 10).is_empty(), "a page past the end");
+    app.clear_results();
+    assert!(app.results.passages.is_empty() && passages(&app, 0, 10).is_empty());
 }

@@ -14,7 +14,7 @@ export type Command =
 
 /** What Escape closes, in order: the nearest thing first. `none`: nothing
  *  left to close, and no overview to go back to — the book view's. */
-export type Escape = 'selection' | 'notice' | 'overview' | 'none';
+export type Escape = 'results' | 'selection' | 'notice' | 'searches' | 'overview' | 'none';
 
 /**
  * Share of the view one arrow moves it by, and with Shift held. A small step
@@ -63,13 +63,24 @@ export function command(event: Key): Command | null {
 
 /**
  * What Escape does. **It closes before it leaves**: an open passage or
- * notice is closed and the view stays where the reader dived. Only with
+ * notice is closed and the view stays where the reader dived — a search's
+ * list of passages first, lying over everything. Only with
  * nothing open does it go back to the overview — closing a passage used to
- * throw away a dive of ten notches. In the book view there is no overview:
- * the reader's place is the scroll, and Escape never throws it away.
+ * throw away a dive of ten notches. The searches' panel is closed only
+ * where it lies over the view (`searches`, a narrow screen): beside it, it
+ * covers nothing and stays. In the book view there is no overview: the
+ * reader's place is the scroll, and Escape never throws it away.
  */
-export function escape(open: { selection: boolean; notice: boolean; book?: boolean }): Escape {
+export function escape(open: {
+	results?: boolean;
+	selection: boolean;
+	notice: boolean;
+	searches?: boolean;
+	book?: boolean;
+}): Escape {
+	if (open.results) return 'results';
 	if (open.selection) return 'selection';
 	if (open.notice) return 'notice';
+	if (open.searches) return 'searches';
 	return open.book ? 'none' : 'overview';
 }

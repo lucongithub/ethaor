@@ -19,15 +19,15 @@ export interface Part {
 	 *  one pair share it, so the pointer on either colours theirs alone;
 	 *  -1 for the rest of the verse. */
 	reading: number;
-	/** The slot of the search that found these letters, -1 for none. */
-	slot: number;
+	/** The slots of the searches that found these letters, as bits; 0 for none. */
+	slots: number;
 }
 
-/** Letters a search found: a byte range of the corpus text, and its slot. */
+/** Letters the searches found: a byte range of the corpus text, and their slots as bits. */
 export interface Found {
 	from: number;
 	to: number;
-	slot: number;
+	slots: number;
 }
 
 export interface Verse {
@@ -63,7 +63,7 @@ const encoder = new TextEncoder();
  *
  * `found` are the letters the searches shown found, as byte ranges of the
  * corpus text (`chapter_marks`): our parts are cut at them, each piece
- * carrying its slot.
+ * carrying its slots.
  */
 export function readChapter(
 	index: number,
@@ -84,7 +84,7 @@ export function readChapter(
 		for (let k = 0; k < runs; k++) {
 			const [start, size] = [record[at + 6 + 2 * k], record[at + 7 + 2 * k]];
 			if (start > cursor) parts.push(...inked(cursor, start - cursor, k));
-			parts.push({ text: text(start, size), theirs: true, marked: false, reading: k, slot: -1 });
+			parts.push({ text: text(start, size), theirs: true, marked: false, reading: k, slots: 0 });
 			cursor = start + size;
 		}
 		if (cursor < from + length || parts.length === 0) {
@@ -109,8 +109,8 @@ export function readChapter(
 
 /**
  * Parts of ours laid from `offset` in the corpus, cut where the searches
- * found letters: each piece keeps its part's flags, and takes the slot of
- * the search that found it. Stretches are cut by bytes, then decoded.
+ * found letters: each piece keeps its part's flags, and takes the slots of
+ * the searches that found it. Stretches are cut by bytes, then decoded.
  */
 function cut(
 	parts: Part[],
@@ -125,17 +125,17 @@ function cut(
 		const end = start + encoder.encode(part.text).length;
 		const hits = found.filter((f) => f.to > start && f.from < end).sort((a, b) => a.from - b.from);
 		let cursor = start;
-		const piece = (from: number, to: number, slot: number) =>
-			out.push({ ...part, text: text(from, to - from), slot });
+		const piece = (from: number, to: number, slots: number) =>
+			out.push({ ...part, text: text(from, to - from), slots });
 		for (const hit of hits) {
 			const [from, to] = [Math.max(hit.from, cursor), Math.min(hit.to, end)];
 			if (to <= from) continue;
-			if (from > cursor) piece(cursor, from, -1);
-			piece(from, to, hit.slot);
+			if (from > cursor) piece(cursor, from, 0);
+			piece(from, to, hit.slots);
 			cursor = to;
 		}
 		if (hits.length === 0) out.push(part);
-		else if (cursor < end) piece(cursor, end, -1);
+		else if (cursor < end) piece(cursor, end, 0);
 		start = end;
 	}
 	return out;
@@ -149,11 +149,11 @@ function cut(
 function ours(stretch: string, reading: number): Part[] {
 	const at = stretch.lastIndexOf(' ') + 1;
 	if (reading < 0 || !stretch.endsWith('¹'))
-		return [{ text: stretch, theirs: false, marked: false, reading: -1, slot: -1 }];
+		return [{ text: stretch, theirs: false, marked: false, reading: -1, slots: 0 }];
 	const head = stretch.slice(0, at);
-	const form = { text: stretch.slice(at), theirs: false, marked: true, reading, slot: -1 };
+	const form = { text: stretch.slice(at), theirs: false, marked: true, reading, slots: 0 };
 	return head
-		? [{ text: head, theirs: false, marked: false, reading: -1, slot: -1 }, form]
+		? [{ text: head, theirs: false, marked: false, reading: -1, slots: 0 }, form]
 		: [form];
 }
 

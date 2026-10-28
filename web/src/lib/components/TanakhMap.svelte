@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import {
 		createTanakhMap,
 		type Focus,
+		type Found,
 		type Place,
 		type Selection,
 		type TanakhMap
@@ -11,16 +12,18 @@
 	import { command, escape } from '$lib/keys';
 	import Rail, { type Search, type View } from './Rail.svelte';
 	import LetterSearch from './LetterSearch.svelte';
-	import SearchBar from './SearchBar.svelte';
+	import SearchPanel from './SearchPanel.svelte';
+	import ResultsModal from './ResultsModal.svelte';
 	import { letters } from '$lib/letters';
 	import {
 		add,
-		COLORS,
 		counted,
-		MAX_SEARCHES,
+		inkStyle,
+		isShown,
 		recolor,
 		remove,
 		toggle,
+		worn,
 		type Color,
 		type Marked
 	} from '$lib/marks';
@@ -95,13 +98,38 @@
 	let searching = $state<Search | null>(null);
 
 	function onSearch(name: Search) {
-		if (name === 'Consecutive letters' && kept.length < MAX_SEARCHES) searching = name;
+		if (name === 'Consecutive letters') searching = name;
 	}
 
-	// The searches kept on the map, five at most whatever their kind: each in
-	// a slot of the module's, its letters inked and its places dotted in its
-	// colour, until it is removed.
+	// The searches kept, as many as the reader runs, listed in the panel on
+	// the right. Ten at most are shown on the map, whatever their kind: each
+	// in a slot of the module's, its letters inked and its places marked by a bar in
+	// its colour. A hidden one gives its slot back and keeps its hits here, to
+	// be marked again when shown — not reactive: they are records, not state
+	// the page draws.
 	let kept = $state<Marked[]>([]);
+	const hits = new Map<number, { found: Found; span: number }>();
+
+	// The panel lies over the map, never taking its room. On a wide screen the
+	// map stays live beside it, and it opens of itself when a search is run;
+	// on a narrow one it is opened by its button in the top bar, and a veil
+	// makes the view beneath inert.
+	let panelOpen = $state(false);
+	let wide = $state(true);
+	let panel = $state<SearchPanel | null>(null);
+	let panelButton = $state<HTMLButtonElement | null>(null);
+	const veiled = $derived(panelOpen && !wide);
+
+	function openPanel() {
+		panelOpen = true;
+		queueMicrotask(() => panel?.focus());
+	}
+
+	function closePanel() {
+		panelOpen = false;
+		// Its button comes back where the panel was: the focus lands there.
+		tick().then(() => panelButton?.focus());
+	}
 
 	// Closed, the focus goes back to the view read: while the modal was open
 	// the view beneath was inert.
@@ -112,47 +140,94 @@
 	}
 
 	// The word asked for, read as written: an ELS at skip 0. Kept at once,
-	// counting; marked once found. A search that fails is told by the bridge
-	// and leaves no chip behind.
+	// counting; marked once found, in the slot it holds then — it may have
+	// been hidden or shown meanwhile. A search that fails is told by the
+	// bridge and leaves no row behind.
 	function runConsecutive(word: string, exact: boolean) {
-		const next = add(kept, 'Consecutive letters', word, exact);
-		if (!next || !map) return;
-		const search = next[next.length - 1];
-		kept = next;
+		if (!map) return;
+		kept = add(kept, 'Consecutive letters', word, exact);
+		const { id } = kept[kept.length - 1];
+		if (wide) panelOpen = true;
 		map.search(word, 0, 0, exact).then(
 			(found) => {
 				// Removed while it searched: nothing to mark.
-				const still = kept.find(
-					(m) => m.slot === search.slot && m.word === word && m.exact === exact
-				);
+				const still = kept.find((m) => m.id === id);
 				if (!still || !map) return;
-				map.marks.set(search.slot, found, letters(word).length, still.color);
-				if (!still.shown) map.marks.show(search.slot, false);
-				kept = counted(kept, search.slot, found.total);
+				const span = letters(word).length;
+				hits.set(id, { found, span });
+				if (isShown(still)) map.marks.set(still.slot, found, span, still.color);
+				kept = counted(kept, id, found.total);
 			},
-			() => (kept = remove(kept, search.slot))
+			() => removeSearch(id)
 		);
 	}
 
-	// The colour a slot's search wears in the passage, while it is shown.
-	function foundColor(slot: number): string | undefined {
-		const search = kept.find((m) => m.slot === slot);
-		return search?.shown ? COLORS[search.color] : undefined;
+	// How the passage paints letters the shown searches among `slots` found:
+	// their colour, or their bands where several found them.
+	function foundStyle(slots: number): string {
+		return inkStyle(worn(kept, slots));
 	}
 
-	function toggleSearch(slot: number) {
-		kept = toggle(kept, slot);
-		map?.marks.show(slot, kept.find((m) => m.slot === slot)?.shown ?? false);
+	// Hidden, a search's slot is cleared; shown, its hits are marked in the
+	// slot it takes — once they are in.
+	function toggleSearch(id: number) {
+		const before = kept.find((m) => m.id === id);
+		kept = toggle(kept, id);
+		const after = kept.find((m) => m.id === id);
+		if (!before || !after || !map) return;
+		if (isShown(before) && !isShown(after)) map.marks.clear(before.slot);
+		const found = hits.get(id);
+		if (!isShown(before) && isShown(after) && found) {
+			map.marks.set(after.slot, found.found, found.span, after.color);
+		}
 	}
 
-	function removeSearch(slot: number) {
-		kept = remove(kept, slot);
-		map?.marks.clear(slot);
+	function removeSearch(id: number) {
+		const search = kept.find((m) => m.id === id);
+		kept = remove(kept, id);
+		hits.delete(id);
+		if (search && isShown(search)) map?.marks.clear(search.slot);
+		// The last one gone, the panel and its button go with it: the focus
+		// goes back to the view read.
+		if (kept.length === 0 && panelOpen) {
+			panelOpen = false;
+			if (view === 'book') book?.focus();
+			else canvas.focus({ preventScroll: true });
+		}
 	}
 
-	function recolorSearch(slot: number, color: Color) {
-		kept = recolor(kept, slot, color);
-		map?.marks.color(slot, color);
+	// A search's passages, listed in a modal over everything: opened by its
+	// count in the panel, from the hits kept here. The module holds the list
+	// while it is open and forgets it once closed.
+	let listing = $state<{ id: number; passages: number; listed: number } | null>(null);
+	const listed = $derived(listing && kept.find((m) => m.id === listing!.id));
+
+	function openResults(id: number) {
+		const found = hits.get(id);
+		if (!found || !map) return;
+		try {
+			const passages = map.results.set(found.found, found.span);
+			listing = { id, passages, listed: found.found.hits.length / found.found.stride };
+		} catch (cause) {
+			const fault = escalate(cause, 'results-unlisted', "listing a search's passages");
+			reporter.report(fault);
+			shown(fault);
+		}
+	}
+
+	// Closed, the focus goes back to the count it was opened from.
+	function closeResults() {
+		if (!listing) return;
+		const { id } = listing;
+		listing = null;
+		map?.results.clear();
+		tick().then(() => document.getElementById(`count-${id}`)?.focus());
+	}
+
+	function recolorSearch(id: number, color: Color) {
+		kept = recolor(kept, id, color);
+		const search = kept.find((m) => m.id === id);
+		if (search && isShown(search)) map?.marks.color(search.slot, color);
 	}
 
 	// A step of the book's breadcrumb: a link up, brightened on hover as the
@@ -178,6 +253,12 @@
 		let handle: TanakhMap | null = null;
 		const unwatch = watch(window, shown);
 
+		// Wide from Tailwind's `md` on: room for the map beside the panel.
+		const query = window.matchMedia('(min-width: 48rem)');
+		const fit = () => (wide = query.matches);
+		fit();
+		query.addEventListener('change', fit);
+
 		createTanakhMap(canvas, {
 			onSelect: (hit) => (selection = hit),
 			onFocus: (where) => (focus = where),
@@ -199,6 +280,7 @@
 
 		return () => {
 			unwatch();
+			query.removeEventListener('change', fit);
 			handle?.destroy();
 		};
 	});
@@ -208,12 +290,16 @@
 	function onWindowKeydown(event: KeyboardEvent) {
 		if (event.key !== 'Escape') return;
 		const closes = escape({
+			results: listing !== null,
 			selection: selection !== null,
 			notice: notice !== null,
+			searches: panelOpen,
 			book: view === 'book'
 		});
-		if (closes === 'selection') closePassage();
+		if (closes === 'results') closeResults();
+		else if (closes === 'selection') closePassage();
 		else if (closes === 'notice') notice = null;
+		else if (closes === 'searches') closePanel();
 		else if (closes === 'overview') map?.reset();
 	}
 
@@ -380,17 +466,8 @@
 		</div>
 	</header>
 
-	{#if kept.length > 0}
-		<SearchBar
-			list={kept}
-			ontoggle={toggleSearch}
-			onremove={removeSearch}
-			onrecolor={recolorSearch}
-		/>
-	{/if}
-
 	<div class="flex min-h-0 flex-1">
-		<Rail {view} onview={switchTo} onsearch={onSearch} full={kept.length >= MAX_SEARCHES} />
+		<Rail {view} onview={switchTo} onsearch={onSearch} />
 
 		<div dir="rtl" class="flex min-w-0 flex-1 flex-col">
 			<p class="sr-only" aria-live="polite">{spoken}</p>
@@ -404,7 +481,7 @@
 			<div class="relative min-h-0 flex-1">
 				<canvas
 					bind:this={canvas}
-					inert={view === 'book'}
+					inert={view === 'book' || veiled}
 					tabindex="0"
 					aria-label="Map of the Tanakh. Plus and minus zoom, the arrows move, Enter reads the passage at the centre, Escape closes it or returns to the overview."
 					lang="en"
@@ -413,7 +490,7 @@
 		       focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-white/25"
 				></canvas>
 				{#if view === 'book' && map}
-					<div class="absolute inset-0">
+					<div class="absolute inset-0" inert={veiled}>
 						<BookView
 							bind:this={book}
 							book={map.book}
@@ -427,6 +504,43 @@
 							onfault={shown}
 						/>
 					</div>
+				{/if}
+
+				<!-- The searches' panel opens here, at the top right of the view,
+				     under the bar — where the panel slides in, its own close button
+				     taking the same place. There only while a search is; its count
+				     says how many are kept. -->
+				{#if kept.length > 0 && !panelOpen}
+					<button
+						bind:this={panelButton}
+						type="button"
+						dir="ltr"
+						lang="en"
+						class="absolute top-0.5 right-[calc(0.25rem+env(safe-area-inset-right))] z-10 flex h-11
+						       cursor-pointer items-center gap-2 rounded border border-white/15 bg-black/85 px-3
+						       text-white/75 shadow-[0_4px_16px_rgb(0_0_0/0.6)] transition-[color,border-color,opacity] duration-150
+						       hover:border-white/30 hover:text-white focus-visible:text-white
+						       focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-white/60
+						       md:top-1.5 md:h-9 md:px-2.5 motion-safe:starting:opacity-0"
+						aria-label={`Searches, ${kept.length} kept`}
+						aria-expanded={panelOpen}
+						aria-controls="searches"
+						onclick={openPanel}
+					>
+						<span class="text-sm leading-none tabular-nums" aria-hidden="true">{kept.length}</span>
+						<svg
+							viewBox="0 0 256 256"
+							class="size-5"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="12"
+							stroke-linejoin="round"
+							aria-hidden="true"
+						>
+							<rect x="32" y="48" width="192" height="160" rx="8" />
+							<path d="M160 48v160" />
+						</svg>
+					</button>
 				{/if}
 			</div>
 
@@ -456,6 +570,19 @@
 				</footer>
 			{/if}
 		</div>
+
+		{#if panelOpen && kept.length > 0}
+			<SearchPanel
+				bind:this={panel}
+				list={kept}
+				veil={!wide}
+				onclose={closePanel}
+				ontoggle={toggleSearch}
+				onremove={removeSearch}
+				onrecolor={recolorSearch}
+				onresults={openResults}
+			/>
+		{/if}
 	</div>
 </div>
 
@@ -520,6 +647,18 @@
 			×
 		</button>
 	</div>
+{/if}
+
+{#if listing && listed && map}
+	<ResultsModal
+		search={listed}
+		list={kept}
+		passages={listing.passages}
+		listed={listing.listed}
+		contents={map.book.contents}
+		read={map.results.page}
+		onclose={closeResults}
+	/>
 {/if}
 
 {#if searching}
@@ -604,9 +743,9 @@
 								: 'hover:bg-white/6 hover:text-white focus-visible:text-white'
 						]}
 						onclick={() => pickWord(k)}
-						>{#each runs[k] ?? [{ text: word, slot: -1 }] as run, r (r)}{@const color = foundColor(
-								run.slot
-							)}{#if color}<span class={[at >= 0 && k !== at && 'opacity-60']} style:color
+						>{#each runs[k] ?? [{ text: word, slots: 0 }] as run, r (r)}{@const style = foundStyle(
+								run.slots
+							)}{#if style}<span class={[at >= 0 && k !== at && 'opacity-60']} {style}
 									>{run.text}</span
 								>{:else}{run.text}{/if}{/each}</button
 					>{k < all.length - 1 ? ' ' : ''}{/each}

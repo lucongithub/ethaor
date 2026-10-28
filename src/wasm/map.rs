@@ -107,7 +107,7 @@ pub extern "C" fn select_verse(verse: u32) -> u32 {
     keep(app(), picked, Some(verse as usize))
 }
 
-/// The found letters of the verse selected: `(from, to, slot)` triples.
+/// The found letters of the verse selected: `(from, to, slots)` triples.
 static mut SELECTION_MARKS: Vec<u32> = Vec::new();
 
 #[allow(static_mut_refs)]
@@ -127,9 +127,9 @@ fn keep(app: &mut App, picked: Option<[u32; 6]>, verse: Option<usize>) -> u32 {
     }
 }
 
-/// How many found letters the passage selected holds: `(from, to, slot)`
+/// How many found letters the passage selected holds: `(from, to, slots)`
 /// triples at `selection_marks_ptr`, in bytes of its verse — the selection's
-/// own text — for the searches shown, lowest slot first.
+/// own text — the shown searches holding them as bits, in text order.
 #[cfg_attr(feature = "map", unsafe(no_mangle))]
 #[allow(static_mut_refs)]
 pub extern "C" fn selection_marks_len() -> u32 {
@@ -551,7 +551,7 @@ pub extern "C" fn marks_clear(slot: u32) {
 static mut CHAPTER_MARKS: Vec<u32> = Vec::new();
 
 /// The letters the shown searches found in a chapter, as the book view
-/// shows it: `(from, to, slot)` triples at `chapter_marks_ptr`, offsets in
+/// shows it: `(from, to, slots)` triples at `chapter_marks_ptr`, slots as bits, offsets in
 /// the corpus text of its verses as shown — the strings of its record. The
 /// count of triples; 0 for none, or a chapter not landed.
 ///
@@ -570,9 +570,51 @@ pub extern "C" fn chapter_marks_ptr() -> *const u32 {
     unsafe { CHAPTER_MARKS.as_ptr() }
 }
 
+/// Sets the list of passages to the hits written at `marks_buffer` —
+/// `els_stride` words each, `span` letters per hit — for the page to list
+/// them. Returns the number of passages.
+///
+/// No endpoint twin: `GET /api/els` already names every hit's verses; this
+/// list carries the map's colours, which only a page wears.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+#[allow(static_mut_refs)]
+pub extern "C" fn results_set(span: u32) -> u32 {
+    let records = unsafe { core::mem::take(&mut MARKS_IN) };
+    app().set_results(&records, span as usize) as u32
+}
+
+/// Forgets the list of passages.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+#[allow(static_mut_refs)]
+pub extern "C" fn results_clear() {
+    app().clear_results();
+    unsafe {
+        RESULTS_OUT = Vec::new();
+    }
+}
+
+/// The last page of passages asked for.
+static mut RESULTS_OUT: Vec<u32> = Vec::new();
+
+/// Writes passages `from..from + count` at `results_ptr` (`App::results_page`
+/// says how) and returns its length in words; 0 past the end.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+#[allow(static_mut_refs)]
+pub extern "C" fn results_page(from: u32, count: u32) -> u32 {
+    let out = unsafe { &mut RESULTS_OUT };
+    app().results_page(from as usize, count as usize, out);
+    out.len() as u32
+}
+
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+#[allow(static_mut_refs)]
+pub extern "C" fn results_ptr() -> *const u32 {
+    unsafe { RESULTS_OUT.as_ptr() }
+}
+
 /// The shown searches holding a place, as bits of their slots: a portion
-/// (`level` 0), a book (1) or a chapter (2) — the book view's dots.
+/// (`level` 0), a book (1) or a chapter (2) — the book view's bars.
 #[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn marks_at(level: u32, index: u32) -> u32 {
-    app().place_marks(level, index as usize) as u32
+    app().place_marks(level, index as usize)
 }

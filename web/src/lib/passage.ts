@@ -31,17 +31,18 @@ export function picked(selection: { word: string; head: string }): number {
 	return selection.word ? words(selection.head).length - 1 : -1;
 }
 
-/** A letter a search found in the verse: a byte range of it, and the slot. */
+/** Letters the searches found in the verse: a byte range of it, and the
+ *  slots that found them, as bits. */
 export interface Found {
 	from: number;
 	to: number;
-	slot: number;
+	slots: number;
 }
 
-/** A piece of a word: its text, and the slot that found it, or -1. */
+/** A piece of a word: its text, and the slots that found it as bits, 0 for none. */
 export interface Run {
 	text: string;
-	slot: number;
+	slots: number;
 }
 
 const encoder = new TextEncoder();
@@ -64,21 +65,21 @@ export function inked(verse: string, found: readonly Found[]): Run[][] {
 			.map((f) => ({
 				from: Math.max(f.from, start) - start,
 				to: Math.min(f.to, end) - start,
-				slot: f.slot
+				slots: f.slots
 			}))
 			.sort((a, b) => a.from - b.from);
 		const runs: Run[] = [];
 		let cursor = 0;
-		const piece = (from: number, to: number, slot: number) =>
-			runs.push({ text: decoder.decode(bytes.subarray(from, to)), slot });
+		const piece = (from: number, to: number, slots: number) =>
+			runs.push({ text: decoder.decode(bytes.subarray(from, to)), slots });
 		for (const cut of cuts) {
 			const from = Math.max(cut.from, cursor);
 			if (cut.to <= from) continue;
-			if (from > cursor) piece(cursor, from, -1);
-			piece(from, cut.to, cut.slot);
+			if (from > cursor) piece(cursor, from, 0);
+			piece(from, cut.to, cut.slots);
 			cursor = cut.to;
 		}
-		if (cursor < bytes.length || runs.length === 0) piece(cursor, bytes.length, -1);
+		if (cursor < bytes.length || runs.length === 0) piece(cursor, bytes.length, 0);
 		return runs;
 	});
 }

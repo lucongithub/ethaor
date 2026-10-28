@@ -73,6 +73,11 @@ export const CATALOGUE = {
 		level: 'error',
 		message: 'This passage could not be shown. The rest of the book can still be read.'
 	},
+	'results-unlisted': {
+		show: true,
+		level: 'error',
+		message: "This search's passages could not be listed. The search itself is kept."
+	},
 	'worker-failed': {
 		show: false,
 		level: 'warn',

@@ -18,6 +18,8 @@
       "Bash(git push --force*)",
       "Bash(git push -f*)",
       "Bash(git reset --hard*)",
+      "Bash(cargo fmt*)",
+      "Bash(cargo +* fmt*)",
       "Bash(curl * | bash*)",
       "Bash(curl * | sh*)",
       "Bash(wget * | bash*)",

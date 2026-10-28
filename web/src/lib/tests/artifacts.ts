@@ -32,9 +32,10 @@ export const block = (i: number) =>
 interface MapExports {
 	book_first_chapter(book: number): number;
 	book_end_chapter(book: number): number;
+	marks_slots(): number;
 }
 
-/** The map module, for where each book's chapters lie. */
+/** The map module, for where each book's chapters lie and how many searches it marks. */
 export const map = new WebAssembly.Instance(new WebAssembly.Module(read('ethaor.wasm')), {})
 	.exports as unknown as MapExports;
 

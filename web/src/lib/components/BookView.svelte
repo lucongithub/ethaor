@@ -43,7 +43,7 @@
 	} from '$lib/book-view';
 	import { escalate, reporter, type Fault } from '$lib/fault';
 	import { PORTION_TEXT } from '$lib/portions';
-	import { COLORS, type Marked } from '$lib/marks';
+	import { barRow, COLORS, inkStyle, isShown, worn, type Marked } from '$lib/marks';
 
 	let {
 		book,
@@ -62,7 +62,7 @@
 		startLevel?: Level;
 		/** Bumped whenever verses land: the chapters near the screen are read again. */
 		landed: number;
-		/** The searches kept: their letters coloured in the text, their dots by the names above it. */
+		/** The searches kept: their letters coloured in the text, their bars by the names above it. */
 		searches?: Marked[];
 		onreading: (reading: Reading | null) => void;
 		/** The pointer is on one of the two forms, ours `¹` or theirs `[…]²`, or has left it. */
@@ -141,7 +141,7 @@
 
 	// A search kept, shown, hidden or removed: the chapters read are read
 	// again, their found letters cut anew. A colour changed needs no reading.
-	const marking = $derived(searches.map((m) => `${m.slot}:${m.shown}:${m.total}`).join('|'));
+	const marking = $derived(searches.map((m) => `${m.id}:${m.slot}:${m.total}`).join('|'));
 	let marked = '';
 	$effect(() => {
 		if (marking === marked) return;
@@ -149,19 +149,17 @@
 		untrack(() => fill(true));
 	});
 
-	/** The colour a slot's search wears while shown. */
-	function tint(slot: number): string | undefined {
-		const search = slot < 0 ? undefined : searches.find((m) => m.slot === slot);
-		return search?.shown ? COLORS[search.color] : undefined;
+	/** The style of letters the shown searches among `slots` found: their colour, or their bands. */
+	function tint(slots: number): string {
+		return inkStyle(worn(searches, slots));
 	}
 
-	/** The colours of the dots by a portion's, book's or chapter's name. */
-	function dots(level: 0 | 1 | 2, index: number): string[] {
-		if (!searches.some((m) => m.shown && m.total)) return [];
+	/** The colours of the bars by a portion's, book's or chapter's name. */
+	function bars(level: 0 | 1 | 2, index: number): string[] {
+		if (!searches.some((m) => isShown(m) && m.total)) return [];
 		return book
 			.marks(level, index)
-			.map(tint)
-			.filter((c): c is string => c !== undefined);
+			.flatMap((slot) => worn(searches, 1 << slot).map((c) => COLORS[c]));
 	}
 
 	function placeholder(chapter: number): number {
@@ -682,47 +680,58 @@
 	const opensPortion = (text: Chapter) => text.opens && [0, 5, 26].includes(text.book);
 </script>
 
-<!-- A search's dots, as the map draws them: beside a name, where Hebrew
+<!-- A search's bars, as the map draws them: beside a name, where Hebrew
      ends, in the search's colour; under a chapter's number, its cell too
-     narrow beside it. Sized in the name's own em, so they follow its step. -->
+     narrow beside it. Sized in the name's own em, so they follow its step;
+     each search adds one, and past the row's widest they thin (`barRow`). -->
 {#snippet beside(colors: string[])}
+	{@const row = barRow(colors.length)}
 	{#if colors.length}<span
-			class="ms-[0.3em] inline-flex gap-[0.12em] align-middle"
+			class="ms-[0.35em] inline-flex h-[0.42em] align-middle"
+			style:gap="{row.space}em"
 			aria-hidden="true"
 			>{#each colors as color, k (k)}<span
-					class="size-[0.26em] rounded-full"
+					class="h-full"
+					style:width="{row.bar}em"
 					style:background-color={color}
 				></span>{/each}</span
 		>{/if}
 {/snippet}
 
 <!-- The same, out of the flow: the three portions alone keep the place the
-     map's opening gives them, to the pixel, dots or none — inline, the dots
+     map's opening gives them, to the pixel, bars or none — inline, the bars
      widened the block and moved it off the map's. Sized and spaced as the
-     map draws them (`DOT_RADIUS`, `DOT_GAP`, `DOT_SPACE`, `DOT_RISE`). -->
+     map draws them (`BAR_WIDTH`, `BAR_SPACE`, `BAR_HEIGHT`, `BAR_GAP`,
+     `BAR_RISE`). -->
 {#snippet outside(colors: string[])}
-	<!-- Hung on the name's own baseline, as the map hangs them: each dot an
+	<!-- Hung on the name's own baseline, as the map hangs them: each bar an
 	     empty inline block, which sits on the baseline by its bottom margin —
 	     its centre 0.30 em above it, where the canvas sets it (its baseline
-	     0.36 em under the line's middle, the dot `DOT_RISE` under it),
+	     0.36 em under the line's middle, the bar `BAR_RISE` under it),
 	     whatever the font's metrics. Centring on the line box put them a
 	     little low. -->
+	{@const row = barRow(colors.length)}
 	{#if colors.length}<span
 			class="absolute top-0 right-full mr-[0.35em] whitespace-nowrap"
 			aria-hidden="true"
 			>{#each colors as color, k (k)}<span
-					class="mb-[0.17em] inline-block size-[0.26em] rounded-full align-baseline not-first:ms-[0.117em]"
+					class="mb-[0.09em] inline-block h-[0.42em] align-baseline"
+					style:width="{row.bar}em"
+					style:margin-inline-start={k ? `${row.space}em` : null}
 					style:background-color={color}
 				></span>{/each}</span
 		>{/if}
 {/snippet}
 
 {#snippet under(colors: string[])}
+	{@const row = barRow(colors.length)}
 	{#if colors.length}<span
-			class="absolute inset-x-0 bottom-[0.2em] flex justify-center gap-[0.12em]"
+			class="absolute inset-x-0 bottom-[0.2em] flex h-[0.24em] justify-center"
+			style:gap="{row.space}em"
 			aria-hidden="true"
 			>{#each colors as color, k (k)}<span
-					class="size-[0.24em] rounded-full"
+					class="h-full"
+					style:width="{row.bar}em"
 					style:background-color={color}
 				></span>{/each}</span
 		>{/if}
@@ -801,9 +810,8 @@
 												>{part.text}</span
 											>{:else if part.marked}<span
 												data-form={`${verse.index}.${part.reading}`}
-												style:color={tint(part.slot)}>{part.text}</span
-											>{:else if tint(part.slot)}<span style:color={tint(part.slot)}
-												>{part.text}</span
+												style={tint(part.slots)}>{part.text}</span
+											>{:else if tint(part.slots)}<span style={tint(part.slots)}>{part.text}</span
 											>{:else}{part.text}{/if}
 									{/each}
 								</span>
@@ -850,13 +858,13 @@
 							<h2
 								class="pt-6 pb-4 text-xl leading-tight text-white xl:text-2xl 2xl:text-3xl min-[120rem]:text-4xl"
 							>
-								{contents.portions[b.section]}{@render beside(dots(0, b.section))}
+								{contents.portions[b.section]}{@render beside(bars(0, b.section))}
 							</h2>
 						{/if}
 						<h3
 							class="pb-3 text-lg leading-tight text-white/78 xl:text-xl 2xl:text-2xl min-[120rem]:text-3xl"
 						>
-							{b.name}{@render beside(dots(1, b.index))}
+							{b.name}{@render beside(bars(1, b.index))}
 						</h3>
 						<ol class="grid grid-cols-6 gap-1 sm:grid-cols-10 xl:grid-cols-12">
 							{#each { length: b.end - b.first }, k (k)}
@@ -877,7 +885,7 @@
 										]}
 										onclick={() => go(c)}
 									>
-										{contents.labels[c]}{@render under(dots(2, c))}
+										{contents.labels[c]}{@render under(bars(2, c))}
 									</button>
 								</li>
 							{/each}
@@ -912,7 +920,7 @@
 				{#each contents.portions as portion, p (p)}
 					<section data-portion={p} class="pb-6 last:pb-0 xl:pb-8">
 						<h2 class="pb-2 text-xl leading-tight xl:text-2xl 2xl:text-3xl min-[120rem]:text-4xl">
-							{portion}{@render beside(dots(0, p))}
+							{portion}{@render beside(bars(0, p))}
 						</h2>
 						<ul class="-mx-2 grid grid-cols-2 gap-x-4 sm:grid-cols-3">
 							{#each contents.books.filter((b) => b.section === p) as b (b.index)}
@@ -931,7 +939,7 @@
 										]}
 										onclick={() => openBook(b.index)}
 									>
-										{b.name}{@render beside(dots(1, b.index))}
+										{b.name}{@render beside(bars(1, b.index))}
 									</button>
 								</li>
 							{/each}
@@ -969,7 +977,7 @@
 						       focus-visible:outline-white/60"
 						onclick={() => openPortion(p)}
 					>
-						{portion}{@render outside(dots(0, p))}
+						{portion}{@render outside(bars(0, p))}
 					</button>
 				{/each}
 			</div>

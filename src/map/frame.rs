@@ -14,10 +14,10 @@ pub(crate) const KIND_TEXT: f32 = 1.0;
 /// neighbours, even if a badly measured width makes it overflow.
 pub(crate) const KIND_CLIP: f32 = 2.0;
 pub(crate) const KIND_UNCLIP: f32 = 3.0;
-/// A search's dot beside a name: centre, radius, its slot as the ink. The
-/// one mark that is not a letter, and it carries information too: this
-/// chapter, book or portion holds what the search found.
-pub(crate) const KIND_DOT: f32 = 4.0;
+/// A search's bar beside a name: its box (left, top, width, height), its
+/// slot's bit as the ink. The one mark that is not a letter, and it carries
+/// information too: this chapter, book or portion holds what the search found.
+pub(crate) const KIND_BAR: f32 = 4.0;
 
 /// Ink of a text command, last slot of the record.
 ///
@@ -29,29 +29,55 @@ pub(crate) const KIND_DOT: f32 = 4.0;
 /// the module only says which run is which.
 pub(crate) const INK_OURS: f32 = 0.0;
 pub(crate) const INK_OTHER: f32 = 1.0;
-/// A search's letters, and its dots: `INK_MARK + slot`. The page gives each
-/// slot the colour its search wears.
+/// A search's letters, and its bars: `INK_MARK + bits`, one bit per slot
+/// holding them — a bar has one, a letter as many as searches found it. The
+/// page gives each slot the colour its search wears, and paints a letter of
+/// several in bands of theirs.
 pub(crate) const INK_MARK: f32 = 2.0;
 
-/// A dot's radius, its gap from the name and from the next dot, in shares
-/// of the name's size; and how far above the box's middle its centre sits,
-/// at the height of a letter's body rather than of the line.
-pub(crate) const DOT_RADIUS: f32 = 0.13;
-const DOT_GAP: f32 = 0.35;
-const DOT_SPACE: f32 = 0.9;
-const DOT_RISE: f32 = 0.06;
-/// How far under a chapter number's baseline its dots' centres sit, in
-/// shares of its size: in the room the cell leaves below the digits.
-const DOT_DROP: f32 = 0.3;
-/// A dot smaller than this, in pixels, is not seen: not drawn.
-pub(crate) const DOT_MIN: f32 = 0.5;
+/// A bar's width and the space to the next one, its height beside a name,
+/// its gap from the name, in shares of the name's size; and how far above
+/// the box's middle its centre sits, at the height of a letter's body rather
+/// than of the line. Thin and upright, so ten line up where five dots did.
+const BAR_WIDTH: f32 = 0.08;
+const BAR_SPACE: f32 = 0.07;
+const BAR_HEIGHT: f32 = 0.42;
+const BAR_GAP: f32 = 0.35;
+const BAR_RISE: f32 = 0.06;
+/// The widest a row of bars grows, in shares of the name's size: each search
+/// shown adds its bar, and past this width they all thin to fit — the row
+/// fits under every chapter number, every cell sharing one size.
+pub(crate) const BAR_ROW: f32 = 1.4;
+/// Under a chapter number: how far under its baseline the bars' tops sit,
+/// and their height, in shares of its size — in the room the cell leaves
+/// below the digits.
+const BAR_DROP: f32 = 0.17;
+pub(crate) const BAR_UNDER: f32 = 0.26;
+/// A bar lower than this, in pixels, is not seen: not drawn.
+pub(crate) const BAR_MIN: f32 = 1.0;
 
-/// A title's text, with the searches holding its place, as bits: their dots
+/// A bar's width and the space after it, for the bars of `marks` by a name
+/// of `size`: the nominal ones while the row is narrower than `BAR_ROW`,
+/// both thinned alike past it.
+pub(crate) fn bar_widths(marks: u32, size: f32) -> (f32, f32) {
+    let n = marks.count_ones().max(1) as f32;
+    let natural = n * BAR_WIDTH + (n - 1.0) * BAR_SPACE;
+    let k = (BAR_ROW / natural).min(1.0);
+    (size * BAR_WIDTH * k, size * BAR_SPACE * k)
+}
+
+/// The width a row of the bars of `marks` takes, end to end.
+fn row_width(marks: u32, width: f32, space: f32) -> f32 {
+    let n = marks.count_ones() as f32;
+    n * width + (n - 1.0).max(0.0) * space
+}
+
+/// A title's text, with the searches holding its place, as bits: their bars
 /// go by it.
 #[derive(Clone, Copy)]
 struct Named {
     text: &'static str,
-    marks: u8,
+    marks: u32,
 }
 
 /// Sizes of one level. Every drawn world has its own.
@@ -129,44 +155,45 @@ impl App {
         self.clip(Rect { x: box_.x, y: 0.0, w: box_.w, h: self.height });
         self.emit_text(content, area, size, alpha);
         if marks != 0 {
-            // A title filling its box has no room beside it: its dots go
+            // A title filling its box has no room beside it: its bars go
             // under it, in the room the box leaves below the letters.
             let w = self.width_of(content, size).min(area.w);
             let right = area.x + area.w;
             if full {
-                self.dots_under(marks, right - w / 2.0, area.y + area.h / 2.0 + size * 0.36, size);
+                self.bars_under(marks, right - w / 2.0, area.y + area.h / 2.0 + size * 0.36, size);
             } else {
-                self.dots(marks, right - w, box_.x, area, size);
+                self.bars(marks, right - w, box_.x, area, size);
             }
         }
         self.unclip();
     }
 
-    /// The dots of the slots in `marks`, laid leftwards from `left` — the
+    /// The bars of the slots in `marks`, laid leftwards from `left` — the
     /// left end of a name, where Hebrew ends — on the name's box, at its size,
     /// and never past `bound`: where the room is short, they shrink into it.
-    fn dots(&mut self, marks: u8, left: f32, bound: f32, area: Rect, size: f32) {
-        let n = marks.count_ones() as f32;
-        let wanted = size * (DOT_GAP + n * 2.0 * DOT_RADIUS + (n - 1.0) * DOT_RADIUS * DOT_SPACE);
-        let k = ((left - bound) / wanted).min(1.0);
-        let y = area.y + area.h / 2.0 + size * DOT_RISE;
-        self.dot_row(marks, left - size * DOT_GAP * k, y, size * DOT_RADIUS * k);
+    fn bars(&mut self, marks: u32, left: f32, bound: f32, area: Rect, size: f32) {
+        let (width, space) = bar_widths(marks, size);
+        let wide = row_width(marks, width, space);
+        let k = ((left - bound) / (size * BAR_GAP + wide)).min(1.0);
+        let h = size * BAR_HEIGHT * k;
+        let middle = area.y + area.h / 2.0 + size * BAR_RISE;
+        self.bar_row(marks, left - size * BAR_GAP * k, middle - h / 2.0, width * k, space * k, h);
     }
 
-    /// The dots of a name, in a row under its baseline, centred on `middle`.
+    /// The bars of a name, in a row under its baseline, centred on `middle`.
     /// A chapter's number has them there — a cell is square, and beside its
-    /// number there is no room — and five fit in the cell's width: every cell
-    /// and every number share one size, so they fit everywhere.
-    fn dots_under(&mut self, marks: u8, middle: f32, baseline: f32, size: f32) {
-        let n = marks.count_ones() as f32;
-        let wide = size * DOT_RADIUS * (n * 2.0 + (n - 1.0) * DOT_SPACE);
-        self.dot_row(marks, middle + wide / 2.0, baseline + size * DOT_DROP, size * DOT_RADIUS);
+    /// number there is no room — and the row fits in the cell's width: every
+    /// cell and every number share one size, so it fits everywhere.
+    fn bars_under(&mut self, marks: u32, middle: f32, baseline: f32, size: f32) {
+        let (width, space) = bar_widths(marks, size);
+        let wide = row_width(marks, width, space);
+        self.bar_row(marks, middle + wide / 2.0, baseline + size * BAR_DROP, width, space, size * BAR_UNDER);
     }
 
-    /// A row of dots of radius `r` on the line `y`, the first one's right
-    /// edge at `right`, lowest slot first.
-    fn dot_row(&mut self, marks: u8, right: f32, y: f32, r: f32) {
-        if r < DOT_MIN {
+    /// A row of bars `width` wide and `h` high from `top`, the first one's
+    /// right edge at `right`, lowest slot first.
+    fn bar_row(&mut self, marks: u32, right: f32, top: f32, width: f32, space: f32, h: f32) {
+        if h < BAR_MIN {
             return;
         }
         let mut edge = right;
@@ -174,10 +201,10 @@ impl App {
             if marks & (1 << slot) == 0 {
                 continue;
             }
-            let x = edge - r;
+            let x = edge - width;
             self.commands
-                .extend_from_slice(&[KIND_DOT, x, y, r, r, 1.0, 0.0, 0.0, 0.0, INK_MARK + slot as f32]);
-            edge = x - r - r * DOT_SPACE;
+                .extend_from_slice(&[KIND_BAR, x, top, width, h, 1.0, 0.0, 0.0, 0.0, INK_MARK + (1u32 << slot) as f32]);
+            edge = x - space;
         }
     }
 
@@ -467,7 +494,7 @@ impl App {
                 let marks = self.section_marks(section);
                 if marks != 0 {
                     let w = self.width_of(name, cards.size);
-                    self.dots(marks, area.x + area.w - w, area.x, area, cards.size);
+                    self.bars(marks, area.x + area.w - w, area.x, area, cards.size);
                 }
             }
             return;
@@ -564,7 +591,7 @@ impl App {
                 let marks = self.chapter_marks(chapter);
                 if marks != 0 {
                     let baseline = area.y + area.h / 2.0 + scale.chapter * 0.36;
-                    self.dots_under(marks, cell.x + cell.w / 2.0, baseline, scale.chapter);
+                    self.bars_under(marks, cell.x + cell.w / 2.0, baseline, scale.chapter);
                 }
             }
         }
@@ -615,7 +642,8 @@ impl App {
             cuts.push((at, at + len, INK_OTHER));
         }
         self.verse_marks(line.verse, &mut cuts);
-        // Stable: of two searches on one letter, the lower slot keeps it.
+        // Neither kind overlaps itself nor the other: our letters never lie
+        // in an insertion.
         cuts.sort_by_key(|cut| cut.0);
 
         let mut right = row.x + row.w;

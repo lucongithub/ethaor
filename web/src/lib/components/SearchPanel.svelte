@@ -1,0 +1,391 @@
+<script lang="ts">
+	// The searches kept, in a panel on the right — as many as the reader runs,
+	// newest last. Each row: its colour (the palette), its word, its count, the
+	// eye (shows or hides its marks on the map), the cross (takes it away).
+	// Ten are shown at most, each its own colour; a hidden one waits for a
+	// slot. The word is no control of its own: it is kept free for what a
+	// search will open. The count is a control of its own, the owner's rule:
+	// it opens the list of the search's passages (`ResultsModal`).
+	//
+	// It slides over the map from the right and takes no room from it — the
+	// owner's rule. On a wide screen the map stays live beside it; on a narrow
+	// one a veil lies beneath it, and the veil, the close button or Escape put
+	// it away. Every target is a finger's size there. Its words are Hebrew,
+	// the rest English.
+	import {
+		canShow,
+		COLORS,
+		grouped,
+		isShown,
+		MAX_SHOWN,
+		type Color,
+		type Marked
+	} from '$lib/marks';
+
+	let {
+		list,
+		veil,
+		onclose,
+		ontoggle,
+		onremove,
+		onrecolor,
+		onresults
+	}: {
+		list: Marked[];
+		/** A veil beneath, the map inert: a narrow screen. */
+		veil: boolean;
+		onclose: () => void;
+		ontoggle: (id: number) => void;
+		onremove: (id: number) => void;
+		onrecolor: (id: number, color: Color) => void;
+		/** A search's passages asked for, by its count. */
+		onresults?: (id: number) => void;
+	} = $props();
+
+	const names = Object.keys(COLORS) as Color[];
+	const shown = $derived(list.filter(isShown).length);
+	const room = $derived(canShow(list));
+
+	let panel = $state<HTMLElement>();
+
+	/** Gives the panel the focus: its first control. */
+	export function focus() {
+		panel?.querySelector<HTMLElement>('button')?.focus();
+	}
+
+	// The search whose palette is open, if any.
+	let picking = $state<number | null>(null);
+	let palette = $state<HTMLDivElement>();
+
+	function open(id: number) {
+		picking = picking === id ? null : id;
+		if (picking !== null) {
+			queueMicrotask(() =>
+				palette?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus()
+			);
+		}
+	}
+
+	function close(refocus: boolean) {
+		const id = picking;
+		picking = null;
+		if (refocus && id !== null) document.getElementById(`swatch-${id}`)?.focus();
+	}
+
+	// A press anywhere but in the palette or on its swatch closes it.
+	function onWindowPointerdown(event: PointerEvent) {
+		if (picking === null) return;
+		const target = event.target as Element;
+		if (!palette?.contains(target) && !target.closest?.(`#swatch-${picking}`)) close(false);
+	}
+
+	// The palette's keys: arrows walk the colours, Escape closes it — and goes
+	// no further, or the window would close the panel too.
+	function onPaletteKeydown(event: KeyboardEvent) {
+		const all = [...(palette?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]') ?? [])];
+		const at = all.indexOf(document.activeElement as HTMLButtonElement);
+		const go = (k: number) => all[(k + all.length) % all.length]?.focus();
+		if (event.key === 'ArrowRight' || event.key === 'ArrowDown') go(at + 1);
+		else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') go(at - 1);
+		else if (event.key === 'Escape') close(true);
+		else if (event.key === 'Tab') return close(false);
+		else return;
+		event.preventDefault();
+		event.stopPropagation();
+	}
+
+	const count = grouped;
+
+	// The name a row shows, on hover of its word or eye, or keyboard focus of
+	// its eye — the rail's tip. It lies in the top layer, so neither the list's
+	// scroll nor the page clips it, and outside the panel, left of its row,
+	// so it covers no colour; under its row where the screen leaves no room.
+	let tip = $state<HTMLDivElement>();
+
+	function named(search: Marked, blocked: boolean): string {
+		if (blocked) return `${MAX_SHOWN} shown at most`;
+		return `${search.kind}${search.exact ? ' · Exact letters (final forms)' : ''}`;
+	}
+
+	function showTip(text: string, row: Element) {
+		if (!tip || !panel) return;
+		// Written at once, not through state: it is measured next.
+		tip.textContent = text;
+		if (!tip.matches(':popover-open')) tip.showPopover();
+		const gap = 8;
+		const edge = panel.getBoundingClientRect().left;
+		const at = row.getBoundingClientRect();
+		const beside = edge - gap >= tip.offsetWidth + gap;
+		tip.style.right = `${innerWidth - (beside ? edge : at.right) + gap}px`;
+		tip.style.top = beside
+			? `${at.top + at.height / 2 - tip.offsetHeight / 2}px`
+			: `${at.bottom + 4}px`;
+	}
+
+	function hideTip() {
+		if (tip?.matches(':popover-open')) tip.hidePopover();
+	}
+
+	// A pointer that hovers — a finger has no hover, and its tap would leave
+	// the tip open.
+	const hovers = (event: PointerEvent) => event.pointerType !== 'touch';
+
+	// A square control: a finger's size on a narrow screen, the rail's on a wide one.
+	const square = [
+		'grid size-11 shrink-0 cursor-pointer place-items-center rounded md:size-9',
+		'transition-colors duration-150 hover:bg-white/[0.06]',
+		'focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-white/60'
+	];
+</script>
+
+<svelte:window onpointerdown={onWindowPointerdown} />
+
+{#if veil}
+	<!-- The veil: the map dimmed under the panel, a tap on it puts the panel away. -->
+	<button
+		type="button"
+		tabindex="-1"
+		aria-label="Close searches"
+		class="fixed inset-0 z-30 cursor-default bg-black/60 transition-opacity duration-200 ease-out
+		       motion-reduce:transition-none starting:opacity-0"
+		onclick={onclose}
+	></button>
+{/if}
+
+<aside
+	bind:this={panel}
+	id="searches"
+	dir="ltr"
+	lang="en"
+	aria-label="Searches"
+	class={[
+		'fixed top-[calc(var(--nav)+env(safe-area-inset-top))] right-0 bottom-0 z-40 flex w-[min(20rem,88vw)]',
+		'flex-col border-l border-white/10 bg-black shadow-[-12px_0_32px_rgb(0_0_0/0.6)]',
+		'transition-[translate] duration-250 ease-out motion-reduce:transition-none starting:translate-x-full',
+		'2xl:w-88'
+	]}
+	onscrollcapture={hideTip}
+>
+	<header
+		class="flex h-12 shrink-0 items-center gap-2 pr-[calc(0.25rem+env(safe-area-inset-right))] pl-4"
+	>
+		<h2 class="text-sm tracking-wide text-white">Searches</h2>
+		<!-- How many the map shows, of the ten it can. -->
+		<p class="flex-1 text-xs text-white/55 tabular-nums" aria-live="polite">
+			{shown} of {MAX_SHOWN} on the map
+		</p>
+		<button
+			type="button"
+			class={[square, 'text-white/58 hover:text-white focus-visible:text-white']}
+			aria-label="Close searches"
+			onclick={onclose}
+		>
+			<svg viewBox="0 0 256 256" class="size-5 fill-current" aria-hidden="true">
+				<path
+					d="M204.24,195.76a6,6,0,1,1-8.48,8.48L128,136.49,60.24,204.24a6,6,0,0,1-8.48-8.48L119.51,128,51.76,60.24a6,6,0,0,1,8.48-8.48L128,119.51l67.76-67.75a6,6,0,0,1,8.48,8.48L136.49,128Z"
+				/>
+			</svg>
+		</button>
+	</header>
+
+	<!-- One grid for every row, its columns shared (`subgrid`): the counts
+	     line up on their right edge, and so do the words before them. -->
+	<ul
+		class="grid flex-1 [scrollbar-width:thin] [scrollbar-color:rgb(255_255_255/0.25)_transparent] grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] content-start gap-x-0.5 overflow-y-auto overscroll-contain
+		       px-1.5 pb-[calc(0.5rem+env(safe-area-inset-bottom))]"
+	>
+		{#each list as search (search.id)}
+			{@const color = COLORS[search.color]}
+			{@const on = isShown(search)}
+			{@const blocked = !on && !room}
+			<li class="relative col-span-full grid grid-cols-subgrid">
+				<div class="col-span-full grid grid-cols-subgrid items-center">
+					<button
+						id={`swatch-${search.id}`}
+						type="button"
+						class={square}
+						aria-label={`Colour of ${search.word}: ${search.color}`}
+						aria-haspopup="menu"
+						aria-expanded={picking === search.id}
+						onclick={() => open(search.id)}
+					>
+						<span
+							class="size-3 rounded-[2px] border-[1.5px] transition-colors duration-150"
+							style:border-color={color}
+							style:background-color={on ? color : 'transparent'}
+						></span>
+					</button>
+
+					<!-- The word: named by the tip, as the rail names its icons — the
+					     kind of search, and whether its finals are told apart. -->
+					<div
+						role="presentation"
+						class={[
+							'flex h-11 min-w-0 flex-1 items-center gap-2 px-2 transition-colors duration-150 md:h-9',
+							on ? 'text-white' : 'text-white/45'
+						]}
+						onpointerenter={(event) => {
+							if (hovers(event)) showTip(named(search, false), event.currentTarget);
+						}}
+						onpointerleave={hideTip}
+					>
+						<span
+							dir="rtl"
+							lang="he"
+							class="min-w-0 flex-1 truncate text-right font-hebrew text-lg leading-none"
+						>
+							{search.word}
+						</span>
+					</div>
+
+					<!-- The count: how many hits, and the way to them. -->
+					<button
+						id={`count-${search.id}`}
+						type="button"
+						class={[
+							'h-11 rounded px-2 text-right text-xs tabular-nums transition-colors duration-150 md:h-9',
+							'focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-white/60',
+							search.total === null
+								? 'cursor-default text-white/35'
+								: 'cursor-pointer text-white/58 hover:bg-white/[0.06] hover:text-white focus-visible:text-white'
+						]}
+						aria-disabled={search.total === null}
+						aria-label={search.total === null
+							? `${search.word}: searching`
+							: `${count(search.total)} hits of ${search.word}`}
+						onclick={() => {
+							if (search.total !== null) onresults?.(search.id);
+						}}
+					>
+						{search.total === null ? '…' : count(search.total)}
+					</button>
+
+					<!-- The eye shows or hides the search's marks on the map. -->
+					<button
+						type="button"
+						class={[
+							square,
+							blocked
+								? 'cursor-default text-white/25 hover:bg-transparent'
+								: on
+									? 'text-white hover:text-white'
+									: 'text-white/45 hover:text-white focus-visible:text-white'
+						]}
+						aria-pressed={on}
+						aria-disabled={blocked}
+						aria-label={`Show ${search.word} on the map${blocked ? ` — ${MAX_SHOWN} shown at most` : ''}`}
+						onclick={() => {
+							if (!blocked) ontoggle(search.id);
+						}}
+						onpointerenter={(event) => {
+							if (hovers(event)) showTip(named(search, blocked), event.currentTarget);
+						}}
+						onpointerleave={hideTip}
+						onfocus={(event) => {
+							if (event.currentTarget.matches(':focus-visible')) {
+								showTip(named(search, blocked), event.currentTarget);
+							}
+						}}
+						onblur={hideTip}
+					>
+						<svg
+							viewBox="0 0 256 256"
+							class="size-4.5"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="14"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							aria-hidden="true"
+						>
+							<path
+								d="M24 128c26-48 62-72 104-72s78 24 104 72c-26 48-62 72-104 72S50 176 24 128Z"
+							/>
+							<circle cx="128" cy="128" r="34" />
+							{#if !on}<path d="M48 40 208 216" />{/if}
+						</svg>
+					</button>
+
+					<button
+						type="button"
+						class={[square, 'text-white/58 hover:text-white focus-visible:text-white']}
+						aria-label={`Remove ${search.word}`}
+						onclick={() => onremove(search.id)}
+					>
+						<svg viewBox="0 0 256 256" class="size-4 fill-current" aria-hidden="true">
+							<path
+								d="M204.24,195.76a6,6,0,1,1-8.48,8.48L128,136.49,60.24,204.24a6,6,0,0,1-8.48-8.48L119.51,128,51.76,60.24a6,6,0,0,1,8.48-8.48L128,119.51l67.76-67.75a6,6,0,0,1,8.48,8.48L136.49,128Z"
+							/>
+						</svg>
+					</button>
+				</div>
+
+				{#if picking === search.id}
+					<!-- The palette opens under its row, inside the panel. -->
+					<div
+						bind:this={palette}
+						role="menu"
+						tabindex="-1"
+						aria-label={`Colour of ${search.word}`}
+						class="col-span-full mx-1 mb-2 grid grid-cols-4 gap-1 rounded border border-white/15 bg-black p-2"
+						onkeydown={onPaletteKeydown}
+					>
+						{#each names as name (name)}
+							{@const chosen = name === search.color}
+							<!-- A colour another search on the map wears is not offered
+							     to one on the map: two would read as one. -->
+							{@const worn =
+								on && list.some((m) => m.id !== search.id && isShown(m) && m.color === name)}
+							<button
+								type="button"
+								role="menuitemradio"
+								aria-checked={chosen}
+								aria-disabled={worn}
+								aria-label={worn ? `${name}, worn by another search` : name}
+								title={name}
+								tabindex="-1"
+								class={[
+									'grid h-11 place-items-center rounded transition-colors duration-150 md:h-9',
+									'focus-visible:bg-white/[0.08] focus-visible:outline-1 focus-visible:outline-white/60',
+									worn ? 'cursor-default' : 'cursor-pointer hover:bg-white/[0.08]',
+									chosen && 'bg-white/[0.1]'
+								]}
+								onclick={() => {
+									if (worn) return;
+									onrecolor(search.id, name);
+									close(true);
+								}}
+							>
+								<!-- Worn by another search on the map: its true colour, struck
+								     through — dimmed, it read as another colour. -->
+								<span
+									class={[
+										'relative size-4 rounded-[2px]',
+										chosen && 'ring-1 ring-white ring-offset-2 ring-offset-black'
+									]}
+									style:background-color={COLORS[name]}
+								>
+									{#if worn}<span
+											class="absolute top-1/2 left-1/2 h-[1.5px] w-5 -translate-1/2 -rotate-45 rounded-full bg-white/85
+											       ring-1 ring-black"
+										></span>{/if}
+								</span>
+							</button>
+						{/each}
+					</div>
+				{/if}
+			</li>
+		{/each}
+	</ul>
+</aside>
+
+<div
+	bind:this={tip}
+	popover="manual"
+	dir="ltr"
+	lang="en"
+	aria-hidden="true"
+	class="pointer-events-none fixed inset-auto m-0 rounded border border-white/15 bg-black px-2 py-1 text-xs
+	       tracking-wide whitespace-nowrap text-white opacity-100 transition-opacity delay-200 duration-100
+	       starting:opacity-0"
+></div>
