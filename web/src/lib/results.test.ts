@@ -21,6 +21,10 @@ interface Module {
 	results_page(from: number, count: number): number;
 	results_ptr(): number;
 	results_clear(): void;
+	results_shown(all: number): number;
+	passages_shown(all: number): number;
+	passages_count(): number;
+	marks_clear(slot: number): void;
 }
 
 const decoder = new TextDecoder();
@@ -170,6 +174,43 @@ describe("a search's passages", () => {
 	});
 });
 
+describe('the searches shown together', () => {
+	// A search's count is the length of its list; the passages of any and
+	// of all are listed as they are counted, and each passage of all holds
+	// letters of both searches, each in its slot.
+	it('are counted as listed, each passage of all holding both', () => {
+		const words = [
+			['משה', 1],
+			['אהרן', 2]
+		] as const;
+		for (const [word, slot] of words) {
+			const found = core.els(word, 0, 0);
+			hand(found);
+			const count = module.passages_count();
+			hand(found);
+			expect(module.results_set(word.length)).toBe(count);
+			hand(found);
+			module.marks_set(slot, word.length);
+		}
+		const [any, all] = [module.passages_shown(0), module.passages_shown(1)];
+		expect(all).toBeGreaterThan(0);
+		expect(all).toBeLessThan(any);
+		expect(module.results_shown(1)).toBe(all);
+		const listed: Passage[] = [];
+		for (let from = 0; from < all; from += PAGE) listed.push(...page(from, PAGE));
+		expect(listed.length).toBe(all);
+		for (const passage of listed) {
+			const bits = passage.flatMap((v) => v.found).reduce((b, f) => b | f.slots, 0);
+			expect(bits & OWN).toBe(0);
+			expect(bits).toBe((1 << 1) | (1 << 2));
+		}
+		expect(module.results_shown(0)).toBe(any);
+		module.results_clear();
+		module.marks_clear(1);
+		module.marks_clear(2);
+	});
+});
+
 describe("a passage's colours", () => {
 	// The search listed wears its colour on its own letters whether it is
 	// shown or hidden; the shown ones theirs, lowest slot first; never twice.
@@ -184,5 +225,7 @@ describe("a passage's colours", () => {
 		expect(colorsOf(list, hidden, OWN)).toEqual([moses.color]);
 		expect(colorsOf(list, hidden, OWN | (1 << aaron.slot))).toEqual([moses.color, aaron.color]);
 		expect(colorsOf(list, hidden, 0)).toEqual([]);
+		// The searches shown together: no search of its own, their colours alone.
+		expect(colorsOf(list, null, OWN | (1 << aaron.slot))).toEqual([aaron.color]);
 	});
 });

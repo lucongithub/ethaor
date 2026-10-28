@@ -583,6 +583,29 @@ pub extern "C" fn results_set(span: u32) -> u32 {
     app().set_results(&records, span as usize) as u32
 }
 
+/// Sets the list of passages to the searches shown together: those holding
+/// a hit of any (`all` 0) or of every one (`all` 1). Returns how many.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+pub extern "C" fn results_shown(all: u32) -> u32 {
+    app().set_shown_results(all != 0) as u32
+}
+
+/// How many passages the searches shown make together, of any (`all` 0)
+/// or of every one (`all` 1), the list left as it is.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+pub extern "C" fn passages_shown(all: u32) -> u32 {
+    app().shown_passages(all != 0).len() as u32
+}
+
+/// How many passages the hits written at `marks_buffer` make, as
+/// `results_set` would list them; the buffer is taken.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+#[allow(static_mut_refs)]
+pub extern "C" fn passages_count() -> u32 {
+    let records = unsafe { core::mem::take(&mut MARKS_IN) };
+    passage_count(&records) as u32
+}
+
 /// Forgets the list of passages.
 #[cfg_attr(feature = "map", unsafe(no_mangle))]
 #[allow(static_mut_refs)]

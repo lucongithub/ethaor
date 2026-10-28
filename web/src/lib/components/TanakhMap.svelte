@@ -156,7 +156,8 @@
 				const span = letters(word).length;
 				hits.set(id, { found, span });
 				if (isShown(still)) map.marks.set(still.slot, found, span, still.color);
-				kept = counted(kept, id, found.total);
+				kept = counted(kept, id, found.total, map.results.count(found));
+				retally();
 			},
 			() => removeSearch(id)
 		);
@@ -180,6 +181,7 @@
 		if (!isShown(before) && isShown(after) && found) {
 			map.marks.set(after.slot, found.found, found.span, after.color);
 		}
+		retally();
 	}
 
 	function removeSearch(id: number) {
@@ -187,6 +189,7 @@
 		kept = remove(kept, id);
 		hits.delete(id);
 		if (search && isShown(search)) map?.marks.clear(search.slot);
+		retally();
 		// The last one gone, the panel and its button go with it: the focus
 		// goes back to the view read.
 		if (kept.length === 0 && panelOpen) {
@@ -196,32 +199,58 @@
 		}
 	}
 
-	// A search's passages, listed in a modal over everything: opened by its
-	// count in the panel, from the hits kept here. The module holds the list
-	// while it is open and forgets it once closed.
-	let listing = $state<{ id: number; passages: number; listed: number } | null>(null);
-	const listed = $derived(listing && kept.find((m) => m.id === listing!.id));
+	// The passages the searches shown make together — holding any of them,
+	// or every one — counted again whenever what the map shows changes.
+	let together = $state({ any: 0, all: 0 });
+	function retally() {
+		together = map ? map.results.together() : { any: 0, all: 0 };
+	}
 
-	function openResults(id: number) {
-		const found = hits.get(id);
-		if (!found || !map) return;
+	// Passages listed in a modal over everything: a search's, opened by its
+	// count in the panel from the hits kept here, or the searches shown
+	// together, opened by the panel's counts of them. The module holds the
+	// list while it is open and forgets it once closed.
+	type Listing = { id: number | null; join: 'any' | 'all'; passages: number; listed?: number };
+	let listing = $state<Listing | null>(null);
+	const listedSearch = $derived(
+		listing?.id == null ? null : (kept.find((m) => m.id === listing!.id) ?? null)
+	);
+
+	function list(make: () => Listing) {
 		try {
-			const passages = map.results.set(found.found, found.span);
-			listing = { id, passages, listed: found.found.hits.length / found.found.stride };
+			listing = make();
 		} catch (cause) {
-			const fault = escalate(cause, 'results-unlisted', "listing a search's passages");
+			const fault = escalate(cause, 'results-unlisted', 'listing passages');
 			reporter.report(fault);
 			shown(fault);
 		}
 	}
 
+	function openResults(id: number) {
+		const found = hits.get(id);
+		if (!found || !map) return;
+		const results = map.results;
+		list(() => ({
+			id,
+			join: 'any',
+			passages: results.set(found.found, found.span),
+			listed: found.found.hits.length / found.found.stride
+		}));
+	}
+
+	function openTogether(all: boolean) {
+		if (!map) return;
+		const results = map.results;
+		list(() => ({ id: null, join: all ? 'all' : 'any', passages: results.shown(all) }));
+	}
+
 	// Closed, the focus goes back to the count it was opened from.
 	function closeResults() {
 		if (!listing) return;
-		const { id } = listing;
+		const from = listing.id === null ? `together-${listing.join}` : `count-${listing.id}`;
 		listing = null;
 		map?.results.clear();
-		tick().then(() => document.getElementById(`count-${id}`)?.focus());
+		tick().then(() => document.getElementById(from)?.focus());
 	}
 
 	function recolorSearch(id: number, color: Color) {
@@ -581,6 +610,8 @@
 				onremove={removeSearch}
 				onrecolor={recolorSearch}
 				onresults={openResults}
+				{together}
+				ontogether={openTogether}
 			/>
 		{/if}
 	</div>
@@ -649,9 +680,10 @@
 	</div>
 {/if}
 
-{#if listing && listed && map}
+{#if listing && map && (listing.id === null || listedSearch)}
 	<ResultsModal
-		search={listed}
+		search={listedSearch}
+		join={listing.join}
 		list={kept}
 		passages={listing.passages}
 		listed={listing.listed}

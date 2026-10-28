@@ -1,6 +1,8 @@
 <script lang="ts">
 	// A search's hits, listed as passages: opened by its count in the panel,
-	// a modal centred over the view as the passage is. Each passage says where
+	// a modal centred over the view as the passage is — or the searches shown
+	// taken together, the passages holding any of them (∪) or every one (∩),
+	// opened by the panel's counts of them. Each passage says where
 	// it lies — portion, book, chapter — then reads every verse its hits
 	// reach, the letters found in their colours: the search listed always in
 	// its own, shown on the map or not; the others shown in theirs. Nothing
@@ -10,12 +12,13 @@
 	// a common word has thousands, and pointed Hebrew is heavy to lay out.
 	import { onMount } from 'svelte';
 	import type { Contents } from '$lib/book-view';
-	import { COLORS, grouped, inkStyle, type Marked } from '$lib/marks';
+	import { COLORS, grouped, inkStyle, isShown, type Marked } from '$lib/marks';
 	import { inked } from '$lib/passage';
 	import { colorsOf, PAGE, where, type Passage } from '$lib/results';
 
 	let {
 		search,
+		join = 'any',
 		list,
 		passages,
 		listed,
@@ -23,14 +26,16 @@
 		read,
 		onclose
 	}: {
-		/** The search listed. */
-		search: Marked;
+		/** The search listed; `null` for the searches shown, together. */
+		search: Marked | null;
+		/** The searches shown together: passages holding any of them, or all. */
+		join?: 'any' | 'all';
 		/** Every search kept: the colours of the others shown. */
 		list: Marked[];
 		/** How many passages the hits make. */
 		passages: number;
 		/** Hits the list holds: fewer than the total past the module's cap. */
-		listed: number;
+		listed?: number;
 		contents: Contents;
 		/** Passages `from..from + count`. */
 		read: (from: number, count: number) => Passage[];
@@ -60,6 +65,11 @@
 		return () => observer.disconnect();
 	});
 
+	// What the list is of: one search, or the shown ones joined by their sign.
+	const words = $derived(search ? [search] : list.filter(isShown));
+	const sign = $derived(join === 'all' ? '∩' : '∪');
+	const plural = (n: number, one: string) => `${grouped(n)} ${one}${n === 1 ? '' : 's'}`;
+
 	// The letters found, as the passage paints them: one colour, or bands.
 	const styleOf = (bits: number) => inkStyle(colorsOf(list, search, bits));
 
@@ -82,31 +92,48 @@
 	       lg:max-w-3xl starting:scale-[0.98] starting:opacity-0"
 >
 	<header
-		class="flex shrink-0 items-center gap-3 border-b border-white/10 py-2 ps-5 pe-2 sm:ps-7 sm:pe-3"
+		class="flex shrink-0 flex-wrap items-center gap-x-3 border-b border-white/10 py-2 ps-5 pe-2 sm:flex-nowrap sm:ps-7 sm:pe-3"
 	>
-		<span
-			class="size-3 shrink-0 rounded-[2px]"
-			style:background-color={COLORS[search.color]}
-			aria-hidden="true"
-		></span>
+		{#if search}
+			<span
+				class="size-3 shrink-0 rounded-[2px]"
+				style:background-color={COLORS[search.color]}
+				aria-hidden="true"
+			></span>
+		{/if}
+		<!-- The words, each in its colour; together, joined by the sign the
+		     panel's count wears. -->
 		<h2
 			id="results-word"
 			lang="he"
-			class="min-w-0 truncate font-hebrew text-2xl leading-tight"
-			style:color={COLORS[search.color]}
+			class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 font-hebrew text-2xl leading-tight sm:flex-none"
 		>
-			{search.word}
+			{#each words as m, k (m.id)}
+				{#if k > 0}<span
+						class="font-sans text-lg text-white/45"
+						aria-label={join === 'all' ? 'and' : 'or'}>{sign}</span
+					>{/if}
+				<span style:color={COLORS[m.color]}>{m.word}</span>
+			{/each}
 		</h2>
 		<p
 			id="results-count"
 			dir="ltr"
 			lang="en"
-			class="me-auto min-w-0 truncate text-xs text-white/58 tabular-nums sm:text-sm"
+			class="order-last basis-full pb-1.5 text-xs text-white/58 tabular-nums sm:order-none sm:me-auto sm:min-w-0 sm:basis-auto sm:truncate sm:pb-0 sm:text-sm"
 		>
-			{grouped(search.total ?? 0)}
-			{search.total === 1 ? 'hit' : 'hits'} | {grouped(passages)}
-			{passages === 1 ? 'passage' : 'passages'}{#if search.total !== null && listed < search.total}
-				| first {grouped(listed)} listed{/if}
+			<!-- One search: its hits and passages, named. The searches together:
+			     the count bare, the owner's rule — the screen reader still hears
+			     the word. -->
+			{#if search}
+				{plural(search.total ?? 0, 'hit')} | {plural(
+					passages,
+					'passage'
+				)}{#if search.total !== null && listed !== undefined && listed < search.total}
+					| first {grouped(listed)} listed{/if}
+			{:else}
+				{grouped(passages)}<span class="sr-only"> {passages === 1 ? 'passage' : 'passages'}</span>
+			{/if}
 		</p>
 		<button
 			type="button"

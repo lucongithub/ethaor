@@ -82,6 +82,8 @@ export interface Marked {
 	color: Color;
 	/** Hits counted, `null` while searching. */
 	total: number | null;
+	/** Passages holding them, as its list shows them; `null` while searching. */
+	passages: number | null;
 }
 
 export const isShown = (m: Marked): boolean => m.slot !== HIDDEN;
@@ -113,7 +115,7 @@ export function add(list: readonly Marked[], kind: string, word: string, exact =
 	const id = list.reduce((top, m) => Math.max(top, m.id + 1), 0);
 	const slot = freeSlot(list);
 	const color = freeColor(list);
-	return [...list, { id, slot, kind, word, exact, color, total: null }];
+	return [...list, { id, slot, kind, word, exact, color, total: null, passages: null }];
 }
 
 /** The list with one search changed; the others untouched. */
@@ -141,8 +143,13 @@ export function toggle(list: readonly Marked[], id: number): Marked[] {
 export const recolor = (list: readonly Marked[], id: number, color: Color): Marked[] =>
 	change(list, id, { color });
 
-export const counted = (list: readonly Marked[], id: number, total: number): Marked[] =>
-	change(list, id, { total });
+/** The list with a search's hits counted, and the passages holding them. */
+export const counted = (
+	list: readonly Marked[],
+	id: number,
+	total: number,
+	passages: number
+): Marked[] => change(list, id, { total, passages });
 
 /** A colour as the canvas paints it, at `alpha`. */
 export function paint(color: Color, alpha: number): string {

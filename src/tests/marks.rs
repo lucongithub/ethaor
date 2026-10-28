@@ -670,3 +670,52 @@ fn pages_of_passages_tile_the_list() {
     app.clear_results();
     assert!(app.results.passages.is_empty() && passages(&app, 0, 10).is_empty());
 }
+
+/// **A search's passages are counted as they are listed**: the count the
+/// panel shows is the length of the list its count opens.
+#[test]
+fn a_search_s_passages_are_counted_as_listed() {
+    for (word, skip) in [("משה", 0), ("אב", 0), ("תורה", 49)] {
+        let mut app = reference_app();
+        let found = records(word, skip);
+        assert_eq!(passage_count(&found), app.set_results(&found, folded(word).len()), "{word} at {skip}");
+    }
+    assert_eq!(passage_count(&[]), 0);
+}
+
+/// **The searches shown make passages together**: those of any are the
+/// passages of their hits taken as one search's, a hidden one left out;
+/// those of every one are exactly the ones among them holding a hit of
+/// each shown search. None while nothing is shown, and none of all once a
+/// shown search is found nowhere.
+#[test]
+fn the_searches_shown_make_passages_together() {
+    let mut app = reference_app();
+    assert!(app.shown_passages(false).is_empty() && app.shown_passages(true).is_empty(), "nothing shown");
+    let (moshe, aaron, hidden) = (records("משה", 0), records("אהרן", 0), records("ישראל", 0));
+    app.set_marks(0, &moshe, 3);
+    app.set_marks(3, &aaron, 4);
+    app.set_marks(5, &hidden, 5);
+    app.show_marks(5, false);
+
+    let both: Vec<u32> = moshe.iter().chain(&aaron).copied().collect();
+    let mut alone = reference_app();
+    alone.set_results(&both, 3);
+    let any = app.shown_passages(false);
+    assert_eq!(any, alone.results.passages, "any: the hits of the shown searches as one");
+
+    let holds = |hits: &[u32], (a, b): (u32, u32)| hits.chunks_exact(els::STRIDE).any(|h| a <= h[4] && h[6] <= b);
+    let all = app.shown_passages(true);
+    let want: Vec<(u32, u32)> = any.iter().copied().filter(|&p| holds(&moshe, p) && holds(&aaron, p)).collect();
+    assert!(!want.is_empty(), "no passage holds both");
+    assert_eq!(all, want, "all: the passages holding each shown search");
+    assert!(all.len() < any.len());
+
+    assert_eq!(app.set_shown_results(true), all.len());
+    assert_eq!(app.results.passages, all);
+    assert!(app.results.runs.is_empty(), "the shown searches' letters are their slots'");
+
+    app.set_marks(7, &[], 3);
+    assert!(app.shown_passages(true).is_empty(), "a search found nowhere, yet passages of all");
+    assert_eq!(app.shown_passages(false), any, "a search found nowhere changed the passages of any");
+}

@@ -65,7 +65,8 @@ describe('add', () => {
 				word: 'תורה',
 				exact: false,
 				color: 'sky',
-				total: null
+				total: null,
+				passages: null
 			}
 		]);
 	});
@@ -230,7 +231,11 @@ describe('changes', () => {
 		expect(toggle(list, 1).map(isShown)).toEqual([true, false, true]);
 		expect(toggle(toggle(list, 1), 1)).toEqual(list);
 		expect(recolor(list, 2, 'red').map((m) => m.color)).toEqual(['sky', 'rose', 'red']);
-		expect(counted(list, 0, 42).map((m) => m.total)).toEqual([42, null, null]);
+		expect(counted(list, 0, 42, 7).map((m) => [m.total, m.passages])).toEqual([
+			[42, 7],
+			[null, null],
+			[null, null]
+		]);
 		expect(remove(list, 0).map((m) => m.id)).toEqual([1, 2]);
 	});
 });

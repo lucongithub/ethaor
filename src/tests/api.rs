@@ -758,3 +758,34 @@ fn the_page_lists_a_search_s_passages() {
     results_clear();
     assert_eq!(results_page(0, 20), 0, "cleared, still listed");
 }
+
+/// **The panel's counts reach the page as it asks them**: `passages_count`
+/// counts the hits at `marks_buffer` as `results_set` lists them, and
+/// `passages_shown` the shown searches' together, as `results_shown` lists
+/// them — of any, of all.
+#[test]
+fn the_page_counts_passages() {
+    let _hold = hold(REFERENCE.0, REFERENCE.1);
+    let mut found = Vec::new();
+    for (slot, query) in [(1, "משה"), (2, "אהרן")] {
+        unsafe { core::ptr::copy_nonoverlapping(query.as_ptr(), els_query_ptr(), query.len()) };
+        els_search(query.len() as u32, 0, 0, 0);
+        let words = els_hits_len() as usize * els_stride() as usize;
+        let hits = unsafe { core::slice::from_raw_parts(els_hits_ptr(), words) }.to_vec();
+        let put = |hits: &[u32]| unsafe { core::ptr::copy_nonoverlapping(hits.as_ptr(), marks_buffer(words as u32), words) };
+        put(&hits);
+        let counted = passages_count();
+        put(&hits);
+        assert_eq!(counted, results_set(query.chars().count() as u32), "{query}");
+        put(&hits);
+        marks_set(slot, query.chars().count() as u32);
+        found.push(counted);
+    }
+    let (any, all) = (passages_shown(0), passages_shown(1));
+    assert!(any >= found[0].max(found[1]) && all > 0 && all < any);
+    assert_eq!(results_shown(1), all);
+    assert_eq!(results_shown(0), any);
+    results_clear();
+    marks_clear(1);
+    marks_clear(2);
+}

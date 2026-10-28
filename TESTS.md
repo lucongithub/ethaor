@@ -14,11 +14,11 @@ name, what it holds (its doc comment), and its nature.
 | area | files | tests | ignored | without a doc |
 |---|---|---|---|---|
 | Rust core, module-private | 7 | 119 | 1 | 21 |
-| Rust app (`src/tests/`) | 12 | 174 | 0 | 12 |
+| Rust app (`src/tests/`) | 12 | 177 | 0 | 12 |
 | Corpus build (`tests/`) | 1 | 31 | 0 | 15 |
 | Server (`server/`) | 15 | 84 | 1 | 12 |
-| Page (`web/`) | 11 | 100 | 0 | 0 |
-| **total** | **46** | **508** | **2** | **60** |
+| Page (`web/`) | 11 | 101 | 0 | 0 |
+| **total** | **46** | **512** | **2** | **60** |
 
 ## By file
 
@@ -262,7 +262,7 @@ name, what it holds (its doc comment), and its nature.
         - `the_contents_walk_every_book_and_chapter_in_order` — The contents walk the Tanakh whole and in order: the 39 books each once, each under the portion `PORTIONS` puts it in, named as the corpus names it, its chapters running on from the last book's with no gap or overlap to the 929th, each numbered as the corpus numbers it. <sub>unit, module-private</sub>
         - `an_exact_query_keeps_its_finals` — **Exact letters keep the finals the word writes**: folded, `אָדָם` is searched as `אדמ`; exact, as `אדם` — every letter placed is then the form the text writes there, and it finds a part of what folded finds. The estimate and the search read the same stream. <sub>unit, module-private</sub>
   - **tests/**
-    - [`api.rs`](src/tests/api.rs) — 26 tests
+    - [`api.rs`](src/tests/api.rs) — 27 tests
       <br>The interface the page really calls.
       - module `tests::api` · ethaor
         - `the_page_can_draw_a_frame_from_a_cold_start` — *(no doc: say what it holds)* <sub>app: the module as the page drives it</sub>
@@ -291,6 +291,7 @@ name, what it holds (its doc comment), and its nature.
         - `a_passage_selected_carries_its_found_letters` — **A passage selected carries its found letters**: `select_verse` on a verse a search marks leaves `(from, to, slots)` triples at `selection_marks_ptr`, cutting the selected verse's own text; a verse holding none, and a refused selection, leave none. <sub>app: the module as the page drives it</sub>
         - `the_book_view_reads_found_letters_inside_its_record` — **The book view reads a chapter's found letters inside its record**: each triple `chapter_marks` leaves lies in one verse as the record shows it; `marks_at` gives the chapter, its book and its portion their bits. <sub>app: the module as the page drives it</sub>
         - `the_page_lists_a_search_s_passages` — **A search's passages reach the page as it lists them**: its records copied into `marks_buffer`, set by `results_set` — then `results_page` writes at `results_ptr` the record `App::results_page` writes, a page past the end writes nothing, and `results_clear` forgets the list. <sub>app: the module as the page drives it</sub>
+        - `the_page_counts_passages` — **The panel's counts reach the page as it asks them**: `passages_count` counts the hits at `marks_buffer` as `results_set` lists them, and `passages_shown` the shown searches' together, as `results_shown` lists them — of any, of all. <sub>app: the module as the page drives it</sub>
     - [`breadcrumb.rs`](src/tests/breadcrumb.rs) — 14 tests
       <br>The breadcrumb: where one is, from the zoom and from the pointer.
       - module `tests::breadcrumb` · ethaor
@@ -420,7 +421,7 @@ name, what it holds (its doc comment), and its nature.
         - `the_nest_takes_seven_tenths_of_its_letter` — The nest is at the heart of a letter, and takes **seven tenths of its cell** — not a dot. <sub>app: the module as the page drives it</sub>
         - `the_zoom_target_tolerates_the_gaps` — The zoom target tolerates the gaps: aiming between two books must stay productive. <sub>app: the module as the page drives it</sub>
         - `the_breadcrumb_names_the_place_under_the_centre` — The breadcrumb always says where one is: section, book and chapter under the centre of the view, even when the title bands have left the screen. <sub>app: the module as the page drives it</sub>
-    - [`marks.rs`](src/tests/marks.rs) — 18 tests — covers [`src/map/marks.rs`](src/map/marks.rs)
+    - [`marks.rs`](src/tests/marks.rs) — 20 tests — covers [`src/map/marks.rs`](src/map/marks.rs)
       <br>A search's marks: its letters inked in the text at the reading level, a bar beside the names of the chapters, books and portions holding them.
       - module `tests::marks` · ethaor
         - `a_verse_s_letters_are_ours_in_order_with_their_marks` — **Rank `k` among a verse's letters is the `k`-th consonant of our verse**, in the string it is drawn from: every verse, the eighty-eight carrying another reading included — their insertions are skipped whole. Each range starts on a consonant and holds its marks. <sub>app: the module as the page drives it</sub>
@@ -441,6 +442,8 @@ name, what it holds (its doc comment), and its nature.
         - `each_verse_of_a_passage_is_named_and_ours` — **Each verse is named and read as the passage reads it**: its book holds its chapter, its chapter holds it, its number is its label and its text is ours — the other edition's forms not in it — and every run is a slice of that text on a letter boundary. <sub>app: the module as the page drives it</sub>
         - `a_search_s_own_letters_are_marked_shown_or_not` — **The search's own letters always wear its colour**, shown on the map or not: with no slot set, the runs under `OWN` spell the word once per hit, across the whole list; another search shown adds its slot's bit to the letters it found, and only there. <sub>app: the module as the page drives it</sub>
         - `pages_of_passages_tile_the_list` — **Pages tile the list**: read a few at a time they give back the whole list in order, past the end nothing; cleared, the list is gone. <sub>app: the module as the page drives it</sub>
+        - `a_search_s_passages_are_counted_as_listed` — **A search's passages are counted as they are listed**: the count the panel shows is the length of the list its count opens. <sub>app: the module as the page drives it</sub>
+        - `the_searches_shown_make_passages_together` — **The searches shown make passages together**: those of any are the passages of their hits taken as one search's, a hidden one left out; those of every one are exactly the ones among them holding a hit of each shown search. None while nothing is shown, and none of all once a shown search is found nowhere. <sub>app: the module as the page drives it</sub>
     - [`readings.rs`](src/tests/readings.rs) — 12 tests
       <br>The other edition's reading, drawn inside our text.
       - module `tests::readings` · ethaor
@@ -673,12 +676,14 @@ name, what it holds (its doc comment), and its nature.
           - `picks each word in place: head, word and tail give the verse back` — picks each word in place: head, word and tail give the verse back. <sub>page logic, on the real artifacts</sub>
           - `picks nothing out of the verse, and reads no word picked as none` — picks nothing out of the verse, and reads no word picked as none. <sub>page logic, on the real artifacts</sub>
           - `cuts each word into the runs the searches found, by bytes, the word given back whole` — cuts each word into the runs the searches found, by bytes, the word given back whole. <sub>page logic, on the real artifacts</sub>
-      - [`results.test.ts`](web/src/lib/results.test.ts) — 5 tests — covers [`web/src/lib/results.ts`](web/src/lib/results.ts)
+      - [`results.test.ts`](web/src/lib/results.test.ts) — 6 tests — covers [`web/src/lib/results.ts`](web/src/lib/results.ts)
         - module `a search's passages` · vitest
           - `carry its own letters under the bit past every slot` — The module's own bit is the page's: one past the slots it marks. <sub>page logic, on the real artifacts</sub>
           - `spell the word once per hit, every verse whole, hidden or not` — Read page by page, the list holds every hit whole: its own letters, across all passages, spell the word once per hit — with no slot set, the search hidden from the map — and every verse is ours, numbered, its chapter in its book. <sub>page logic, on the real artifacts</sub>
           - `show every verse a hit reaches` — A hit read across a verse break is one passage of both verses, each with its share of the word. <sub>page logic, on the real artifacts</sub>
           - `name where they lie, portion, book and chapter` — Each passage names where it lies: Genesis 1 in the Torah; a passage reaching into the next chapter names both and says so. <sub>page logic, on the real artifacts</sub>
+        - module `the searches shown together` · vitest
+          - `are counted as listed, each passage of all holding both` — A search's count is the length of its list; the passages of any and of all are listed as they are counted, and each passage of all holds letters of both searches, each in its slot. <sub>page logic, on the real artifacts</sub>
         - module `a passage's colours` · vitest
           - `always show the search listed, and the others shown` — The search listed wears its colour on its own letters whether it is shown or hidden; the shown ones theirs, lowest slot first; never twice. <sub>page logic, on the real artifacts</sub>
       - [`search-core.test.ts`](web/src/lib/search-core.test.ts) — 4 tests — covers [`web/src/lib/search-core.ts`](web/src/lib/search-core.ts)
@@ -729,7 +734,7 @@ helper is often held by the test of its caller — but each is a question the
 - [`src/map/frame.rs`](src/map/frame.rs): `bar_row`, `bars_under`, `book_title_size`, `draw_book`, `emit_ink`, `emit_run`, `emit_text`, `overview_title`, `row_width`, `scale_of`
 - [`src/map/hit.rs`](src/map/hit.rs): `books_drawn`, `ink_of`, `locate_in`, `names_chapter`, `pick_place`
 - [`src/map/landing.rs`](src/map/landing.rs): `line_height_once_in`, `push_tile`, `verses_in`
-- [`src/map/marks.rs`](src/map/marks.rs): `mask`, `passage_marks_with`, `verse_marks_with`
+- [`src/map/marks.rs`](src/map/marks.rs): `hit_verses`, `mask`, `passage_marks_with`, `verse_marks_with`
 - [`src/map/text.rs`](src/map/text.rs): `line_at`
 - [`src/pack.rs`](src/pack.rs): `get_str`, `get_string`, `lay_chapter`, `lay_readings`, `put_str`, `read_exceptions`, `unpack`, `write_exceptions`
 - [`src/shared/els.rs`](src/shared/els.rs): `char_of`, `check_up_to`, `last_verse`

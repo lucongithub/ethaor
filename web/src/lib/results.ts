@@ -95,11 +95,12 @@ export function where(passage: Passage, contents: Contents): Where {
 
 /**
  * The colours of letters found, as the list paints them: the shown
- * searches' among `bits`, lowest slot first — and the search listed, in its
- * own colour, wherever its letters are, shown or hidden. Never one twice.
+ * searches' among `bits`, lowest slot first — and the search listed, if
+ * the list is one search's, in its own colour wherever its letters are,
+ * shown or hidden. Never one twice.
  */
-export function colorsOf(list: readonly Marked[], search: Marked, bits: number): Color[] {
+export function colorsOf(list: readonly Marked[], search: Marked | null, bits: number): Color[] {
 	const colors = worn(list, bits & (OWN - 1));
-	if (bits & OWN && !colors.includes(search.color)) colors.unshift(search.color);
+	if (search && bits & OWN && !colors.includes(search.color)) colors.unshift(search.color);
 	return [...new Set(colors)];
 }

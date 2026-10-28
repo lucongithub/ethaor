@@ -1,11 +1,14 @@
 <script lang="ts">
 	// The searches kept, in a panel on the right — as many as the reader runs,
-	// newest last. Each row: its colour (the palette), its word, its count, the
+	// newest last. Each row: its colour (the palette), its word, its count of
+	// hits, the
 	// eye (shows or hides its marks on the map), the cross (takes it away).
 	// Ten are shown at most, each its own colour; a hidden one waits for a
 	// slot. The word is no control of its own: it is kept free for what a
 	// search will open. The count is a control of its own, the owner's rule:
-	// it opens the list of the search's passages (`ResultsModal`).
+	// it opens the list of the search's passages (`ResultsModal`). Above the
+	// rows, once two are shown, the passages they make together: holding any
+	// (∪) or every one (∩), each count opening its list.
 	//
 	// It slides over the map from the right and takes no room from it — the
 	// owner's rule. On a wide screen the map stays live beside it; on a narrow
@@ -29,7 +32,9 @@
 		ontoggle,
 		onremove,
 		onrecolor,
-		onresults
+		onresults,
+		together = { any: 0, all: 0 },
+		ontogether
 	}: {
 		list: Marked[];
 		/** A veil beneath, the map inert: a narrow screen. */
@@ -40,11 +45,17 @@
 		onrecolor: (id: number, color: Color) => void;
 		/** A search's passages asked for, by its count. */
 		onresults?: (id: number) => void;
+		/** Passages the searches shown make together: holding any, or all. */
+		together?: { any: number; all: number };
+		/** Those passages asked for: of all (`true`), of any (`false`). */
+		ontogether?: (all: boolean) => void;
 	} = $props();
 
 	const names = Object.keys(COLORS) as Color[];
 	const shown = $derived(list.filter(isShown).length);
 	const room = $derived(canShow(list));
+	// A search shown still searching: the counts together wait for it.
+	const waiting = $derived(list.some((m) => isShown(m) && m.passages === null));
 
 	let panel = $state<HTMLElement>();
 
@@ -95,6 +106,13 @@
 	}
 
 	const count = grouped;
+	const passagesOf = (n: number) => `${grouped(n)} ${n === 1 ? 'passage' : 'passages'}`;
+
+	// The two ways the searches shown join: their sign, and the tip naming it.
+	const joins = [
+		{ all: false, sign: '∪', name: 'Passages holding any search shown' },
+		{ all: true, sign: '∩', name: 'Passages holding every search shown' }
+	] as const;
 
 	// The name a row shows, on hover of its word or eye, or keyboard focus of
 	// its eye — the rail's tip. It lies in the top layer, so neither the list's
@@ -188,6 +206,43 @@
 		</button>
 	</header>
 
+	{#if shown >= 2}
+		<!-- The searches shown, together: each count opens its passages. -->
+		<div class="flex shrink-0 gap-1 border-y border-white/10 px-1.5 py-1">
+			{#each joins as j (j.sign)}
+				{@const n = j.all ? together.all : together.any}
+				{@const off = waiting || n === 0}
+				<button
+					id={`together-${j.all ? 'all' : 'any'}`}
+					type="button"
+					class={[
+						'flex h-11 min-w-0 flex-1 items-center gap-2 rounded px-2.5 text-xs tabular-nums md:h-9',
+						'transition-colors duration-150 focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-white/60',
+						off
+							? 'cursor-default text-white/35'
+							: 'cursor-pointer text-white/58 hover:bg-white/[0.06] hover:text-white focus-visible:text-white'
+					]}
+					aria-disabled={off}
+					aria-label={`${j.name}: ${waiting ? 'counting' : passagesOf(n)}`}
+					onclick={() => {
+						if (!off) ontogether?.(j.all);
+					}}
+					onpointerenter={(event) => {
+						if (hovers(event)) showTip(j.name, event.currentTarget);
+					}}
+					onpointerleave={hideTip}
+					onfocus={(event) => {
+						if (event.currentTarget.matches(':focus-visible')) showTip(j.name, event.currentTarget);
+					}}
+					onblur={hideTip}
+				>
+					<span class="text-base leading-none text-white/80" aria-hidden="true">{j.sign}</span>
+					<span class="truncate">{waiting ? '…' : passagesOf(n)}</span>
+				</button>
+			{/each}
+		</div>
+	{/if}
+
 	<!-- One grid for every row, its columns shared (`subgrid`): the counts
 	     line up on their right edge, and so do the words before them. -->
 	<ul
@@ -238,26 +293,26 @@
 						</span>
 					</div>
 
-					<!-- The count: how many hits, and the way to them. -->
+					<!-- The count: how many hits, and the way to their passages. -->
 					<button
 						id={`count-${search.id}`}
 						type="button"
 						class={[
 							'h-11 rounded px-2 text-right text-xs tabular-nums transition-colors duration-150 md:h-9',
 							'focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-white/60',
-							search.total === null
+							search.passages === null
 								? 'cursor-default text-white/35'
 								: 'cursor-pointer text-white/58 hover:bg-white/[0.06] hover:text-white focus-visible:text-white'
 						]}
-						aria-disabled={search.total === null}
-						aria-label={search.total === null
+						aria-disabled={search.passages === null}
+						aria-label={search.passages === null
 							? `${search.word}: searching`
-							: `${count(search.total)} hits of ${search.word}`}
+							: `${count(search.total ?? 0)} hits of ${search.word}, in ${passagesOf(search.passages)}`}
 						onclick={() => {
-							if (search.total !== null) onresults?.(search.id);
+							if (search.passages !== null) onresults?.(search.id);
 						}}
 					>
-						{search.total === null ? '…' : count(search.total)}
+						{search.passages === null ? '…' : count(search.total ?? 0)}
 					</button>
 
 					<!-- The eye shows or hides the search's marks on the map. -->

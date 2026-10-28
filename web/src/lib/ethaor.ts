@@ -181,6 +181,12 @@ interface Wasm {
 	results_page(from: number, count: number): number;
 	results_ptr(): number;
 	results_clear(): void;
+	/** Lists the searches shown together: of any (0) or of all (1); how many. */
+	results_shown(all: number): number;
+	/** How many passages the searches shown make, of any (0) or of all (1). */
+	passages_shown(all: number): number;
+	/** How many passages the hits at `marks_buffer` make; the buffer taken. */
+	passages_count(): number;
 }
 
 /**
@@ -299,6 +305,12 @@ export interface TanakhMap {
 export interface Results {
 	/** Lists a search's hits, `span` letters each; the number of passages. */
 	set(found: Found, span: number): number;
+	/** Lists the searches shown together: those holding any, or all of them. */
+	shown(all: boolean): number;
+	/** How many passages a search's hits make, as `set` would list them. */
+	count(found: Found): number;
+	/** How many passages the searches shown make: of any, of all. */
+	together(): { any: number; all: number };
 	/** Passages `from..from + count`; fewer at the end. */
 	page(from: number, count: number): Passage[];
 	clear(): void;
@@ -1068,6 +1080,13 @@ export async function createTanakhMap(
 			new Uint32Array(wasm.memory.buffer, at, found.hits.length).set(found.hits);
 			return wasm.results_set(span);
 		},
+		shown: (all) => wasm.results_shown(all ? 1 : 0),
+		count(found) {
+			const at = wasm.marks_buffer(found.hits.length);
+			new Uint32Array(wasm.memory.buffer, at, found.hits.length).set(found.hits);
+			return wasm.passages_count();
+		},
+		together: () => ({ any: wasm.passages_shown(0), all: wasm.passages_shown(1) }),
 		page(from, count) {
 			const words = wasm.results_page(from, count);
 			const record = new Uint32Array(wasm.memory.buffer, wasm.results_ptr(), words).slice();

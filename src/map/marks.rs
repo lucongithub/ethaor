@@ -23,6 +23,9 @@ pub(crate) struct Marks {
     /// `(verse, from, to)`: byte ranges of `drawn(verse)` holding a letter
     /// found — a consonant and its marks, contiguous ones merged — sorted.
     pub(crate) runs: Vec<(u32, u32, u32)>,
+    /// First and last verse of each hit, in the order of the text: what its
+    /// passages are made of, alone or with the other searches shown.
+    pub(crate) hits: Vec<(u32, u32)>,
     /// Chapters, books and portions holding one of those letters.
     pub(crate) chapters: Vec<bool>,
     pub(crate) books: Vec<bool>,
@@ -45,6 +48,7 @@ impl App {
         let mut marks = Marks {
             shown: true,
             runs: placed(records, span),
+            hits: hit_verses(records),
             chapters: vec![false; corpus::chapter_count()],
             books: vec![false; corpus::book_count()],
             sections: [false; 3],
@@ -240,14 +244,16 @@ pub(crate) const OWN: u32 = 1 << MARK_SLOTS;
 /// length) in the corpus, and how many runs follow.
 pub(crate) const RESULT_VERSE_HEAD: usize = 8;
 
-/// One search's hits as a list of passages, the reader's to scroll: set when
-/// the list opens, read a page at a time, forgotten when it closes.
+/// A list of passages, the reader's to scroll — one search's hits, or the
+/// shown searches' together: set when the list opens, read a page at a
+/// time, forgotten when it closes.
 #[derive(Clone, Default)]
 pub(crate) struct Results {
     /// First and last verse of each passage, in the order of the text; hits
     /// sharing a verse share a passage.
     pub(crate) passages: Vec<(u32, u32)>,
-    /// The search's own letters, placed as `Marks::runs` are.
+    /// The search's own letters, placed as `Marks::runs` are; none for the
+    /// shown searches together, whose letters their slots carry.
     pub(crate) runs: Vec<(u32, u32, u32)>,
 }
 
@@ -258,21 +264,32 @@ impl App {
     /// overlap or touch one another's share one passage. Returns the number
     /// of passages.
     pub(crate) fn set_results(&mut self, records: &[u32], span: usize) -> usize {
-        let verses = corpus::verse_count() as u32;
-        let mut hits: Vec<(u32, u32)> = records
-            .chunks_exact(els::STRIDE)
-            .filter(|r| r[4] < verses)
-            .map(|r| (r[4], r[6].clamp(r[4], verses - 1)))
-            .collect();
-        hits.sort_unstable();
-        let mut passages: Vec<(u32, u32)> = Vec::with_capacity(hits.len());
-        for (first, last) in hits {
-            match passages.last_mut() {
-                Some(open) if first <= open.1 => open.1 = open.1.max(last),
-                _ => passages.push((first, last)),
-            }
-        }
+        let passages = merged(hit_verses(records).into_iter().map(|(a, b)| (a, b, 0)));
+        let passages = passages.into_iter().map(|(a, b, _)| (a, b)).collect();
         self.results = Results { passages, runs: placed(records, span) };
+        self.results.passages.len()
+    }
+
+    /// The passages of the searches shown, their hits taken together as one
+    /// search's are: those holding a hit of any (`all` false), or of every
+    /// one (`all` true). None while no search is shown.
+    pub(crate) fn shown_passages(&self, all: bool) -> Vec<(u32, u32)> {
+        let mask = self.mask(|_| true);
+        if mask == 0 {
+            return Vec::new();
+        }
+        let mut hits: Vec<(u32, u32, u32)> = Vec::new();
+        for (slot, marks) in self.marks.iter().enumerate().filter(|(_, m)| m.shown) {
+            hits.extend(marks.hits.iter().map(|&(a, b)| (a, b, 1 << slot)));
+        }
+        hits.sort_unstable();
+        merged(hits).into_iter().filter(|p| !all || p.2 == mask).map(|(a, b, _)| (a, b)).collect()
+    }
+
+    /// Sets the list of passages to the shown searches' (`shown_passages`).
+    /// Returns the number of passages.
+    pub(crate) fn set_shown_results(&mut self, all: bool) -> usize {
+        self.results = Results { passages: self.shown_passages(all), runs: Vec::new() };
         self.results.passages.len()
     }
 
@@ -314,6 +331,40 @@ impl App {
         }
         written
     }
+}
+
+/// How many passages a search's hits make, as `set_results` would list them.
+pub(crate) fn passage_count(records: &[u32]) -> usize {
+    merged(hit_verses(records).into_iter().map(|(a, b)| (a, b, 0))).len()
+}
+
+/// First and last verse of each hit of `records` (`els::STRIDE` words
+/// each), in the order of the text; a hit past the text is left out.
+fn hit_verses(records: &[u32]) -> Vec<(u32, u32)> {
+    let verses = corpus::verse_count() as u32;
+    let mut hits: Vec<(u32, u32)> = records
+        .chunks_exact(els::STRIDE)
+        .filter(|r| r[4] < verses)
+        .map(|r| (r[4], r[6].clamp(r[4], verses - 1)))
+        .collect();
+    hits.sort_unstable();
+    hits
+}
+
+/// Hits as passages: `(first, last, bits)` sorted, those whose verses
+/// overlap or touch one another's made one, their bits joined.
+fn merged(hits: impl IntoIterator<Item = (u32, u32, u32)>) -> Vec<(u32, u32, u32)> {
+    let mut passages: Vec<(u32, u32, u32)> = Vec::new();
+    for (first, last, bits) in hits {
+        match passages.last_mut() {
+            Some(open) if first <= open.1 => {
+                open.1 = open.1.max(last);
+                open.2 |= bits;
+            }
+            _ => passages.push((first, last, bits)),
+        }
+    }
+    passages
 }
 
 /// The chapter holding a verse: its global index.
