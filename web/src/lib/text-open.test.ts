@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { gzipSync } from 'node:zlib';
-import { fragmentKey, inflate, lanes, range } from './text-open';
+import { fragmentKey, inflate, lanes, range, retried, RETRY_WAITS } from './text-open';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -47,6 +47,63 @@ describe('range', () => {
 	it('refuses a failed answer', async () => {
 		vi.stubGlobal('fetch', async () => new Response(null, { status: 404 }));
 		await expect(range('/t', 0, 10)).rejects.toThrow('404');
+	});
+});
+
+describe('retried', () => {
+	// A download that fails is tried again after each wait, and the first
+	// success is the answer: a dropped request or a server restarting no
+	// longer gives up the whole text.
+	it('tries again after each wait until one succeeds', async () => {
+		const waited: number[] = [];
+		let calls = 0;
+		const got = await retried(
+			async () => {
+				if (++calls < 3) throw new TypeError('Failed to fetch');
+				return 'book';
+			},
+			[10, 20, 30],
+			async (ms) => void waited.push(ms)
+		);
+		expect(got).toBe('book');
+		expect(calls).toBe(3);
+		expect(waited).toEqual([10, 20]);
+	});
+
+	// Bounded: one try more than there are waits, then the last failure
+	// stands — the fault is told once, not retried forever.
+	it('gives up after its waits with the last failure', async () => {
+		const waited: number[] = [];
+		let calls = 0;
+		const failing = retried(
+			async () => {
+				throw new Error(`try ${++calls}`);
+			},
+			RETRY_WAITS,
+			async (ms) => void waited.push(ms)
+		);
+		await expect(failing).rejects.toThrow(`try ${RETRY_WAITS.length + 1}`);
+		expect(waited).toEqual([...RETRY_WAITS]);
+	});
+
+	// A page left mid-wait never tries again — its timers are gone — so a
+	// reload that aborted its downloads reports nothing.
+	it('waits on its sleep before trying again, never at once', async () => {
+		let calls = 0;
+		let wake: () => void = () => {};
+		const pending = retried(
+			async () => {
+				if (++calls === 1) throw new TypeError('Failed to fetch');
+				return 1;
+			},
+			[1000],
+			() => new Promise<void>((done) => (wake = done))
+		);
+		await new Promise((done) => setTimeout(done, 10));
+		expect(calls).toBe(1);
+		wake();
+		expect(await pending).toBe(1);
+		expect(calls).toBe(2);
 	});
 });
 

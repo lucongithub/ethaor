@@ -25,8 +25,8 @@ import plainUrl from './ethaor-text.plain.bin?url';
 import SearchWorker from './search-worker?worker';
 import type { Answer, Request } from './search-worker';
 import { escalate, Fault, readTraps, relay, reporter } from './fault';
-import { SearchCore, type Found } from './search-core';
-import { fragmentKey, inflate, lanes, range } from './text-open';
+import { SearchCore, type Found, type WordsOptions } from './search-core';
+import { fragmentKey, inflate, lanes, range, retried } from './text-open';
 import type { Command } from './keys';
 import { PORTION_TEXT } from './portions';
 import { bands, paint as markPaint, slotsOf, SQUARE_ROUND, type Color } from './marks';
@@ -162,12 +162,16 @@ interface Wasm {
 	set_portion_size(px: number): void;
 	/** Back to a chapter at its reading level, the verse at the centre. */
 	show(chapter: number, verse: number): void;
+	/** The largest skip a word of `letters` letters can be read with: 0 for one letter. */
+	skip_max(letters: number): number;
+	/** Letters of the Tanakh's longest word: the last letter "every nth letter" reads. */
+	longest_word(): number;
 	/** Searches the map marks at once. */
 	marks_slots(): number;
 	/** Room for a search's hit records, in words: where they are copied. */
 	marks_buffer(words: number): number;
-	/** Marks those records in a slot, `span` letters each; the runs placed. */
-	marks_set(slot: number, span: number): number;
+	/** Marks those records in a slot, `span` letters each, in `form` (0 ELS, 1 letters); the runs placed. */
+	marks_set(slot: number, span: number, form: number): number;
 	marks_show(slot: number, on: number): void;
 	marks_clear(slot: number): void;
 	/** Joins the searches shown by any (0), each drawn whole, or by all (1), each only where every one is. */
@@ -178,7 +182,7 @@ interface Wasm {
 	/** The shown searches holding a portion (0), book (1) or chapter (2), as bits. */
 	marks_at(level: number, index: number): number;
 	/** Lists the hits written at `marks_buffer` as passages, `span` letters each; how many. */
-	results_set(span: number): number;
+	results_set(span: number, form: number): number;
 	/** Writes passages `from..from + count` at `results_ptr`; its length in words. */
 	results_page(from: number, count: number): number;
 	results_ptr(): number;
@@ -188,7 +192,7 @@ interface Wasm {
 	/** How many passages the searches shown make, of any (0) or of all (1). */
 	passages_shown(all: number): number;
 	/** How many passages the hits at `marks_buffer` make; the buffer taken. */
-	passages_count(): number;
+	passages_count(span: number, form: number): number;
 }
 
 /**
@@ -282,6 +286,21 @@ export interface TanakhMap {
 	 * module failed on it — the next search runs on a new one.
 	 */
 	search(query: string, skip0: number, skip1: number, exact?: boolean): Promise<Found>;
+	/**
+	 * First or last letters: `query` read one letter from each word of the
+	 * Tanakh, side by side — the `nth` of each, from its end with `fromEnd` —
+	 * in order or, with `anyOrder`, in any. Runs where `search` runs, and
+	 * answers or fails the same way.
+	 */
+	searchWords(query: string, options: WordsOptions): Promise<Found>;
+	/** Letters of the Tanakh's longest word: the last letter of a word a search can read. */
+	readonly longestWord: number;
+	/**
+	 * The largest skip a word of `letters` letters can be read with in the
+	 * whole Tanakh — its first and last letters both in it; 0 for one letter.
+	 * Known from the first image, before the text lands.
+	 */
+	maxSkip(letters: number): number;
 	readonly books: number;
 	/** Where the view is: the chapter at its centre, the verse once read. */
 	here(): Place;
@@ -309,8 +328,8 @@ export interface Results {
 	set(found: Found, span: number): number;
 	/** Lists the searches shown together: those holding any, or all of them. */
 	shown(all: boolean): number;
-	/** How many passages a search's hits make, as `set` would list them. */
-	count(found: Found): number;
+	/** How many passages a search's hits make, `span` letters each, as `set` would list them. */
+	count(found: Found, span: number): number;
 	/** How many passages the searches shown make: of any, of all. */
 	together(): { any: number; all: number };
 	/** Passages `from..from + count`; fewer at the end. */
@@ -332,7 +351,7 @@ export interface Marks {
 	join(all: boolean): void;
 }
 
-export type { Found, Passage };
+export type { Found, Passage, WordsOptions };
 
 export interface MapOptions {
 	/** Called on click: the verse hit, or `null` if the click falls on nothing. */
@@ -671,7 +690,7 @@ export async function createTanakhMap(
 		const asked = Array.from(new Uint32Array(wasm.memory.buffer, wasm.tiles_ptr(), runs * 4));
 		for (let i = 0; i < asked.length; i += 4) {
 			const [first, end, from, to] = asked.slice(i, i + 4);
-			range(plainUrl, from, to, 'high')
+			retried(() => range(plainUrl, from, to, 'high'))
 				.then((bytes) => {
 					const at = wasm.tile_buffer(bytes.length);
 					// A view taken after the call: the allocation may grow the memory.
@@ -948,13 +967,17 @@ export async function createTanakhMap(
 		{ done: (found: Found) => void; fail: (cause: Error) => void }
 	>();
 	let next = 0;
-	function search(query: string, skip0: number, skip1: number, exact = false): Promise<Found> {
+	function asked(request: (id: number) => Request): Promise<Found> {
 		return new Promise((done, fail) => {
 			const id = next++;
 			searches.set(id, { done, fail });
-			ask({ els: { id, query, skip0, skip1, exact } });
+			ask(request(id));
 		});
 	}
+	const search = (query: string, skip0: number, skip1: number, exact = false) =>
+		asked((id) => ({ els: { id, query, skip0, skip1, exact } }));
+	const searchWords = (query: string, options: WordsOptions) =>
+		asked((id) => ({ words: { id, query, options } }));
 	function landHere(first: number, end: number, codes: Uint8Array) {
 		const at = wasm.tile_buffer(codes.length);
 		// A view taken after the call: the allocation may grow the memory.
@@ -985,12 +1008,21 @@ export async function createTanakhMap(
 			} else {
 				here = SearchCore.create();
 				ask = (request) => {
-					if (!('els' in request)) return;
-					const { id, query, skip0, skip1, exact } = request.els;
+					let id: number;
+					let run: (core: SearchCore) => Found;
+					if ('els' in request) {
+						const { query, skip0, skip1, exact } = request.els;
+						id = request.els.id;
+						run = (core) => core.els(query, skip0, skip1, exact);
+					} else if ('words' in request) {
+						const { query, options } = request.words;
+						id = request.words.id;
+						run = (core) => core.words(query, options);
+					} else return;
 					// Searches wait for the text, as in the worker.
 					textIn
 						.then(() => here!)
-						.then((core) => searches.get(id)?.done(core.els(query, skip0, skip1, exact)))
+						.then((core) => searches.get(id)?.done(run(core)))
 						.catch((cause) =>
 							searches.get(id)?.fail(fault(cause, 'search-failed-here', 'a search in the page'))
 						)
@@ -1002,7 +1034,7 @@ export async function createTanakhMap(
 			// book — forty on a 3G link — so a few travel together, each still
 			// the nearest to the view when its turn comes.
 			const block = async (i: number) =>
-				inflate(await range(booksUrl, bookCuts[i], bookCuts[i + 1], 'low'));
+				inflate(await retried(() => range(booksUrl, bookCuts[i], bookCuts[i + 1], 'low')));
 			await lanes(BOOKS_IN_FLIGHT, wasm.next_book, async (book) => {
 				const codes = await block(book);
 				const [first, end] = [wasm.book_first_chapter(book), wasm.book_end_chapter(book)];
@@ -1072,7 +1104,7 @@ export async function createTanakhMap(
 					wasm.chapter_tile_from(first, end),
 					wasm.chapter_tile_to(first, end)
 				];
-				range(plainUrl, start, stop, 'high')
+				retried(() => range(plainUrl, start, stop, 'high'))
 					.then((bytes) => landHere(first, end, bytes))
 					.catch((cause) => {
 						// Asked again when the reader comes back to them.
@@ -1083,18 +1115,21 @@ export async function createTanakhMap(
 		}
 	};
 
+	// How the module reads a search's records: 0 ELS, 1 each letter's place.
+	const formOf = (found: Found) => (found.form === 'letters' ? 1 : 0);
+
 	const results: Results = {
 		set(found, span) {
 			const at = wasm.marks_buffer(found.hits.length);
 			// A view taken after the call: the allocation may grow the memory.
 			new Uint32Array(wasm.memory.buffer, at, found.hits.length).set(found.hits);
-			return wasm.results_set(span);
+			return wasm.results_set(span, formOf(found));
 		},
 		shown: (all) => wasm.results_shown(all ? 1 : 0),
-		count(found) {
+		count(found, span) {
 			const at = wasm.marks_buffer(found.hits.length);
 			new Uint32Array(wasm.memory.buffer, at, found.hits.length).set(found.hits);
-			return wasm.passages_count();
+			return wasm.passages_count(span, formOf(found));
 		},
 		together: () => ({ any: wasm.passages_shown(0), all: wasm.passages_shown(1) }),
 		page(from, count) {
@@ -1114,7 +1149,7 @@ export async function createTanakhMap(
 			const at = wasm.marks_buffer(found.hits.length);
 			// A view taken after the call: the allocation may grow the memory.
 			new Uint32Array(wasm.memory.buffer, at, found.hits.length).set(found.hits);
-			wasm.marks_set(slot, span);
+			wasm.marks_set(slot, span, formOf(found));
 			markColors.set(slot, color);
 			draw();
 		},
@@ -1139,6 +1174,9 @@ export async function createTanakhMap(
 		marks,
 		results,
 		search,
+		searchWords,
+		longestWord: wasm.longest_word(),
+		maxSkip: (letters) => wasm.skip_max(letters),
 		here: () => ({ chapter: wasm.here_chapter(), verse: wasm.here_verse() }),
 		depth: () => wasm.here_depth(),
 		frameBooks() {

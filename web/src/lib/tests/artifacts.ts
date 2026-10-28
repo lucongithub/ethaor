@@ -33,9 +33,10 @@ interface MapExports {
 	book_first_chapter(book: number): number;
 	book_end_chapter(book: number): number;
 	marks_slots(): number;
+	skip_max(letters: number): number;
 }
 
-/** The map module, for where each book's chapters lie and how many searches it marks. */
+/** The map module, for where each book's chapters lie, how many searches it marks and how far a word may skip. */
 export const map = new WebAssembly.Instance(new WebAssembly.Module(read('ethaor.wasm')), {})
 	.exports as unknown as MapExports;
 

@@ -7,7 +7,25 @@
 //! which slots a run or a square belongs to, as bits.
 
 use super::*;
-use crate::els;
+use crate::{els, words};
+
+/// How a search's records name the letters of each hit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Form {
+    /// An ELS record, `els::STRIDE` words: its first letter by verse and
+    /// rank there, the next ones a skip apart.
+    Els,
+    /// A first- or last-letters record: every letter by its verse and its
+    /// rank there, `words::LETTER_WORDS` words each.
+    Letters,
+}
+
+impl Form {
+    /// The form the page names: 1 letters, anything else ELS.
+    pub(crate) fn of(code: u32) -> Form {
+        if code == 1 { Form::Letters } else { Form::Els }
+    }
+}
 
 /// Searches marked at once — every kind of search together. The page's
 /// limit is this one.
@@ -23,9 +41,9 @@ pub(crate) struct Marks {
     /// `(verse, from, to)`: byte ranges of `drawn(verse)` holding a letter
     /// found — a consonant and its marks, contiguous ones merged — sorted.
     pub(crate) runs: Vec<(u32, u32, u32)>,
-    /// First and last verse of each hit, in the order of the text: what its
-    /// passages are made of, alone or with the other searches shown.
-    pub(crate) hits: Vec<(u32, u32)>,
+    /// The verses each hit's letters lie in, sorted: what its passages are
+    /// made of, alone or with the other searches shown.
+    pub(crate) hits: Vec<Vec<u32>>,
     /// Chapters, books and portions holding one of those letters.
     pub(crate) chapters: Vec<bool>,
     pub(crate) books: Vec<bool>,
@@ -39,7 +57,7 @@ pub(crate) struct Marks {
 impl Marks {
     /// Shown, the runs `runs` and the hits `hits`, with the chapters, books
     /// and portions holding a run.
-    fn of(runs: Vec<(u32, u32, u32)>, hits: Vec<(u32, u32)>) -> Marks {
+    fn of(runs: Vec<(u32, u32, u32)>, hits: Vec<Vec<u32>>) -> Marks {
         let mut marks = Marks {
             shown: true,
             runs,
@@ -81,11 +99,17 @@ impl App {
     /// A hit's first letter is named by its verse and its rank among the
     /// verse's consonants; the next ones are walked from it, verse after
     /// verse, so a word read across a verse break is marked on both sides.
+    #[cfg(test)]
     pub(crate) fn set_marks(&mut self, slot: usize, records: &[u32], span: usize) -> usize {
+        self.set_marks_of(slot, records, span, Form::Els)
+    }
+
+    /// `set_marks`, the records in either form.
+    pub(crate) fn set_marks_of(&mut self, slot: usize, records: &[u32], span: usize, form: Form) -> usize {
         if slot >= MARK_SLOTS {
             return 0;
         }
-        let marks = Marks::of(placed(records, span), hit_verses(records));
+        let marks = Marks::of(placed(records, span, form), hit_verses(records, span, form));
         let placed = marks.runs.len();
         self.marks[slot] = marks;
         self.rejoin();
@@ -127,10 +151,9 @@ impl App {
             if !all || !marks.shown {
                 continue;
             }
-            let inside = |verse: u32| {
-                let at = passages.partition_point(|p| p.1 < verse);
-                passages.get(at).is_some_and(|p| p.0 <= verse)
-            };
+            let mut within: Vec<u32> = passages.iter().flatten().copied().collect();
+            within.sort_unstable();
+            let inside = |verse: u32| within.binary_search(&verse).is_ok();
             let runs = marks.runs.iter().copied().filter(|r| inside(r.0)).collect();
             marks.joined = Some(Box::new(Marks::of(runs, Vec::new())));
         }
@@ -300,9 +323,10 @@ pub(crate) const RESULT_VERSE_HEAD: usize = 8;
 /// time, forgotten when it closes.
 #[derive(Clone, Default)]
 pub(crate) struct Results {
-    /// First and last verse of each passage, in the order of the text; hits
+    /// The verses of each passage, sorted — those its hits' letters lie in,
+    /// and no other — passages in the order of their first verse; hits
     /// sharing a verse share a passage.
-    pub(crate) passages: Vec<(u32, u32)>,
+    pub(crate) passages: Vec<Vec<u32>>,
     /// The search's own letters, placed as `Marks::runs` are; none for the
     /// shown searches together, whose letters their slots carry.
     pub(crate) runs: Vec<(u32, u32, u32)>,
@@ -310,31 +334,36 @@ pub(crate) struct Results {
 
 impl App {
     /// Sets the list of passages to the hits written as `set_marks` takes
-    /// them, `span` letters each. A hit names its first and last verse; it
-    /// is shown whole, every verse between them, and hits whose verses
-    /// overlap or touch one another's share one passage. Returns the number
-    /// of passages.
+    /// them, `span` letters each. A hit is shown by the verses its letters
+    /// lie in and no other — a word read every two hundred letters is its
+    /// few verses, not the chapters between them — and hits sharing a verse
+    /// share one passage. Returns the number of passages.
+    #[cfg(test)]
     pub(crate) fn set_results(&mut self, records: &[u32], span: usize) -> usize {
-        let passages = merged(hit_verses(records).into_iter().map(|(a, b)| (a, b, 0)));
-        let passages = passages.into_iter().map(|(a, b, _)| (a, b)).collect();
-        self.results = Results { passages, runs: placed(records, span) };
+        self.set_results_of(records, span, Form::Els)
+    }
+
+    /// `set_results`, the records in either form.
+    pub(crate) fn set_results_of(&mut self, records: &[u32], span: usize, form: Form) -> usize {
+        let hits = hit_verses(records, span, form).into_iter().map(|v| (v, 0)).collect();
+        let passages = merged(hits).into_iter().map(|(v, _)| v).collect();
+        self.results = Results { passages, runs: placed(records, span, form) };
         self.results.passages.len()
     }
 
     /// The passages of the searches shown, their hits taken together as one
     /// search's are: those holding a hit of any (`all` false), or of every
     /// one (`all` true). None while no search is shown.
-    pub(crate) fn shown_passages(&self, all: bool) -> Vec<(u32, u32)> {
+    pub(crate) fn shown_passages(&self, all: bool) -> Vec<Vec<u32>> {
         let mask = self.mask(|_| true);
         if mask == 0 {
             return Vec::new();
         }
-        let mut hits: Vec<(u32, u32, u32)> = Vec::new();
+        let mut hits: Vec<(Vec<u32>, u32)> = Vec::new();
         for (slot, marks) in self.marks.iter().enumerate().filter(|(_, m)| m.shown) {
-            hits.extend(marks.hits.iter().map(|&(a, b)| (a, b, 1 << slot)));
+            hits.extend(marks.hits.iter().map(|v| (v.clone(), 1 << slot)));
         }
-        hits.sort_unstable();
-        merged(hits).into_iter().filter(|p| !all || p.2 == mask).map(|(a, b, _)| (a, b)).collect()
+        merged(hits).into_iter().filter(|p| !all || p.1 == mask).map(|(v, _)| v).collect()
     }
 
     /// Sets the list of passages to the shown searches' (`shown_passages`).
@@ -358,9 +387,9 @@ impl App {
         out.clear();
         let page = self.results.passages.iter().skip(from).take(count);
         let mut written = 0;
-        for &(first, last) in page {
-            out.push(last - first + 1);
-            for verse in first as usize..=last as usize {
+        for verses in page {
+            out.push(verses.len() as u32);
+            for verse in verses.iter().map(|&v| v as usize) {
                 let chapter = chapter_of(verse);
                 let book = (0..corpus::book_count()).find(|&b| corpus::chapters_of(b).contains(&chapter)).unwrap_or(0);
                 let (label, text) = (corpus::verse_label(verse), corpus::verse_text(verse));
@@ -384,37 +413,131 @@ impl App {
     }
 }
 
-/// How many passages a search's hits make, as `set_results` would list them.
-pub(crate) fn passage_count(records: &[u32]) -> usize {
-    merged(hit_verses(records).into_iter().map(|(a, b)| (a, b, 0))).len()
+/// How many passages a search's hits make, `span` letters each, as
+/// `set_results` would list them.
+#[cfg(test)]
+pub(crate) fn passage_count(records: &[u32], span: usize) -> usize {
+    passage_count_of(records, span, Form::Els)
 }
 
-/// First and last verse of each hit of `records` (`els::STRIDE` words
-/// each), in the order of the text; a hit past the text is left out.
-fn hit_verses(records: &[u32]) -> Vec<(u32, u32)> {
-    let verses = corpus::verse_count() as u32;
-    let mut hits: Vec<(u32, u32)> = records
-        .chunks_exact(els::STRIDE)
-        .filter(|r| r[4] < verses)
-        .map(|r| (r[4], r[6].clamp(r[4], verses - 1)))
-        .collect();
+/// `passage_count`, the records in either form.
+pub(crate) fn passage_count_of(records: &[u32], span: usize, form: Form) -> usize {
+    merged(hit_verses(records, span, form).into_iter().map(|v| (v, 0)).collect()).len()
+}
+
+/// Every letter of every hit, as `(hit, verse, rank)` — the rank among the
+/// verse's consonants — hit after hit, each's letters in their order; a
+/// letter past the text left out.
+///
+/// An ELS hit names its first letter by verse and rank and the next ones
+/// are walked from it, a skip apart, verse after verse — so a word read
+/// across a verse break lies on both sides. A letters record names each.
+fn hit_letters(records: &[u32], span: usize, form: Form) -> Vec<(usize, usize, usize)> {
+    let verses = corpus::verse_count();
+    let mut counts: HashMap<usize, usize> = HashMap::new();
+    let mut count = |verse: usize| *counts.entry(verse).or_insert_with(|| letter::letter_count(corpus::verse_text(verse)));
+    let mut out = Vec::new();
+    match form {
+        Form::Els => {
+            for (h, record) in records.chunks_exact(els::STRIDE).enumerate() {
+                let (step, mut verse, mut rank) = (record[1] as usize + 1, record[4] as usize, record[5] as usize);
+                'letters: for i in 0..span {
+                    if i > 0 {
+                        rank += step;
+                    }
+                    loop {
+                        if verse >= verses {
+                            break 'letters;
+                        }
+                        let n = count(verse);
+                        if rank < n {
+                            out.push((h, verse, rank));
+                            break;
+                        }
+                        rank -= n;
+                        verse += 1;
+                    }
+                }
+            }
+        }
+        Form::Letters if span > 0 => {
+            for (h, record) in records.chunks_exact(span * words::LETTER_WORDS).enumerate() {
+                for letter in record.chunks_exact(words::LETTER_WORDS) {
+                    let (verse, rank) = (letter[0] as usize, letter[1] as usize);
+                    if verse < verses && rank < count(verse) {
+                        out.push((h, verse, rank));
+                    }
+                }
+            }
+        }
+        Form::Letters => {}
+    }
+    out
+}
+
+/// The verses each hit of `records` (in `form`, `span` letters each) has a
+/// letter in, sorted, each once; the hits in the order of the text, one
+/// past the text left out. An ELS hit of no letter still names its first
+/// verse.
+fn hit_verses(records: &[u32], span: usize, form: Form) -> Vec<Vec<u32>> {
+    let span = if form == Form::Els { span.max(1) } else { span };
+    let mut hits: Vec<Vec<u32>> = Vec::new();
+    let mut last = usize::MAX;
+    for (h, verse, _) in hit_letters(records, span, form) {
+        if h != last {
+            hits.push(Vec::new());
+            last = h;
+        }
+        let held = hits.last_mut().expect("a hit pushed");
+        if held.last() != Some(&(verse as u32)) {
+            held.push(verse as u32);
+        }
+    }
     hits.sort_unstable();
     hits
 }
 
-/// Hits as passages: `(first, last, bits)` sorted, those whose verses
-/// overlap or touch one another's made one, their bits joined.
-fn merged(hits: impl IntoIterator<Item = (u32, u32, u32)>) -> Vec<(u32, u32, u32)> {
-    let mut passages: Vec<(u32, u32, u32)> = Vec::new();
-    for (first, last, bits) in hits {
-        match passages.last_mut() {
-            Some(open) if first <= open.1 => {
-                open.1 = open.1.max(last);
-                open.2 |= bits;
+/// Hits as passages, `(verses, bits)`: hits sharing a verse — directly or
+/// through others — make one, its verses all of theirs, sorted, each once,
+/// their bits joined; in the order of their first verse.
+fn merged(hits: Vec<(Vec<u32>, u32)>) -> Vec<(Vec<u32>, u32)> {
+    fn root(parent: &mut [usize], mut i: usize) -> usize {
+        while parent[i] != i {
+            parent[i] = parent[parent[i]];
+            i = parent[i];
+        }
+        i
+    }
+    let mut parent: Vec<usize> = (0..hits.len()).collect();
+    let mut owner: HashMap<u32, usize> = HashMap::new();
+    for (i, (verses, _)) in hits.iter().enumerate() {
+        for &verse in verses {
+            match owner.get(&verse) {
+                Some(&j) => {
+                    let (a, b) = (root(&mut parent, i), root(&mut parent, j));
+                    parent[a.max(b)] = a.min(b);
+                }
+                None => {
+                    owner.insert(verse, i);
+                }
             }
-            _ => passages.push((first, last, bits)),
         }
     }
+    let mut groups: HashMap<usize, (Vec<u32>, u32)> = HashMap::new();
+    for (i, (verses, bits)) in hits.into_iter().enumerate() {
+        let group = groups.entry(root(&mut parent, i)).or_default();
+        group.0.extend(verses);
+        group.1 |= bits;
+    }
+    let mut passages: Vec<(Vec<u32>, u32)> = groups
+        .into_values()
+        .map(|(mut verses, bits)| {
+            verses.sort_unstable();
+            verses.dedup();
+            (verses, bits)
+        })
+        .collect();
+    passages.sort_unstable();
     passages
 }
 
@@ -428,38 +551,16 @@ fn chapter_of(verse: usize) -> usize {
     lo
 }
 
-/// The letters of hits as the search module leaves them, `els::STRIDE`
-/// words each, `span` letters per hit, its skip between them: `(verse,
-/// from, to)` in bytes of `drawn(verse)`, sorted, letters next to each
-/// other — a word's — merged into one run.
-///
-/// A hit's first letter is named by its verse and its rank among the
-/// verse's consonants; the next ones are walked from it, verse after verse,
-/// so a word read across a verse break is placed on both sides.
-fn placed(records: &[u32], span: usize) -> Vec<(u32, u32, u32)> {
-    let verses = corpus::verse_count();
+/// The letters of hits as the search module leaves them, in `form`, `span`
+/// letters per hit: `(verse, from, to)` in bytes of `drawn(verse)`, sorted,
+/// letters next to each other — a word's — merged into one run.
+fn placed(records: &[u32], span: usize, form: Form) -> Vec<(u32, u32, u32)> {
     let mut tables: HashMap<usize, Vec<(u32, u32)>> = HashMap::new();
     let mut runs: Vec<(u32, u32, u32)> = Vec::new();
-
-    for record in records.chunks_exact(els::STRIDE) {
-        let (step, mut verse, mut rank) = (record[1] as usize + 1, record[4] as usize, record[5] as usize);
-        'letters: for i in 0..span {
-            if i > 0 {
-                rank += step;
-            }
-            loop {
-                if verse >= verses {
-                    break 'letters;
-                }
-                let letters = tables.entry(verse).or_insert_with(|| letter_bytes(verse));
-                if rank < letters.len() {
-                    let (from, to) = letters[rank];
-                    runs.push((verse as u32, from, to));
-                    break;
-                }
-                rank -= letters.len();
-                verse += 1;
-            }
+    for (_, verse, rank) in hit_letters(records, span, form) {
+        let letters = tables.entry(verse).or_insert_with(|| letter_bytes(verse));
+        if let Some(&(from, to)) = letters.get(rank) {
+            runs.push((verse as u32, from, to));
         }
     }
 

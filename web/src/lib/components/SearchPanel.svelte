@@ -23,6 +23,8 @@
 		grouped,
 		isShown,
 		MAX_SHOWN,
+		searchName,
+		skipLabel,
 		type Color,
 		type Marked
 	} from '$lib/marks';
@@ -33,6 +35,7 @@
 		onclose,
 		ontoggle,
 		onremove,
+		onclear,
 		onrecolor,
 		onresults,
 		together = { any: 0, all: 0 },
@@ -46,6 +49,8 @@
 		onclose: () => void;
 		ontoggle: (id: number) => void;
 		onremove: (id: number) => void;
+		/** Every search taken away at once: the reset at the panel's foot. */
+		onclear: () => void;
 		onrecolor: (id: number, color: Color) => void;
 		/** A search's passages asked for, by its count. */
 		onresults?: (id: number) => void;
@@ -141,7 +146,7 @@
 
 	function named(search: Marked, blocked: boolean): string {
 		if (blocked) return `${MAX_SHOWN} shown at most`;
-		return `${search.kind}${search.exact ? ' · Exact letters (final forms)' : ''}`;
+		return searchName(search);
 	}
 
 	function showTip(text: string, row: Element) {
@@ -215,12 +220,22 @@
 			type="button"
 			class={[square, 'text-white/58 hover:text-white focus-visible:text-white']}
 			aria-label="Close searches"
+			aria-expanded="true"
+			aria-controls="searches"
 			onclick={onclose}
 		>
-			<svg viewBox="0 0 256 256" class="size-5 fill-current" aria-hidden="true">
-				<path
-					d="M204.24,195.76a6,6,0,1,1-8.48,8.48L128,136.49,60.24,204.24a6,6,0,0,1-8.48-8.48L119.51,128,51.76,60.24a6,6,0,0,1,8.48-8.48L128,119.51l67.76-67.75a6,6,0,0,1,8.48,8.48L136.49,128Z"
-				/>
+			<!-- The panel's own icon, the one that opened it: it closes it. -->
+			<svg
+				viewBox="0 0 256 256"
+				class="size-5"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="12"
+				stroke-linejoin="round"
+				aria-hidden="true"
+			>
+				<rect x="32" y="48" width="192" height="160" rx="8" />
+				<path d="M160 48v160" />
 			</svg>
 		</button>
 	</header>
@@ -299,8 +314,8 @@
 	<!-- One grid for every row, its columns shared (`subgrid`): the counts
 	     line up on their right edge, and so do the words before them. -->
 	<ul
-		class="grid flex-1 [scrollbar-width:thin] [scrollbar-color:rgb(255_255_255/0.25)_transparent] grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] content-start gap-x-0.5 overflow-y-auto overscroll-contain
-		       px-1.5 pb-[calc(0.5rem+env(safe-area-inset-bottom))]"
+		class="grid min-h-0 flex-1 [scrollbar-width:thin] [scrollbar-color:rgb(255_255_255/0.35)_transparent] grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] content-start gap-x-0.5 overflow-y-scroll overscroll-contain
+		       px-1.5 pb-2"
 	>
 		{#each list as search (search.id)}
 			{@const color = COLORS[search.color]}
@@ -329,7 +344,7 @@
 					<div
 						role="presentation"
 						class={[
-							'flex h-11 min-w-0 flex-1 items-center gap-2 px-2 transition-colors duration-150 md:h-9',
+							'flex h-11 min-w-0 flex-1 items-center justify-end gap-2 px-2 transition-colors duration-150 md:h-9',
 							on ? 'text-white' : 'text-white/45'
 						]}
 						onpointerenter={(event) => {
@@ -337,10 +352,18 @@
 						}}
 						onpointerleave={hideTip}
 					>
+						<!-- The word first, from the right, flush with every other row's;
+						     its skip after it, to its left — never under it: one equidistant
+						     run's rows share their word, and the skip tells them apart. -->
+						{#if skipLabel(search)}
+							<span dir="ltr" lang="en" class="shrink-0 text-xs text-white/45 tabular-nums"
+								>{skipLabel(search)}</span
+							>
+						{/if}
 						<span
 							dir="rtl"
 							lang="he"
-							class="min-w-0 flex-1 truncate text-right font-hebrew text-lg leading-none"
+							class="min-w-0 truncate text-right font-hebrew text-lg leading-none"
 						>
 							{search.word}
 						</span>
@@ -485,6 +508,36 @@
 			</li>
 		{/each}
 	</ul>
+
+	<!-- Under the list, fixed however long it scrolls: every search taken away. -->
+	<footer class="shrink-0 border-t border-white/10">
+		<!-- Edge to edge: the safe area is its own padding, outside its height. -->
+		<button
+			type="button"
+			class={[
+				'box-content flex h-11 w-full cursor-pointer items-center justify-center gap-2 pb-[env(safe-area-inset-bottom)] text-sm md:h-9',
+				'text-white/58 transition-colors duration-150 hover:bg-white/[0.06] hover:text-white',
+				'focus-visible:text-white focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-white/60'
+			]}
+			aria-label="Reset: remove every search"
+			onclick={onclear}
+		>
+			<svg
+				viewBox="0 0 256 256"
+				class="size-4"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="14"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+				aria-hidden="true"
+			>
+				<path d="M40 56v56h56" />
+				<path d="M48 160a88 88 0 1 0 8-78L40 112" />
+			</svg>
+			Reset
+		</button>
+	</footer>
 </aside>
 
 <div

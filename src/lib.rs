@@ -25,3 +25,4 @@ mod tests;
 mod treemap;
 mod variant;
 pub mod wasm;
+mod words;

@@ -454,6 +454,47 @@ fn the_page_searches_a_stretch_of_verses() {
     }
 }
 
+/// The first- and last-letters search as the page calls it: the query at
+/// `els_query_ptr`, `words_search`, then `words_stride` words per hit at
+/// `words_hits_ptr` — the engine's records, its letters' verse and rank. A
+/// stretch keeps every letter inside; a letter no word holds, an empty or
+/// outlying stretch, or a query not UTF-8 finds nothing. The map module
+/// gives the last letter a word holds, which bounds "every nth letter".
+#[test]
+fn the_page_searches_first_and_last_letters() {
+    use crate::wasm::words::*;
+    use crate::words::{LETTER_WORDS, LONGEST_WORD, Pick};
+    let _hold = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    let query = "מֹשֶׁה";
+    unsafe { core::ptr::copy_nonoverlapping(query.as_ptr(), els_query_ptr(), query.len()) };
+    let len = query.len() as u32;
+    for (nth, from_end, any_order) in [(1, 0, 0), (1, 1, 1), (2, 0, 1)] {
+        let total = words_search(len, nth, from_end, any_order, 0);
+        let pick = Pick { nth, from_end: from_end == 1 };
+        let mut expected = Vec::new();
+        let verses = 0..corpus::verse_count();
+        assert_eq!(els_engine().words.search_in("משה", pick, any_order == 1, false, verses, &mut expected) as f64, total);
+        assert!(total > 0.0, "{pick:?}");
+        assert_eq!(words_stride() as usize, 3 * LETTER_WORDS);
+        let read = unsafe { core::slice::from_raw_parts(words_hits_ptr(), words_hits_len() as usize) };
+        assert_eq!(read, &expected[..], "{pick:?}: the page does not read the records written");
+    }
+    let (first, end) = (1533u32, 4000u32);
+    assert!(words_search_in(len, 1, 0, 1, first, end, 0) > 0.0);
+    let read = unsafe { core::slice::from_raw_parts(words_hits_ptr(), words_hits_len() as usize) };
+    assert!(read.chunks(LETTER_WORDS).all(|l| (first..end).contains(&l[0])), "a letter outside the stretch");
+    for (a, b) in [(9, 9), (9, 3), (0, u32::MAX)] {
+        assert_eq!(words_search_in(len, 1, 0, 0, a, b, 0), 0.0, "{a}..{b}");
+    }
+    for nth in [0, LONGEST_WORD + 1] {
+        assert_eq!(words_search(len, nth, 0, 0, 0), 0.0, "letter {nth}");
+        assert_eq!(words_hits_len(), 0);
+    }
+    unsafe { *els_query_ptr() = 0xFF };
+    assert_eq!(words_search(1, 1, 0, 0, 0), 0.0, "an invalid query finds something");
+    assert_eq!(crate::wasm::map::longest_word(), LONGEST_WORD, "the map bounds every nth letter elsewhere");
+}
+
 /// What a panic leaves for the page: its place, a new line, its message —
 /// read back through the two exports the page reads after a trap.
 #[test]
@@ -608,6 +649,21 @@ fn the_page_hands_the_place_back_and_forth() {
     assert_eq!((cam_x(), cam_y(), cam_z()), before, "a chapter out of range moved the view");
 }
 
+/// The map module bounds the equidistant search's skips as the engine does:
+/// at its largest skip a word may still be found, one past it never.
+#[test]
+fn the_page_reads_the_largest_skip_the_engine_searches() {
+    let _hold = hold(REFERENCE.0, REFERENCE.1);
+    assert_eq!(skip_max(1), 0, "a single letter has no skip");
+    for letters in 2..=6u32 {
+        assert_eq!(skip_max(letters), crate::els::max_skip(letters as usize));
+    }
+    let query = "משה";
+    let past = skip_max(3) + 1;
+    unsafe { core::ptr::copy_nonoverlapping(query.as_ptr(), els_query_ptr(), query.len()) };
+    assert_eq!(els_search(query.len() as u32, past, past + 100, 0), 0.0, "found past the largest skip");
+}
+
 /// **A search's hits reach the map as the page hands them**: the search
 /// module's records copied into `marks_buffer`, placed by `marks_set` — then
 /// the passage read carries runs in the slot's ink, `marks_show` hides them
@@ -625,8 +681,8 @@ fn the_page_marks_a_search_s_hits_on_the_map() {
     let hits = unsafe { core::slice::from_raw_parts(els_hits_ptr(), words) }.to_vec();
     let at = marks_buffer(words as u32);
     unsafe { core::ptr::copy_nonoverlapping(hits.as_ptr(), at, words) };
-    assert!(marks_set(2, 3) > 0, "nothing placed");
-    assert_eq!(marks_set(MARK_SLOTS as u32, 3), 0, "a slot past the last placed something");
+    assert!(marks_set(2, 3, 0) > 0, "nothing placed");
+    assert_eq!(marks_set(MARK_SLOTS as u32, 3, 0), 0, "a slot past the last placed something");
 
     let (verse, chapter) = (hits[4], hits[3]);
     // Shown again once measured, as the page does: the widths move the lines.
@@ -674,7 +730,7 @@ fn a_passage_selected_carries_its_found_letters() {
     crate::els::Engine::new().search("משה", 0, 0, &mut found);
     let at = marks_buffer(found.len() as u32);
     unsafe { core::ptr::copy_nonoverlapping(found.as_ptr(), at, found.len()) };
-    marks_set(4, 3);
+    marks_set(4, 3, 0);
 
     let verse = found[4];
     assert_eq!(select_verse(verse), 1);
@@ -707,7 +763,7 @@ fn the_book_view_reads_found_letters_inside_its_record() {
     crate::els::Engine::new().search("משה", 0, 0, &mut found);
     let at = marks_buffer(found.len() as u32);
     unsafe { core::ptr::copy_nonoverlapping(found.as_ptr(), at, found.len()) };
-    marks_set(1, 3);
+    marks_set(1, 3, 0);
 
     let (chapter, book) = (found[3], found[2]);
     let words = chapter_record(chapter) as usize;
@@ -746,7 +802,7 @@ fn the_page_lists_a_search_s_passages() {
     let hits = unsafe { core::slice::from_raw_parts(els_hits_ptr(), words) }.to_vec();
     let at = marks_buffer(words as u32);
     unsafe { core::ptr::copy_nonoverlapping(hits.as_ptr(), at, words) };
-    let count = results_set(3);
+    let count = results_set(3, 0);
     assert!(count > 0, "no passage");
 
     let mut want = Vec::new();
@@ -775,11 +831,11 @@ fn the_page_counts_passages() {
         let hits = unsafe { core::slice::from_raw_parts(els_hits_ptr(), words) }.to_vec();
         let put = |hits: &[u32]| unsafe { core::ptr::copy_nonoverlapping(hits.as_ptr(), marks_buffer(words as u32), words) };
         put(&hits);
-        let counted = passages_count();
+        let counted = passages_count(query.chars().count() as u32, 0);
         put(&hits);
-        assert_eq!(counted, results_set(query.chars().count() as u32), "{query}");
+        assert_eq!(counted, results_set(query.chars().count() as u32, 0), "{query}");
         put(&hits);
-        marks_set(slot, query.chars().count() as u32);
+        marks_set(slot, query.chars().count() as u32, 0);
         found.push(counted);
     }
     let (any, all) = (passages_shown(0), passages_shown(1));

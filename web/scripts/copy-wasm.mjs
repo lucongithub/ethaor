@@ -38,7 +38,7 @@ mkdirSync(lib, { recursive: true });
 // search's code stays out of the map's module — a feature mixed up would
 // bring it back onto the path of the first image without a sound.
 const FORBIDDEN = {
-	'ethaor.wasm': /^(els_|probe_els_)/,
+	'ethaor.wasm': /^(els_|probe_els_|words_)/,
 	'ethaor-search.wasm': /^(init|build_frame|zoom|tiles_wanted|next_book)$/
 };
 

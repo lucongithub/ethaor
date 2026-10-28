@@ -16,6 +16,7 @@ mod routes;
 mod scale;
 mod settings;
 mod stream;
+mod words;
 
 use std::path::Path;
 
@@ -95,4 +96,8 @@ pub fn query(pairs: &[(&str, &str)]) -> String {
 
 pub async fn els(pairs: &[(&str, &str)]) -> Answer {
     get(api_only(), &format!("/api/els?{}", query(pairs)), &[]).await
+}
+
+pub async fn words(pairs: &[(&str, &str)]) -> Answer {
+    get(api_only(), &format!("/api/words?{}", query(pairs)), &[]).await
 }

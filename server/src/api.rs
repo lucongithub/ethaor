@@ -15,6 +15,7 @@ pub mod guard;
 pub mod logs;
 pub mod pool;
 pub mod report;
+pub mod words;
 
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
@@ -33,13 +34,16 @@ use crate::fault::{Fault, Kind};
 #[derive(Clone)]
 pub struct Api {
     pub els: els::State,
+    pub words: words::State,
     pub guard: guard::Guard,
     pub logs_token: Option<String>,
 }
 
 impl Api {
     pub fn new(config: &Config) -> Api {
-        Api { els: els::State::new(config), guard: guard::Guard::new(config), logs_token: config.logs_token.clone() }
+        let els = els::State::new(config);
+        let words = words::State::new(config, els.pool.clone());
+        Api { els, words, guard: guard::Guard::new(config), logs_token: config.logs_token.clone() }
     }
 }
 
@@ -54,6 +58,7 @@ pub fn router(api: Api) -> Router {
         .route("/api/contents", get(contents::list).fallback(not_allowed))
         .route("/api/els", get(els::search).with_state(api.els.clone()).fallback(not_allowed))
         .route("/api/els/stream", get(els::stream).with_state(api.els.clone()).fallback(not_allowed))
+        .route("/api/words", get(words::search).with_state(api.words.clone()).fallback(not_allowed))
         .route("/api/logs", get(logs::follow).fallback(not_allowed))
         .route(
             "/api/report",
@@ -80,7 +85,7 @@ pub fn description() -> Value {
             "The Hebrew Bible (Tanakh, Mechon Mamre edition: {books} books, {chapters} chapters, \
              {verses} verses), searched and read the way the Ethaor map does it in the browser."
         ),
-        "endpoints": els::tools().into_iter().chain([chapter::tool(), contents::tool()]).collect::<Vec<_>>(),
+        "endpoints": els::tools().into_iter().chain([words::tool(), chapter::tool(), contents::tool()]).collect::<Vec<_>>(),
         "operator": [logs::endpoint(), report::endpoint()],
     })
 }

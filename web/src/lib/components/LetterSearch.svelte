@@ -1,18 +1,47 @@
+<script lang="ts" module>
+	/** How a search reading one letter from each word reads them. */
+	export interface Ways {
+		/** The word's letters in any order. */
+		anyOrder: boolean;
+		/** Each letter of the words in turn, one search each: the first, the second… */
+		everyNth: boolean;
+	}
+	export const NO_WAYS: Ways = { anyOrder: false, everyNth: false };
+</script>
+
 <script lang="ts">
-	// The consecutive-letter search: a word asked for, typed or tapped on a
-	// keyboard of the whole alphabet, then run — an ELS at skip 0. A modal
-	// like the passage, the map inert beneath; its chrome is English, the word
-	// and its keys Hebrew.
+	// The letter searches: a word asked for, typed or tapped on a keyboard of
+	// the whole alphabet, then run — consecutive, an ELS at skip 0, or
+	// equidistant, over a range of skips asked for under the word, or read
+	// one letter from each word, its ways picked under the word. A modal like
+	// the passage, the map inert beneath; its chrome is English, the word and
+	// its keys Hebrew.
 	import { erase, insert, KEYS, letters } from '$lib/letters';
+	import { grouped } from '$lib/marks';
+	import { MAX_SKIPS, skipRange } from '$lib/skips';
 
 	let {
 		title,
+		ranged = false,
+		worded = false,
+		nthOffered = true,
+		maxSkip = () => 0,
 		onrun,
 		onclose
 	}: {
 		title: string;
-		/** The word, and whether its final forms are told apart. */
-		onrun: (word: string, exact: boolean) => void;
+		/** Equidistant: the letters to skip asked for too, from one to another. */
+		ranged?: boolean;
+		/** One letter from each word: its ways offered too, Random order and Every nth letter —
+		 *  and no Exact letters: a word's first letter is never final, its last one is
+		 *  whenever it can be, so folding loses nothing. */
+		worded?: boolean;
+		/** Worded, Every nth letter offered: the first letters only — the owner's rule. */
+		nthOffered?: boolean;
+		/** The largest skip a word of so many letters can be read with in the Tanakh. */
+		maxSkip?: (letters: number) => number;
+		/** The word, whether its final forms are told apart, — ranged — the skips, and — worded — its ways. */
+		onrun: (word: string, exact: boolean, skips: number[], ways: Ways) => void;
 		onclose: () => void;
 	} = $props();
 
@@ -22,6 +51,21 @@
 	// Exact letters (final forms): a final matches only itself. Off, the
 	// search folds them, as it always did.
 	let exact = $state(false);
+	// One letter from each word: its letters in any order, and each letter
+	// of the words in turn — the second, the third… — not the first alone.
+	// Either, both, or neither: the plain search.
+	let anyOrder = $state(false);
+	let everyNth = $state(false);
+	// The letters to skip, from one number to another: 5 - 5 one search,
+	// 5 - 10 six. A field left empty or out of bounds runs nothing.
+	let skipFrom = $state<number | null>(1);
+	let skipTo = $state<number | null>(1);
+	// The word's own bound: the longer the word, the less it can skip.
+	const most = $derived(maxSkip(word.length));
+	const skips = $derived(
+		ranged && skipFrom !== null && skipTo !== null ? skipRange(skipFrom, skipTo, most) : null
+	);
+	const ready = $derived(word !== '' && (!ranged || skips !== null));
 	// Where the next letter goes: the input's selection, kept while a key
 	// holds the focus.
 	let from = 0;
@@ -62,8 +106,9 @@
 	}
 
 	function run() {
-		if (!word) return;
-		onrun(word, exact);
+		if (!ready) return;
+		if (worded) onrun(word, false, [0], { anyOrder, everyNth: nthOffered && everyNth });
+		else onrun(word, exact, ranged ? (skips ?? []) : [0], NO_WAYS);
 		close();
 	}
 
@@ -91,7 +136,40 @@
 		'hover:border-white/25 hover:bg-white/6 hover:text-white active:bg-white/12',
 		'focus-visible:border-white/40 focus-visible:text-white focus-visible:outline-1 focus-visible:outline-offset-1 focus-visible:outline-white/60'
 	];
+
+	// A skip's field: a number on a rule, like the word's line.
+	const field = [
+		'h-10 w-24 rounded border border-white/15 bg-transparent px-3 text-center text-base text-white tabular-nums',
+		'transition-colors duration-150 outline-none hover:border-white/30 focus:border-white/60',
+		'[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none'
+	];
 </script>
+
+<!-- An option, on or off: a switch on a track, its name beside it. -->
+{#snippet toggle(label: string, on: boolean, flip: () => void)}
+	<button
+		type="button"
+		role="switch"
+		aria-checked={on}
+		class="group -ml-1.5 flex h-10 cursor-pointer items-center gap-2.5 rounded px-1.5 text-sm transition-colors duration-150
+		       focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-white/60
+		       {on ? 'text-white' : 'text-white/58 hover:text-white'}"
+		onclick={flip}
+	>
+		<span
+			class="relative h-4.5 w-8 shrink-0 rounded-full border transition-colors duration-150
+			       {on ? 'border-white/60 bg-white/[0.12]' : 'border-white/25 group-hover:border-white/40'}"
+			aria-hidden="true"
+		>
+			<span
+				class="absolute top-1/2 left-0.5 size-3 -translate-y-1/2 rounded-full transition-[translate,background-color] duration-150
+				       motion-reduce:transition-none
+				       {on ? 'translate-x-3.5 bg-white' : 'bg-white/58 group-hover:bg-white/80'}"
+			></span>
+		</span>
+		{label}
+	</button>
+{/snippet}
 
 <dialog
 	bind:this={dialog}
@@ -196,31 +274,62 @@
 			{/each}
 		</div>
 
+		{#if worded}
+			<!-- The ways to read one letter from each word, either or both;
+			     neither runs the plain search. No title: the two names say it. -->
+			<div class="flex flex-wrap items-center gap-x-4 gap-y-1" role="group" aria-label="Ways">
+				{@render toggle('Random order', anyOrder, () => (anyOrder = !anyOrder))}
+				{#if nthOffered}
+					{@render toggle('Every nth letter', everyNth, () => (everyNth = !everyNth))}
+				{/if}
+			</div>
+		{/if}
+
+		{#if ranged}
+			<!-- The letters to skip, from one number to the other, both
+			     included: one search per skip, each its own row. -->
+			<fieldset class="flex flex-col gap-2">
+				<legend class="mb-2 text-sm text-white/70">How many letters to skip</legend>
+				<div class="flex items-center justify-center gap-3">
+					<input
+						type="number"
+						inputmode="numeric"
+						min="1"
+						max={Math.max(1, most)}
+						step="1"
+						aria-label="Skip from"
+						bind:value={skipFrom}
+						class={field}
+					/>
+					<span class="text-white/45" aria-hidden="true">–</span>
+					<input
+						type="number"
+						inputmode="numeric"
+						min="1"
+						max={Math.max(1, most)}
+						step="1"
+						aria-label="Skip to"
+						bind:value={skipTo}
+						class={field}
+					/>
+				</div>
+				{#if word.length === 1}
+					<p class="text-xs text-white/58" role="status">A single letter has no skip.</p>
+				{:else if word && skipFrom !== null && skipTo !== null && skips === null}
+					<p class="text-xs text-white/58" role="status">
+						Whole numbers from 1 to {grouped(most)} for {word.length} letters, {grouped(MAX_SKIPS)}
+						skips at most.
+					</p>
+				{/if}
+			</fieldset>
+		{/if}
+
 		<!-- The option, then the actions: side by side where they fit, the
 		     option above them on a phone. -->
 		<div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
-			<button
-				type="button"
-				role="switch"
-				aria-checked={exact}
-				class="group -ml-1.5 flex h-10 cursor-pointer items-center gap-2.5 rounded px-1.5 text-sm transition-colors duration-150
-				       focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-white/60
-				       {exact ? 'text-white' : 'text-white/58 hover:text-white'}"
-				onclick={() => (exact = !exact)}
-			>
-				<span
-					class="relative h-4.5 w-8 shrink-0 rounded-full border transition-colors duration-150
-					       {exact ? 'border-white/60 bg-white/[0.12]' : 'border-white/25 group-hover:border-white/40'}"
-					aria-hidden="true"
-				>
-					<span
-						class="absolute top-1/2 left-0.5 size-3 -translate-y-1/2 rounded-full transition-[translate,background-color] duration-150
-						       motion-reduce:transition-none
-						       {exact ? 'translate-x-3.5 bg-white' : 'bg-white/58 group-hover:bg-white/80'}"
-					></span>
-				</span>
-				Exact letters (final forms)
-			</button>
+			{#if !worded}
+				{@render toggle('Exact letters (final forms)', exact, () => (exact = !exact))}
+			{/if}
 
 			<div class="ml-auto flex items-center gap-2">
 				<button
@@ -235,7 +344,7 @@
 				</button>
 				<button
 					type="submit"
-					disabled={!word}
+					disabled={!ready}
 					class="h-10 cursor-pointer rounded border border-white/15 px-5 text-sm tracking-wide text-white transition-colors duration-150
 				       hover:border-white/30 hover:bg-white/[0.06] focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-white/60
 				       disabled:cursor-default disabled:border-white/10 disabled:text-white/20 disabled:hover:bg-transparent"

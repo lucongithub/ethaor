@@ -79,6 +79,13 @@ export interface Marked {
 	word: string;
 	/** Exact letters (final forms): its finals told apart. */
 	exact: boolean;
+	/** Letters skipped between the word's letters: 0 for the consecutive search. */
+	skip: number;
+	/** Which letter of each word a first-letters search read, for each row
+	 *  of an "every nth letter" run: 1 the first; 0 for any other search. */
+	nth: number;
+	/** A first-letters search's letters in any order (Random order). */
+	anyOrder: boolean;
 	color: Color;
 	/** Hits counted, `null` while searching. */
 	total: number | null;
@@ -111,11 +118,48 @@ export const canShow = (list: readonly Marked[]): boolean => freeSlot(list) !== 
  * The list with a new search, last. It is shown in the lowest free slot, or
  * kept hidden when ten are shown already: the reader picks which to hide.
  */
-export function add(list: readonly Marked[], kind: string, word: string, exact = false): Marked[] {
+export function add(
+	list: readonly Marked[],
+	kind: string,
+	word: string,
+	exact = false,
+	skip = 0,
+	nth = 0,
+	anyOrder = false
+): Marked[] {
 	const id = list.reduce((top, m) => Math.max(top, m.id + 1), 0);
 	const slot = freeSlot(list);
 	const color = freeColor(list);
-	return [...list, { id, slot, kind, word, exact, color, total: null, passages: null }];
+	return [
+		...list,
+		{ id, slot, kind, word, exact, skip, nth, anyOrder, color, total: null, passages: null }
+	];
+}
+
+/**
+ * What tells a search's row from another of the same word: its skip, for an
+ * equidistant one (`skip 5`); the letter of each word, for a row of an
+ * "every nth letter" run (`letter 2`); nothing for the others.
+ */
+export const skipLabel = (m: Marked): string =>
+	m.skip > 0 ? `skip ${m.skip}` : m.nth > 0 ? `letter ${m.nth}` : '';
+
+/**
+ * What stands before the word in a list's title — the owner's rule — read
+ * left to right up to the word: `2_` then `מדא`, the underscore
+ * parting the skip from the Hebrew. Nothing for the consecutive search.
+ */
+export const skipPrefix = (m: Marked): string =>
+	m.skip > 0 ? `${m.skip}_` : m.nth > 0 ? `${m.nth}_` : '';
+
+/**
+ * The name a row's tip gives a search: its kind, then what sets it apart —
+ * its skip or letter, its letters in any order, its finals told apart.
+ */
+export function searchName(m: Marked): string {
+	const parts = [m.kind, skipLabel(m), m.anyOrder ? 'Random order' : ''];
+	if (m.exact) parts.push('Exact letters (final forms)');
+	return parts.filter(Boolean).join(' · ');
 }
 
 /** The list with one search changed; the others untouched. */
@@ -176,9 +220,10 @@ export function squareRow(n: number): { side: number; space: number; width: numb
 }
 
 /**
- * A count as the panel shows it: thousands grouped by a no-break space
- * (U+00A0, written as itself below), never a comma — the owner's rule,
- * `22 413`. A narrow one vanished in the interface font.
+ * A number as the page shows it, any number anywhere — counts, bounds,
+ * messages: thousands grouped by a no-break space (U+00A0, written as
+ * itself below), never a comma — the owner's rule, `22 413`, `600 852`.
+ * A narrow one vanished in the interface font. Never `toLocaleString`.
  */
 export const grouped = (n: number): string =>
 	Math.trunc(n)

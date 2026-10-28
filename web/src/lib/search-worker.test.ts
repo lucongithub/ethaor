@@ -47,6 +47,18 @@ describe('the search worker', () => {
 		expect(total(answers[1])).toBe(total(answers[0]));
 	});
 
+	it('answers a first-letters search by its id, its records each letter by place', async () => {
+		const { answers, send, feed } = await start();
+		send({ words: { id: 3, query: 'בבא', options: { nth: 1 } } });
+		feed();
+		await vi.waitFor(() => expect(answers.length).toBe(1));
+		const answer = answers[0];
+		if (!('found' in answer)) throw new Error('not found');
+		expect(answer.id).toBe(3);
+		expect(answer.found.form).toBe('letters');
+		expect(Array.from(answer.found.hits.subarray(0, 6))).toEqual([0, 0, 0, 6, 0, 9]);
+	});
+
 	it('answers a failed search by its id, and searches on with a new module', async () => {
 		// A module that traps on one query, as a panicking search would.
 		const created = vi.fn();

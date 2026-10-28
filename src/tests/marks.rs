@@ -559,30 +559,75 @@ fn passages(app: &App, from: usize, count: usize) -> Vec<Vec<Row>> {
     page
 }
 
-/// **Every hit lies whole in exactly one passage, and passages never touch**:
-/// in the order of the text, each from its first hit's first verse to the
-/// last verse any of its hits reaches, the next starting past it — so hits
-/// sharing a verse are one passage, and every verse of a hit is listed.
+/// The verses a hit's letters lie in, read off the stream's verse starts —
+/// not walked as the module walks them: each letter's rank, its verse.
+fn letter_verses(hit: &[u32], span: usize) -> Vec<u32> {
+    let starts = els::verse_starts();
+    let mut verses: Vec<u32> = (0..span as u32)
+        .map(|i| (starts.partition_point(|&s| s <= hit[0] + i * (hit[1] + 1)) - 1) as u32)
+        .collect();
+    verses.dedup();
+    verses
+}
+
+/// **Every hit lies whole in exactly one passage, and passages share no
+/// verse**: each passage lists, in order and once, the verses its hits'
+/// letters lie in and no other — so hits sharing a verse are one passage,
+/// every verse holding a letter is listed, and none between them.
 #[test]
 fn every_hit_lies_whole_in_one_passage() {
-    for (word, skip) in [("משה", 0), ("אב", 0), ("תורה", 49)] {
+    for (word, skip) in [("משה", 0), ("אב", 0), ("תורה", 49), ("אדם", 200)] {
+        let span = folded(word).len();
         let mut app = reference_app();
         let found = records(word, skip);
-        let count = app.set_results(&found, folded(word).len());
+        let count = app.set_results(&found, span);
         let list = app.results.passages.clone();
         assert_eq!(count, list.len());
-        assert!(list.iter().all(|&(a, b)| a <= b), "{word}: a passage ends before it starts");
-        assert!(list.windows(2).all(|w| w[1].0 > w[0].1), "{word}: two passages overlap or touch");
+        assert!(list.iter().all(|p| p.windows(2).all(|w| w[0] < w[1])), "{word}: a passage out of order");
+        assert!(list.windows(2).all(|w| w[0][0] < w[1][0]), "{word}: passages out of order");
+        let mut every: Vec<u32> = list.iter().flatten().copied().collect();
+        let listed = every.len();
+        every.sort_unstable();
+        every.dedup();
+        assert_eq!(every.len(), listed, "{word}: a verse in two passages");
+        let mut held = vec![Vec::new(); list.len()];
         for hit in found.chunks_exact(els::STRIDE) {
-            let holding = list.iter().filter(|&&(a, b)| a <= hit[4] && hit[6] <= b).count();
-            assert_eq!(holding, 1, "{word}: hit at {} in {holding} passages", hit[0]);
+            let verses = letter_verses(hit, span);
+            let holding: Vec<usize> =
+                (0..list.len()).filter(|&p| verses.iter().all(|v| list[p].binary_search(v).is_ok())).collect();
+            assert_eq!(holding.len(), 1, "{word}: hit at {} in {} passages", hit[0], holding.len());
+            held[holding[0]].extend(verses);
         }
-        for &(a, b) in &list {
-            let starts = found.chunks_exact(els::STRIDE).any(|h| h[4] == a);
-            let reaches = found.chunks_exact(els::STRIDE).filter(|h| a <= h[4] && h[4] <= b).map(|h| h[6]).max();
-            assert!(starts && reaches == Some(b), "{word}: passage {a}..={b} is not its hits' span");
+        for (p, mut want) in held.into_iter().enumerate() {
+            want.sort_unstable();
+            want.dedup();
+            assert_eq!(list[p], want, "{word}: passage {p} lists other verses than its letters'");
         }
     }
+}
+
+/// **A word read far apart is its few verses**: three letters every two
+/// hundred lie in three verses, and a hit alone in its passage lists those
+/// three and none between them — the chapters a skip crosses are not read.
+#[test]
+fn a_word_read_far_apart_lists_only_its_verses() {
+    let found = records("אדם", 200);
+    let mut app = reference_app();
+    app.set_results(&found, 3);
+    let lone = app
+        .results
+        .passages
+        .iter()
+        .find(|p| {
+            found.chunks_exact(els::STRIDE).filter(|h| p.binary_search(&h[4]).is_ok()).count() == 1 && p.len() == 3
+        })
+        .cloned()
+        .expect("no hit of אדם at skip 200 alone in its passage, in three verses");
+    assert!(lone[2] - lone[0] > 2, "its verses are next to one another: nothing left out");
+    let page = passages(&app, app.results.passages.iter().position(|p| *p == lone).unwrap(), 1);
+    let verses: Vec<u32> = page[0].iter().map(|r| r.verse as u32).collect();
+    assert_eq!(verses, lone, "the page reads other verses than the passage's");
+    assert!(page[0].iter().all(|r| r.runs.iter().any(|t| t[2] & OWN != 0)), "a verse without its letter");
 }
 
 /// **A hit across two verses is listed with both**: its passage reads the
@@ -679,12 +724,12 @@ fn pages_of_passages_tile_the_list() {
 /// panel shows is the length of the list its count opens.
 #[test]
 fn a_search_s_passages_are_counted_as_listed() {
-    for (word, skip) in [("משה", 0), ("אב", 0), ("תורה", 49)] {
+    for (word, skip) in [("משה", 0), ("אב", 0), ("תורה", 49), ("אדם", 200)] {
         let mut app = reference_app();
         let found = records(word, skip);
-        assert_eq!(passage_count(&found), app.set_results(&found, folded(word).len()), "{word} at {skip}");
+        assert_eq!(passage_count(&found, folded(word).len()), app.set_results(&found, folded(word).len()), "{word} at {skip}");
     }
-    assert_eq!(passage_count(&[]), 0);
+    assert_eq!(passage_count(&[], 3), 0);
 }
 
 /// **The searches shown make passages together**: those of any are the
@@ -708,9 +753,9 @@ fn the_searches_shown_make_passages_together() {
     let any = app.shown_passages(false);
     assert_eq!(any, alone.results.passages, "any: the hits of the shown searches as one");
 
-    let holds = |hits: &[u32], (a, b): (u32, u32)| hits.chunks_exact(els::STRIDE).any(|h| a <= h[4] && h[6] <= b);
+    let holds = |hits: &[u32], p: &Vec<u32>| hits.chunks_exact(els::STRIDE).any(|h| p.binary_search(&h[4]).is_ok());
     let all = app.shown_passages(true);
-    let want: Vec<(u32, u32)> = any.iter().copied().filter(|&p| holds(&moshe, p) && holds(&aaron, p)).collect();
+    let want: Vec<Vec<u32>> = any.iter().filter(|p| holds(&moshe, p) && holds(&aaron, p)).cloned().collect();
     assert!(!want.is_empty(), "no passage holds both");
     assert_eq!(all, want, "all: the passages holding each shown search");
     assert!(all.len() < any.len());
@@ -755,7 +800,7 @@ fn joined_by_all_the_map_draws_only_where_every_search_is() {
 
     app.join_marks(true);
     let passages = app.shown_passages(true);
-    let inside = |v: u32| passages.iter().any(|&(a, b)| a <= v && v <= b);
+    let inside = |v: u32| passages.iter().any(|p| p.binary_search(&v).is_ok());
     for slot in [0, 3] {
         let want: Vec<u32> = verses(&any[slot]).into_iter().filter(|&v| inside(v)).collect();
         assert!(!want.is_empty(), "slot {slot}: nothing where both are");
@@ -785,4 +830,80 @@ fn joined_by_all_the_map_draws_only_where_every_search_is() {
     assert_eq!([drawn(&app, 0), drawn(&app, 3)], [whole[0].clone(), whole[1].clone()], "joined by any, not whole");
     let back: Vec<u32> = (0..corpus::chapter_count()).map(|c| app.chapter_marks(c)).collect();
     assert_eq!(back, squares, "joined by any, the squares not as they were");
+}
+
+// ------------------------------------------------------- first and last letters
+
+/// The hits of `word` read one letter per word, as `words_search` leaves
+/// them for the page: each letter by verse and rank.
+fn word_records(word: &str, pick: crate::words::Pick, any_order: bool) -> Vec<u32> {
+    let mut out = Vec::new();
+    crate::words::Engine::default().search_in(word, pick, any_order, false, 0..corpus::verse_count(), &mut out);
+    out
+}
+
+/// **A first-letters hit is inked letter for letter where each lies**: every
+/// letter its record names, and nothing else — the first consonant of a
+/// word, for as many words as the word has letters (`hit_letters` reading
+/// the letters form, through `set_marks_of`).
+#[test]
+fn a_words_hit_inks_each_letter_where_it_lies() {
+    use crate::words::{LETTER_WORDS, Pick};
+    for (word, pick, any_order) in [("משה", Pick::FIRST, false), ("ישר", Pick::LAST, true)] {
+        let found = word_records(word, pick, any_order);
+        let span = folded(word).len();
+        assert!(!found.is_empty(), "{word}: nothing found");
+        let mut app = reference_app();
+        assert!(app.set_marks_of(0, &found, span, Form::Letters) > 0);
+        let mut want: Vec<(u32, u32, u32)> = found
+            .chunks_exact(LETTER_WORDS)
+            .map(|l| {
+                let (from, to) = letter_bytes(l[0] as usize)[l[1] as usize];
+                (l[0], from, to)
+            })
+            .collect();
+        want.sort_unstable();
+        want.dedup();
+        let mut got: Vec<(u32, u32, u32)> = Vec::new();
+        for &(verse, from, to) in &app.marks[0].runs {
+            // A run merges letters side by side: cut it back into letters.
+            for &(a, b) in letter_bytes(verse as usize).iter().filter(|&&(a, b)| from <= a && b <= to) {
+                got.push((verse, a, b));
+            }
+        }
+        assert_eq!(got, want, "{word}: the runs are not the letters found");
+        let verses: std::collections::BTreeSet<u32> = found.chunks_exact(LETTER_WORDS).map(|l| l[0]).collect();
+        for chapter in 0..corpus::chapter_count() {
+            let holds = verses.iter().any(|&v| corpus::verses_of(chapter).contains(&(v as usize)));
+            assert_eq!(app.marks[0].chapters[chapter], holds, "{word}: chapter {chapter}");
+        }
+    }
+}
+
+/// **A first-letters search lists the verses its letters lie in**, hits
+/// sharing a verse in one passage, its own letters inked in the list; the
+/// count is the list's, and a record with no letter is none.
+#[test]
+fn a_words_search_lists_the_verses_its_letters_lie_in() {
+    use crate::words::{LETTER_WORDS, Pick};
+    let found = word_records("אמר", Pick::FIRST, false);
+    let mut app = reference_app();
+    let count = app.set_results_of(&found, 3, Form::Letters);
+    assert_eq!(count, passage_count_of(&found, 3, Form::Letters));
+    assert!(count > 0);
+    let listed: Vec<u32> = app.results.passages.iter().flatten().copied().collect();
+    for record in found.chunks_exact(3 * LETTER_WORDS) {
+        for l in record.chunks_exact(LETTER_WORDS) {
+            assert!(listed.contains(&l[0]), "verse {} of a hit not listed", l[0]);
+        }
+    }
+    let held: std::collections::BTreeSet<u32> = found.chunks_exact(LETTER_WORDS).map(|l| l[0]).collect();
+    assert!(listed.iter().all(|v| held.contains(v)), "a verse listed holds no letter found");
+    assert!(!app.results.runs.is_empty(), "its own letters not inked");
+    assert_eq!(passage_count_of(&found, 0, Form::Letters), 0);
+    assert_eq!(passage_count_of(&[], 3, Form::Letters), 0);
+    // The same records read as ELS say something else: the form decides.
+    let as_letters = app.results.runs.clone();
+    app.set_results(&found, 3);
+    assert_ne!(app.results.runs, as_letters);
 }

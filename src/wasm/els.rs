@@ -32,6 +32,13 @@ pub extern "C" fn els_prepare() {
     }
 }
 
+/// The first `len` bytes the page wrote at `els_query_ptr`: every search's
+/// query, ELS or words.
+#[allow(static_mut_refs)]
+pub(crate) fn query_bytes(len: u32) -> &'static [u8] {
+    unsafe { &ELS_QUERY[..(len as usize).min(ELS_QUERY_CAP)] }
+}
+
 /// Where the page writes its query, as UTF-8, before calling `els_search`.
 #[cfg_attr(feature = "search", unsafe(no_mangle))]
 #[allow(static_mut_refs)]
@@ -69,7 +76,7 @@ pub extern "C" fn els_search_in(len: u32, skip0: u32, skip1: u32, first: u32, en
     if !corpus::has_text() {
         return -1.0;
     }
-    let bytes = unsafe { &ELS_QUERY[..(len as usize).min(ELS_QUERY_CAP)] };
+    let bytes = query_bytes(len);
     let hits = unsafe { &mut ELS_HITS };
     let (first, end) = (first as usize, end as usize);
     let scope = (first < end && end <= corpus::verse_count()).then_some((first, end));

@@ -67,30 +67,44 @@ export function readResults(
 	return passages;
 }
 
-/** Where a passage lies, every level in Hebrew: its first verse's, and its last's where they part. */
-export interface Where {
+/** Where verses lie, every level in Hebrew, as the breadcrumb names it. */
+export interface Place {
 	portion: string;
 	book: string;
 	chapter: string;
-	/** The passage reaches into another chapter: each verse says its chapter. */
-	crosses: boolean;
 }
 
-export function where(passage: Passage, contents: Contents): Where {
-	const first = passage[0];
-	const last = passage[passage.length - 1];
-	const book = (b: number) => contents.books[b]?.name ?? '';
-	const span = (a: string, b: string) => (a === b ? a : `${a}–${b}`);
-	const crosses = first.chapter !== last.chapter;
-	return {
-		portion: contents.portions[contents.books[first.book]?.section] ?? '',
-		book: span(book(first.book), book(last.book)),
-		chapter:
-			first.book === last.book
-				? span(contents.labels[first.chapter], contents.labels[last.chapter])
-				: contents.labels[first.chapter],
-		crosses
-	};
+/** A run of a passage's verses in one chapter, and where it lies. */
+export interface Stretch {
+	place: Place;
+	verses: ResultVerse[];
+}
+
+/**
+ * A passage cut into runs, one per chapter, each named where it lies. A
+ * word read far apart may reach into another chapter, book or portion: the
+ * place is said again wherever it changes, as it is for the first, so each
+ * verse keeps its number alone.
+ */
+export function stretches(passage: Passage, contents: Contents): Stretch[] {
+	const out: Stretch[] = [];
+	for (const verse of passage) {
+		const open = out[out.length - 1];
+		if (open && open.verses[0].chapter === verse.chapter) {
+			open.verses.push(verse);
+			continue;
+		}
+		const book = contents.books[verse.book];
+		out.push({
+			place: {
+				portion: contents.portions[book?.section] ?? '',
+				book: book?.name ?? '',
+				chapter: contents.labels[verse.chapter] ?? ''
+			},
+			verses: [verse]
+		});
+	}
+	return out;
 }
 
 /**

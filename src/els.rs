@@ -45,6 +45,21 @@ pub const STRIDE: usize = 7;
 /// wide range has tens of millions of hits, which no page could show.
 pub const CAP: usize = 100_000;
 
+include!(concat!(env!("OUT_DIR"), "/letters.rs"));
+
+/// The largest skip a word of `letters` letters can be read with in the
+/// whole Tanakh: its first letter and its last must both lie in the stream,
+/// so the steps between them share its length — one letter fewer, two
+/// letters any skip but the stream's end, three half of that, and so on.
+/// Known before the text lands (`LETTER_COUNT`). A single letter has no
+/// skip: 0.
+pub fn max_skip(letters: usize) -> u32 {
+    if letters < 2 {
+        return 0;
+    }
+    ((LETTER_COUNT as usize - 1) / (letters - 1)).saturating_sub(1) as u32
+}
+
 /// Bits of a key given to the start; the stream must stay below
 /// `1 << START_BITS`.
 const START_BITS: u32 = 21;
@@ -361,6 +376,9 @@ pub struct Engine {
     memo: Vec<Answer>,
     /// Searches actually run, memo aside.
     pub runs: u64,
+    /// The first- and last-letters searches, lent with this engine: one
+    /// engine serves every search a caller runs.
+    pub words: crate::words::Engine,
 }
 
 /// A query and what it found.
@@ -424,6 +442,7 @@ impl Engine {
             codes: Vec::new(),
             memo: Vec::new(),
             runs: 0,
+            words: crate::words::Engine::default(),
         }
     }
 

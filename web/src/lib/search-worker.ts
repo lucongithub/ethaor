@@ -14,12 +14,13 @@
  */
 
 import { escalate, fromTrap, type FaultData } from './fault';
-import { SearchCore, type Found } from './search-core';
+import { SearchCore, type Found, type WordsOptions } from './search-core';
 
 export type Request =
 	| { tile: { first: number; end: number; codes: Uint8Array } }
 	| { readings: Uint8Array }
-	| { els: { id: number; query: string; skip0: number; skip1: number; exact?: boolean } };
+	| { els: { id: number; query: string; skip0: number; skip1: number; exact?: boolean } }
+	| { words: { id: number; query: string; options: WordsOptions } };
 
 /**
  * A search's answer, or its failure by its id; or a failure feeding the
@@ -29,7 +30,20 @@ export type Request =
 export type Answer =
 	{ id: number; found: Found } | { id?: number; error: string; fault: FaultData };
 
-type Text = Exclude<Request, { els: unknown }>;
+type Text = Exclude<Request, { els: unknown } | { words: unknown }>;
+
+/** What a search request runs on the module, by its id. */
+function searchOf(message: Request): { id: number; run: (c: SearchCore) => Found } | null {
+	if ('els' in message) {
+		const { id, query, skip0, skip1, exact } = message.els;
+		return { id, run: (c) => c.els(query, skip0, skip1, exact) };
+	}
+	if ('words' in message) {
+		const { id, query, options } = message.words;
+		return { id, run: (c) => c.words(query, options) };
+	}
+	return null;
+}
 
 let core = SearchCore.create();
 let landed: () => void = () => {};
@@ -65,8 +79,9 @@ function renew() {
 
 self.onmessage = (event: MessageEvent<Request>) => {
 	const message = event.data;
-	if ('els' in message) {
-		const { id, query, skip0, skip1, exact } = message.els;
+	const search = searchOf(message);
+	if (search) {
+		const { id, run } = search;
 		// The module the search runs on: the current one once the text queued
 		// before it is in — not the one when it was asked, which may be gone.
 		let searching = core;
@@ -74,7 +89,7 @@ self.onmessage = (event: MessageEvent<Request>) => {
 			.then(() => queue)
 			.then(() => (searching = core))
 			.then((c) => {
-				const found = c.els(query, skip0, skip1, exact);
+				const found = run(c);
 				self.postMessage({ id, found }, { transfer: [found.hits.buffer] });
 			})
 			.catch(async (cause) => {
@@ -93,11 +108,12 @@ self.onmessage = (event: MessageEvent<Request>) => {
 			});
 		return;
 	}
-	fed.push(message);
+	const piece = message as Text;
+	fed.push(piece);
 	queue = queue
 		.then(() => core)
 		.then((c) => {
-			if (feed(c, message)) landed();
+			if (feed(c, piece)) landed();
 		})
 		.catch((cause) => failed(cause, 'feeding the module the text'));
 };

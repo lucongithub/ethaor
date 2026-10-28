@@ -65,6 +65,8 @@ pub enum Refusal {
     EmptyScope,
     /// Expected to cost more than the caller allows, in V8 milliseconds.
     TooCostly { estimate_ms: f64, limit_ms: f64 },
+    /// A first- or last-letters search asks for a letter no word holds.
+    LetterRange(u32),
 }
 
 impl Refusal {
@@ -78,6 +80,7 @@ impl Refusal {
             Refusal::ScopeConflict => "scope_conflict",
             Refusal::EmptyScope => "empty_scope",
             Refusal::TooCostly { .. } => "too_costly",
+            Refusal::LetterRange(_) => "letter_range",
         }
     }
 
@@ -96,6 +99,10 @@ impl Refusal {
             Refusal::TooCostly { estimate_ms, limit_ms } => format!(
                 "this search is estimated at {estimate_ms:.0} ms, above the {limit_ms:.0} ms allowed: \
                  narrow skip_min..skip_max, scope it to a portion, book or chapter, or use a rarer word"
+            ),
+            Refusal::LetterRange(letter) => format!(
+                "letter ({letter}) must lie from 1 to {}: the letters of the Tanakh's longest word",
+                crate::words::LONGEST_WORD
             ),
         }
     }
@@ -184,7 +191,7 @@ pub fn check_up_to(query: &Query, max_limit: usize) -> Result<String, Refusal> {
 }
 
 /// The consonant a code stands for in the stream searched.
-fn char_of(code: u8, exact: bool) -> char {
+pub(super) fn char_of(code: u8, exact: bool) -> char {
     if exact { char::from_u32(0x05D0 + code as u32).unwrap_or('?') } else { LETTERS[code as usize] }
 }
 

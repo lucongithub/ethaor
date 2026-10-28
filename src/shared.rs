@@ -11,6 +11,7 @@ pub mod contents;
 pub mod els;
 pub mod passage;
 pub mod reference;
+pub mod words;
 
 #[cfg(test)]
 mod tests;

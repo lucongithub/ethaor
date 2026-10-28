@@ -12,9 +12,9 @@
 	// a common word has thousands, and pointed Hebrew is heavy to lay out.
 	import { onMount } from 'svelte';
 	import type { Contents } from '$lib/book-view';
-	import { COLORS, grouped, inkStyle, isShown, type Marked } from '$lib/marks';
+	import { COLORS, grouped, inkStyle, isShown, skipPrefix, type Marked } from '$lib/marks';
 	import { inked } from '$lib/passage';
-	import { colorsOf, PAGE, where, type Passage } from '$lib/results';
+	import { colorsOf, PAGE, stretches, type Passage } from '$lib/results';
 
 	let {
 		search,
@@ -24,6 +24,7 @@
 		listed,
 		contents,
 		read,
+		onselect,
 		onclose
 	}: {
 		/** The search listed; `null` for the searches shown, together. */
@@ -39,8 +40,17 @@
 		contents: Contents;
 		/** Passages `from..from + count`. */
 		read: (from: number, count: number) => Passage[];
+		/** A verse clicked, by its global index: its passage opens, as on the map. */
+		onselect: (verse: number) => void;
 		onclose: () => void;
 	} = $props();
+
+	// A click reads the verse's passage, as on the map and in the book; a
+	// drag, which selects text, stays the browser's.
+	function pick(verse: number) {
+		if (!(getSelection()?.isCollapsed ?? true)) return;
+		onselect(verse);
+	}
 
 	let dialog = $state<HTMLDialogElement>();
 	let end = $state<HTMLElement>();
@@ -106,14 +116,21 @@
 		<h2
 			id="results-word"
 			lang="he"
-			class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 font-hebrew text-2xl leading-tight sm:flex-none"
+			class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 font-hebrew text-lg leading-tight sm:flex-none"
 		>
 			{#each words as m, k (m.id)}
 				{#if k > 0}<span
-						class="font-sans text-lg text-white/45"
+						class="font-sans text-base text-white/45"
 						aria-label={join === 'all' ? 'and' : 'or'}>{sign}</span
 					>{/if}
-				<span style:color={COLORS[m.color]}>{m.word}</span>
+				<!-- An equidistant search reads `2_` then its word, left to right:
+				     the skip before the Hebrew, the underscore between them; a row
+				     of an "every nth letter" run its letter the same way. -->
+				{#if skipPrefix(m)}<span dir="ltr"
+						><span lang="en" class="font-sans text-sm text-white/58 tabular-nums"
+							>{skipPrefix(m)}</span
+						><span style:color={COLORS[m.color]}>{m.word}</span></span
+					>{:else}<span style:color={COLORS[m.color]}>{m.word}</span>{/if}
 			{/each}
 		</h2>
 		<p
@@ -158,31 +175,48 @@
 	>
 		<ol class="divide-y divide-white/10">
 			{#each shown as passage, p (p)}
-				{@const at = where(passage, contents)}
 				<li class="px-5 py-5 sm:px-7 sm:py-6">
-					<!-- Where it lies, as the breadcrumb names it. -->
-					<p class="mb-2 flex flex-wrap items-baseline gap-x-2 font-hebrew text-sm sm:text-base">
-						<span class="text-white/58">{at.portion}</span>
-						<span class="text-white/25" aria-hidden="true">›</span>
-						<span class="text-white/78">{at.book}</span>
-						<span class="text-white/25" aria-hidden="true">›</span>
-						<span class="text-white">{at.chapter}</span>
-					</p>
-					{#each passage as verse (verse.verse)}
-						{@const runs = inked(verse.text, verse.found)}
-						<p class="font-hebrew text-lg leading-loose text-pretty text-white sm:text-xl">
-							<span class="me-1 align-[0.15em] text-[0.7em] text-white/45 select-none"
-								>{at.crosses
-									? `${contents.labels[verse.chapter]},${verse.number}`
-									: verse.number}</span
-							>
-							{#each runs as word, k (k)}{#each word as run, r (r)}{@const style = run.slots
-										? styleOf(run.slots)
-										: ''}{#if style}<span {style}>{run.text}</span>{:else}{run.text}{/if}{/each}{k <
-								runs.length - 1
-									? ' '
-									: ''}{/each}
+					{#each stretches(passage, contents) as stretch, g (g)}
+						<!-- Where it lies, as the breadcrumb names it — said again
+						     wherever a word read far apart reaches another chapter,
+						     book or portion. -->
+						<p
+							class={[
+								'mb-2 flex flex-wrap items-baseline gap-x-2 font-hebrew text-sm sm:text-base',
+								g > 0 && 'mt-4'
+							]}
+						>
+							<span class="text-white/58">{stretch.place.portion}</span>
+							<span class="text-white/25" aria-hidden="true">›</span>
+							<span class="text-white/58">{stretch.place.book}</span>
+							<span class="text-white/25" aria-hidden="true">›</span>
+							<span class="text-white/58">{stretch.place.chapter}</span>
 						</p>
+						{#each stretch.verses as verse (verse.verse)}
+							{@const runs = inked(verse.text, verse.found)}
+							<!-- The book's verse plate under the pointer: what a click reads. -->
+							<div
+								role="button"
+								tabindex="0"
+								class="-mx-[0.4em] cursor-pointer rounded px-[0.4em] font-hebrew text-lg leading-loose text-pretty text-white
+							       transition-colors duration-150 outline-none hover:bg-white/6 focus-visible:bg-white/6
+							       focus-visible:outline-1 focus-visible:outline-white/60 sm:text-xl"
+								onclick={() => pick(verse.verse)}
+								onkeydown={(event) => {
+									if (event.key !== 'Enter' && event.key !== ' ') return;
+									event.preventDefault();
+									onselect(verse.verse);
+								}}
+							>
+								<span class="me-1 align-[0.15em] text-[0.7em] text-white/45 select-none"
+									>{verse.number}</span
+								>
+								{#each runs as word, k (k)}{#each word as run, r (r)}{@const style = run.slots
+											? styleOf(run.slots)
+											: ''}{#if style}<span {style}>{run.text}</span
+											>{:else}{run.text}{/if}{/each}{k < runs.length - 1 ? ' ' : ''}{/each}
+							</div>
+						{/each}
 					{/each}
 				</li>
 			{/each}

@@ -36,7 +36,7 @@ interface Module {
 	contents_record(): number;
 	contents_ptr(): number;
 	marks_buffer(words: number): number;
-	marks_set(slot: number, span: number): number;
+	marks_set(slot: number, span: number, form: number): number;
 	marks_clear(slot: number): void;
 	chapter_marks(chapter: number): number;
 	chapter_marks_ptr(): number;
@@ -136,7 +136,7 @@ describe('a chapter read from the module', () => {
 		const mark = (slot: number, verseIndex: number, rank: number, span: number) => {
 			const at = module.marks_buffer(7);
 			new Uint32Array(module.memory.buffer, at, 7).set([0, 0, 0, 0, verseIndex, rank, verseIndex]);
-			expect(module.marks_set(slot, span)).toBeGreaterThan(0);
+			expect(module.marks_set(slot, span, 0)).toBeGreaterThan(0);
 		};
 		mark(2, plain.verses[0].index, 3, 3);
 		mark(4, verse.index, letters - 2, 2);
@@ -178,7 +178,7 @@ describe('a chapter read from the module', () => {
 		const mark = (slot: number, rank: number, span: number) => {
 			const at = module.marks_buffer(7);
 			new Uint32Array(module.memory.buffer, at, 7).set([0, 0, 0, 0, first, rank, first]);
-			expect(module.marks_set(slot, span)).toBeGreaterThan(0);
+			expect(module.marks_set(slot, span, 0)).toBeGreaterThan(0);
 		};
 		mark(1, 3, 3);
 		mark(3, 4, 2);

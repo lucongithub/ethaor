@@ -46,9 +46,13 @@ describe('command', () => {
 });
 
 describe('escape', () => {
-	// A search's passages lie over everything: Escape closes them first.
-	it('closes the passages of a search first', () => {
+	// A search's passages lie over everything but the passage a click in
+	// them opens, which lies over them: Escape closes that one, then them.
+	it('closes the passages of a search first, after the passage opened from them', () => {
 		expect(escape({ results: true, selection: true, notice: true, searches: true })).toBe(
+			'selection'
+		);
+		expect(escape({ results: true, selection: false, notice: true, searches: true })).toBe(
 			'results'
 		);
 		expect(escape({ results: true, selection: false, notice: false, book: true })).toBe('results');

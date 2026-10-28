@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { readContents, type Contents } from './book-view';
 import { add, toggle, type Marked } from './marks';
-import { colorsOf, OWN, PAGE, readResults, VERSE_HEAD, where, type Passage } from './results';
+import { colorsOf, OWN, PAGE, readResults, VERSE_HEAD, stretches, type Passage } from './results';
 import { SearchCore, type Found } from './search-core';
 import { block, bookCuts, booksShuffled, map, read, serveArtifacts } from './tests/artifacts';
 
@@ -16,14 +16,14 @@ interface Module {
 	contents_record(): number;
 	contents_ptr(): number;
 	marks_buffer(words: number): number;
-	marks_set(slot: number, span: number): number;
-	results_set(span: number): number;
+	marks_set(slot: number, span: number, form: number): number;
+	results_set(span: number, form: number): number;
 	results_page(from: number, count: number): number;
 	results_ptr(): number;
 	results_clear(): void;
 	results_shown(all: number): number;
 	passages_shown(all: number): number;
-	passages_count(): number;
+	passages_count(span: number, form: number): number;
 	marks_clear(slot: number): void;
 }
 
@@ -98,7 +98,7 @@ describe("a search's passages", () => {
 	it('spell the word once per hit, every verse whole, hidden or not', () => {
 		const found = core.els('משה', 0, 0);
 		hand(found);
-		const count = module.results_set(3);
+		const count = module.results_set(3, 0);
 		expect(count).toBeGreaterThan(PAGE);
 		const all: Passage[] = [];
 		for (let from = 0; from < count; from += PAGE) all.push(...page(from, PAGE));
@@ -122,6 +122,34 @@ describe("a search's passages", () => {
 		expect(page(0, PAGE)).toEqual([]);
 	});
 
+	// A first-letters search's records name each letter by place: listed in
+	// that form, its own letters across all passages are, hit by hit, the
+	// first letter of a word each, spelling the word; read as ELS records
+	// they would say something else.
+	it('list a first-letters search letter by letter where each lies', () => {
+		const found = core.words('משה', { nth: 1 });
+		expect(found.total).toBeGreaterThan(0);
+		hand(found);
+		const count = module.results_set(3, 1);
+		hand(found);
+		expect(module.passages_count(3, 1)).toBe(count);
+		const all: Passage[] = [];
+		for (let from = 0; from < count; from += PAGE) all.push(...page(from, PAGE));
+		const own = all
+			.flat()
+			.flatMap((v) => v.found.filter((f) => f.slots & OWN).map((f) => cut(v.text, f.from, f.to)));
+		expect(own.map(letters).join('')).toBe('משה'.repeat(found.hits.length / found.stride));
+		for (const verse of all.flat())
+			for (const f of verse.found.filter((f) => f.slots & OWN)) {
+				// Each own letter opens a word: a space, or the verse, before it.
+				const before = cut(verse.text, 0, f.from);
+				expect(before === '' || before.endsWith(' '), `${verse.verse}: ${before}`).toBe(true);
+			}
+		hand(found);
+		expect(module.results_set(3, 0)).not.toBe(count);
+		module.results_clear();
+	});
+
 	// A hit read across a verse break is one passage of both verses, each
 	// with its share of the word.
 	it('show every verse a hit reaches', () => {
@@ -130,7 +158,7 @@ describe("a search's passages", () => {
 			found.hits.subarray(k * found.stride, (k + 1) * found.stride)
 		).find((r) => r[4] !== r[6])!;
 		hand({ total: 1, hits: across, stride: found.stride });
-		expect(module.results_set(2)).toBe(1);
+		expect(module.results_set(2, 0)).toBe(1);
 		const [passage] = page(0, PAGE);
 		expect(passage.map((v) => v.verse)).toEqual([across[4], across[6]]);
 		expect(passage.every((v) => v.found.some((f) => f.slots & OWN))).toBe(true);
@@ -145,32 +173,50 @@ describe("a search's passages", () => {
 		expect(spelled).toBe('אב');
 	});
 
-	// Each passage names where it lies: Genesis 1 in the Torah; a passage
-	// reaching into the next chapter names both and says so.
-	it('name where they lie, portion, book and chapter', () => {
+	// Each passage names where it lies: Genesis 1 in the Torah. One that
+	// reaches into another chapter, book or portion names each again where
+	// it changes, its verses kept with their place.
+	it('name where they lie, portion, book and chapter, again wherever it changes', () => {
 		hand(core.els('בראשית', 0, 0));
-		module.results_set(6);
+		module.results_set(6, 0);
 		const [first] = page(0, 1);
-		expect(where(first, contents)).toEqual({
-			portion: 'תורה',
-			book: 'בראשית',
-			chapter: 'א',
-			crosses: false
-		});
-		const end = contents.books[0].end - 1;
-		const next = end + 1;
+		expect(stretches(first, contents)).toEqual([
+			{ place: { portion: 'תורה', book: 'בראשית', chapter: 'א' }, verses: first }
+		]);
+		// Deuteronomy's last chapter into Joshua's first: a new book and a
+		// new portion; two verses of one chapter stay one run.
+		const end = contents.books[4].end - 1;
+		const next = contents.books[4].end;
+		const verse = first[0];
 		const crossing: Passage = [
-			{ ...first[0], chapter: end },
-			{ ...first[0], book: 1, chapter: next }
+			{ ...verse, book: 4, chapter: end, verse: 1 },
+			{ ...verse, book: 4, chapter: end, verse: 2 },
+			{ ...verse, book: 5, chapter: next, verse: 3 }
 		];
-		expect(where(crossing, contents)).toMatchObject({
-			portion: 'תורה',
-			book: 'בראשית–שמות',
-			chapter: contents.labels[end],
-			crosses: true
-		});
-		const within: Passage = [first[0], { ...first[0], chapter: 1 }];
-		expect(where(within, contents)).toMatchObject({ chapter: 'א–ב', crosses: true });
+		const runs = stretches(crossing, contents);
+		expect(runs.map((r) => r.place)).toEqual([
+			{ portion: 'תורה', book: contents.books[4].name, chapter: contents.labels[end] },
+			{ portion: 'נביאים', book: contents.books[5].name, chapter: contents.labels[next] }
+		]);
+		expect(runs.map((r) => r.verses.map((v) => v.verse))).toEqual([[1, 2], [3]]);
+		const within: Passage = [verse, { ...verse, chapter: 1, verse: 9 }];
+		expect(stretches(within, contents).map((r) => r.place.chapter)).toEqual(['א', 'ב']);
+	});
+
+	// A word read every two hundred letters: its passages hold the verses its
+	// letters lie in, the ones between left out.
+	it('of a word read far apart hold its verses alone, the ones between left out', () => {
+		hand(core.els('אדם', 200, 200));
+		const count = module.results_set(3, 0);
+		const passages = page(0, count);
+		expect(passages.length).toBe(count);
+		const lone = passages.filter((p) => p.length === 3);
+		expect(lone.length).toBeGreaterThan(0);
+		for (const passage of lone) {
+			const next = passage.slice(1).map((v, k) => v.verse === passage[k].verse + 1);
+			expect(next.every(Boolean)).toBe(false);
+			for (const verse of passage) expect(verse.found.some((f) => f.slots & OWN)).toBe(true);
+		}
 	});
 });
 
@@ -186,11 +232,11 @@ describe('the searches shown together', () => {
 		for (const [word, slot] of words) {
 			const found = core.els(word, 0, 0);
 			hand(found);
-			const count = module.passages_count();
+			const count = module.passages_count(word.length, 0);
 			hand(found);
-			expect(module.results_set(word.length)).toBe(count);
+			expect(module.results_set(word.length, 0)).toBe(count);
 			hand(found);
-			module.marks_set(slot, word.length);
+			module.marks_set(slot, word.length, 0);
 		}
 		const [any, all] = [module.passages_shown(0), module.passages_shown(1)];
 		expect(all).toBeGreaterThan(0);

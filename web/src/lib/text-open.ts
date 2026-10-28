@@ -37,6 +37,34 @@ export async function range(
 }
 
 /**
+ * How long to wait before each new try of a download that failed: a few,
+ * growing, then the failure stands. A server restarting, a link dropping
+ * for a moment, then answer again; and a page being left — a reload aborts
+ * its downloads — never gets to the next try, so it reports nothing.
+ */
+export const RETRY_WAITS: readonly number[] = [500, 2000, 5000];
+
+/**
+ * `attempt`, tried again after each of `waits` while it fails; the last
+ * failure is thrown. A failed book used to give up the whole text for the
+ * page's life — the searches with it — on one dropped request.
+ */
+export async function retried<T>(
+	attempt: () => Promise<T>,
+	waits: readonly number[] = RETRY_WAITS,
+	sleep: (ms: number) => Promise<void> = (ms) => new Promise((done) => setTimeout(done, ms))
+): Promise<T> {
+	for (const wait of waits) {
+		try {
+			return await attempt();
+		} catch {
+			await sleep(wait);
+		}
+	}
+	return attempt();
+}
+
+/**
  * Runs `lanes` loops at once, each taking the next item (`next`, negative
  * once there is none) and awaiting `take` before asking again. The item is
  * chosen when a lane frees, not up front: what is nearest to the view then

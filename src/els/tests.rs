@@ -111,6 +111,35 @@ fn the_stream_is_every_verse_read_letter_by_letter() {
     assert!(stream().len() < 1 << START_BITS, "the stream no longer fits in the key");
 }
 
+/// The letter count `build.rs` welds, which bounds a skip before the text
+/// lands, is the stream's length once it has.
+#[test]
+fn the_letters_counted_at_build_are_the_stream() {
+    assert_eq!(LETTER_COUNT as usize, stream().len(), "build.rs counts other letters than the stream holds");
+}
+
+/// The largest skip is the last at which a word's first and last letters
+/// both lie in the stream: one more and they cannot, and the engine finds
+/// nothing past it. A single letter has none.
+#[test]
+fn the_largest_skip_is_the_last_a_word_fits_in_the_tanakh() {
+    let n = stream().len() as u64;
+    assert_eq!(max_skip(0), 0);
+    assert_eq!(max_skip(1), 0);
+    for m in 2..=12u64 {
+        let s = max_skip(m as usize) as u64;
+        assert!((m - 1) * (s + 1) < n, "{m} letters at skip {s} overflow the stream");
+        assert!((m - 1) * (s + 2) >= n, "{m} letters still fit at skip {}", s + 1);
+    }
+    // Two letters: any skip but the stream's end; three: half of that.
+    assert_eq!(max_skip(2) as u64, n - 2);
+    assert_eq!(max_skip(3) as u64, (n - 1) / 2 - 1);
+    for word in ["את", "יהוה", "תורה"] {
+        let s = max_skip(letter::letter_count(word));
+        assert_eq!(records(word, s + 1, s + 1000).0, 0, "{word} found past its largest skip");
+    }
+}
+
 #[test]
 fn final_forms_fold_onto_their_letter() {
     for (final_form, plain) in [('ך', 'כ'), ('ם', 'מ'), ('ן', 'נ'), ('ף', 'פ'), ('ץ', 'צ')] {

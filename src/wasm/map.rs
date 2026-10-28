@@ -506,6 +506,23 @@ pub extern "C" fn book_end_chapter(book: u32) -> u32 {
 /// them.
 static mut MARKS_IN: Vec<u32> = Vec::new();
 
+/// The largest skip a word of `letters` letters can be read with in the
+/// whole Tanakh (`els::max_skip`): what bounds the equidistant search's
+/// fields, before the text lands. No HTTP twin: past it the engine finds
+/// nothing, and the API answers that by itself.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+pub extern "C" fn skip_max(letters: u32) -> u32 {
+    crate::els::max_skip(letters as usize)
+}
+
+/// Letters of the Tanakh's longest word (`words::LONGEST_WORD`): how many
+/// letters of each word "every nth letter" reads, known before the text
+/// lands. No HTTP twin: `GET /api` declares the bound in its schema.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+pub extern "C" fn longest_word() -> u32 {
+    crate::words::LONGEST_WORD
+}
+
 /// Searches the map marks at once; the page keeps no more.
 #[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn marks_slots() -> u32 {
@@ -525,14 +542,15 @@ pub extern "C" fn marks_buffer(words: u32) -> *mut u32 {
     }
 }
 
-/// Marks in slot `slot` the hits written at `marks_buffer` — `els_stride`
-/// words each, `span` letters per hit — shown at once; the page then asks for
-/// a frame. Returns the runs placed, 0 for a slot out of range.
+/// Marks in slot `slot` the hits written at `marks_buffer` — `span` letters
+/// per hit, in `form`: 0 `els_stride` words each, 1 `words_stride` — shown
+/// at once; the page then asks for a frame. Returns the runs placed, 0 for a
+/// slot out of range.
 #[cfg_attr(feature = "map", unsafe(no_mangle))]
 #[allow(static_mut_refs)]
-pub extern "C" fn marks_set(slot: u32, span: u32) -> u32 {
+pub extern "C" fn marks_set(slot: u32, span: u32, form: u32) -> u32 {
     let records = unsafe { core::mem::take(&mut MARKS_IN) };
-    app().set_marks(slot as usize, &records, span as usize) as u32
+    app().set_marks_of(slot as usize, &records, span as usize, Form::of(form)) as u32
 }
 
 /// Shows (1) or hides (0) a slot's marks, keeping them.
@@ -577,17 +595,17 @@ pub extern "C" fn chapter_marks_ptr() -> *const u32 {
     unsafe { CHAPTER_MARKS.as_ptr() }
 }
 
-/// Sets the list of passages to the hits written at `marks_buffer` —
-/// `els_stride` words each, `span` letters per hit — for the page to list
-/// them. Returns the number of passages.
+/// Sets the list of passages to the hits written at `marks_buffer` — `span`
+/// letters per hit, in `form` as `marks_set` takes them — for the page to
+/// list them. Returns the number of passages.
 ///
 /// No endpoint twin: `GET /api/els` already names every hit's verses; this
 /// list carries the map's colours, which only a page wears.
 #[cfg_attr(feature = "map", unsafe(no_mangle))]
 #[allow(static_mut_refs)]
-pub extern "C" fn results_set(span: u32) -> u32 {
+pub extern "C" fn results_set(span: u32, form: u32) -> u32 {
     let records = unsafe { core::mem::take(&mut MARKS_IN) };
-    app().set_results(&records, span as usize) as u32
+    app().set_results_of(&records, span as usize, Form::of(form)) as u32
 }
 
 /// Sets the list of passages to the searches shown together: those holding
@@ -604,13 +622,14 @@ pub extern "C" fn passages_shown(all: u32) -> u32 {
     app().shown_passages(all != 0).len() as u32
 }
 
-/// How many passages the hits written at `marks_buffer` make, as
-/// `results_set` would list them; the buffer is taken.
+/// How many passages the hits written at `marks_buffer` make, `span`
+/// letters each in `form`, as `results_set` would list them; the buffer is
+/// taken.
 #[cfg_attr(feature = "map", unsafe(no_mangle))]
 #[allow(static_mut_refs)]
-pub extern "C" fn passages_count() -> u32 {
+pub extern "C" fn passages_count(span: u32, form: u32) -> u32 {
     let records = unsafe { core::mem::take(&mut MARKS_IN) };
-    passage_count(&records) as u32
+    passage_count_of(&records, span as usize, Form::of(form)) as u32
 }
 
 /// Forgets the list of passages.

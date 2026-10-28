@@ -21,18 +21,43 @@ interface Exports {
 	els_hits_ptr(): number;
 	els_hits_len(): number;
 	els_stride(): number;
+	/** One letter of each word: the `nth`, from its end with `fromEnd` 1, in any order with `anyOrder` 1. */
+	words_search(
+		length: number,
+		nth: number,
+		fromEnd: number,
+		anyOrder: number,
+		exact: number
+	): number;
+	words_hits_ptr(): number;
+	words_hits_len(): number;
+	words_stride(): number;
 	fault_ptr(): number;
 	fault_len(): number;
 	probe_panic(): void;
 }
 
-/** What an ELS search found: the exact total, and the first records. */
+/** What a search found: the exact total, and the first records. */
 export interface Found {
 	/** Every hit, counted; -1 while the text has not landed. */
 	total: number;
-	/** `stride` words per kept hit — see `els::STRIDE` in Rust. */
+	/** `stride` words per kept hit — see `els::STRIDE` in Rust, or for
+	 *  `letters` `words::LETTER_WORDS` per letter. */
 	hits: Uint32Array;
 	stride: number;
+	/** How a record names its letters: an ELS hit's first and its skip
+	 *  (absent), or each letter's verse and rank (`letters`). */
+	form?: 'letters';
+}
+
+/** Which letter of each word a first- or last-letters search reads. */
+export interface WordsOptions {
+	/** 1 the first letter of each word; counted from its end with `fromEnd`. */
+	nth: number;
+	fromEnd?: boolean;
+	/** The word's letters in any order. */
+	anyOrder?: boolean;
+	exact?: boolean;
 }
 
 const encoder = new TextEncoder();
@@ -85,12 +110,36 @@ export class SearchCore {
 	 * letters; with `exact`, its final forms told apart.
 	 */
 	els(query: string, skip0: number, skip1: number, exact = false): Found {
-		const bytes = encoder.encode(query).subarray(0, this.wasm.els_query_cap());
-		new Uint8Array(this.wasm.memory.buffer, this.wasm.els_query_ptr(), bytes.length).set(bytes);
+		const bytes = this.write(query);
 		const total = this.wasm.els_search(bytes.length, skip0, skip1, exact ? 1 : 0);
 		const stride = this.wasm.els_stride();
 		const words = this.wasm.els_hits_len() * stride;
 		const hits = new Uint32Array(this.wasm.memory.buffer, this.wasm.els_hits_ptr(), words).slice();
 		return { total, hits, stride };
+	}
+
+	/**
+	 * First or last letters: `query` read one letter from each word, side
+	 * by side — the `nth` of each word, from its end with `fromEnd` — in
+	 * order or, with `anyOrder`, in any.
+	 */
+	words(query: string, options: WordsOptions): Found {
+		const bytes = this.write(query);
+		const { nth, fromEnd = false, anyOrder = false, exact = false } = options;
+		const total = this.wasm.words_search(bytes.length, nth, +fromEnd, +anyOrder, +exact);
+		const stride = this.wasm.words_stride();
+		const hits = new Uint32Array(
+			this.wasm.memory.buffer,
+			this.wasm.words_hits_ptr(),
+			this.wasm.words_hits_len()
+		).slice();
+		return { total, hits, stride, form: 'letters' };
+	}
+
+	/** Writes a query where every search reads it; its bytes. */
+	private write(query: string): Uint8Array {
+		const bytes = encoder.encode(query).subarray(0, this.wasm.els_query_cap());
+		new Uint8Array(this.wasm.memory.buffer, this.wasm.els_query_ptr(), bytes.length).set(bytes);
+		return bytes;
 	}
 }

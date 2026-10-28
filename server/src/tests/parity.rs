@@ -9,8 +9,9 @@ use ethaor::wasm::els::{els_hits_len, els_hits_ptr, els_query_ptr, els_search};
 
 use super::els;
 
-/// The module's exports share one global state.
-static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+/// The module's exports share one global state — the query buffer among it:
+/// every test driving them, here or in `words.rs`, takes this lock.
+pub(super) static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
 
 /// The search exactly as `search-core.ts` drives it.
 fn as_the_page(word: &str, skip_min: u32, skip_max: u32, exact: bool) -> (f64, Vec<u32>) {

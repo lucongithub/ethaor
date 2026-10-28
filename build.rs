@@ -146,6 +146,35 @@ fn write_output(corpus: &Corpus, out: &Path) {
     }
     verse_text.push(text.len() as u32);
 
+    // The consonants of every verse, as the ELS stream will hold them: known
+    // before the text lands, so a skip can be bounded before any search.
+    let letter_count: usize = corpus
+        .books
+        .iter()
+        .flat_map(|b| &b.chapters)
+        .flat_map(|c| &c.verses)
+        .map(|v| v.text.chars().filter(|c| ('\u{05D0}'..='\u{05EA}').contains(c)).count())
+        .sum();
+    // The consonants of the longest word: how many letters of each word a
+    // first- or last-letters search can read, known before the text lands.
+    let longest_word: usize = corpus
+        .books
+        .iter()
+        .flat_map(|b| &b.chapters)
+        .flat_map(|c| &c.verses)
+        .flat_map(|v| v.text.split_whitespace())
+        .map(|w| w.chars().filter(|c| ('\u{05D0}'..='\u{05EA}').contains(c)).count())
+        .max()
+        .unwrap_or(0);
+    fs::write(
+        out.join("letters.rs"),
+        format!(
+            "/// Consonants in the Tanakh, counted by `build.rs`: the ELS stream's length.\npub const LETTER_COUNT: u32 = {letter_count};\n\
+             /// Consonants of the Tanakh's longest word, counted by `build.rs`.\npub const LONGEST_WORD: u32 = {longest_word};\n"
+        ),
+    )
+    .unwrap();
+
     // region 5: display strings — our verse with the other edition's reading
     // inserted. Only the verses of `variants.tsv` have one, so the region is a
     // tail of a hundred strings, and a drawn line stays a slice of `text.bin`.

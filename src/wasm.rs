@@ -8,3 +8,4 @@ pub mod els;
 pub mod fault;
 pub mod landing;
 pub mod map;
+pub mod words;

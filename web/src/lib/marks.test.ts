@@ -16,6 +16,9 @@ import {
 	paint,
 	recolor,
 	remove,
+	searchName,
+	skipLabel,
+	skipPrefix,
 	slotsOf,
 	toggle,
 	worn,
@@ -64,11 +67,48 @@ describe('add', () => {
 				kind: 'Consecutive letters',
 				word: 'תורה',
 				exact: false,
+				skip: 0,
+				nth: 0,
+				anyOrder: false,
 				color: 'sky',
 				total: null,
 				passages: null
 			}
 		]);
+	});
+
+	// One row per skip of an equidistant search: the same word several
+	// times, each told apart by its skip; the consecutive search has none.
+	it('keeps the skip, and names it for an equidistant search alone', () => {
+		let list = add([], 'Consecutive letters', 'תורה');
+		list = add(list, 'Equidistant letters', 'תורה', false, 5);
+		list = add(list, 'Equidistant letters', 'תורה', false, 6);
+		expect(list.map((m) => m.skip)).toEqual([0, 5, 6]);
+		expect(list.map(skipLabel)).toEqual(['', 'skip 5', 'skip 6']);
+		// A list's title: `5_` then the word, the underscore between.
+		expect(list.map((m) => skipPrefix(m) + m.word)).toEqual(['תורה', '5_תורה', '6_תורה']);
+		expect(new Set(list.map((m) => m.slot)).size).toBe(3);
+	});
+
+	// One row per letter of an "every nth letter" run: each told apart by
+	// its letter, as an equidistant row by its skip; the plain first-letters
+	// search has none. The tip names its kind and its ways.
+	it('keeps the letter and the order of a first-letters search, and names them', () => {
+		let list = add([], 'First letters', 'משה', false, 0, 0, true);
+		list = add(list, 'First letters', 'משה', true, 0, 2);
+		expect(list.map((m) => [m.nth, m.anyOrder])).toEqual([
+			[0, true],
+			[2, false]
+		]);
+		expect(list.map(skipLabel)).toEqual(['', 'letter 2']);
+		expect(list.map((m) => skipPrefix(m) + m.word)).toEqual(['משה', '2_משה']);
+		expect(list.map(searchName)).toEqual([
+			'First letters · Random order',
+			'First letters · letter 2 · Exact letters (final forms)'
+		]);
+		expect(searchName(add([], 'Equidistant letters', 'תורה', false, 5)[0])).toBe(
+			'Equidistant letters · skip 5'
+		);
 	});
 
 	// As many searches as the reader runs: the first ten on the map, each

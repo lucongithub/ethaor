@@ -11,10 +11,11 @@
 	import { escalate, reporter, watch, type Fault } from '$lib/fault';
 	import { command, escape } from '$lib/keys';
 	import Rail, { type Search, type View } from './Rail.svelte';
-	import LetterSearch from './LetterSearch.svelte';
+	import LetterSearch, { type Ways } from './LetterSearch.svelte';
 	import SearchPanel from './SearchPanel.svelte';
 	import ResultsModal from './ResultsModal.svelte';
 	import { letters } from '$lib/letters';
+	import { runSkips } from '$lib/skips';
 	import {
 		add,
 		counted,
@@ -93,13 +94,23 @@
 		canvas.focus({ preventScroll: true });
 	}
 
-	// The search picked in the sidebar, its modal open. Only the consecutive
-	// letters have one yet.
+	// The search picked in the sidebar, its modal open. The consecutive, the
+	// equidistant and the first letters have one yet.
 	let searching = $state<Search | null>(null);
+	const WIRED: readonly Search[] = [
+		'Consecutive letters',
+		'Equidistant letters',
+		'First letters',
+		'Last letters'
+	];
 
 	function onSearch(name: Search) {
-		if (name === 'Consecutive letters') searching = name;
+		if (WIRED.includes(name)) searching = name;
 	}
+
+	// Each run of equidistant searches belongs to one generation of the
+	// list: the reset starts a new one, and a run of an older one stops.
+	let generation = 0;
 
 	// The searches kept, as many as the reader runs, listed in the panel on
 	// the right. Ten at most are shown on the map, whatever their kind: each
@@ -139,9 +150,28 @@
 		else canvas.focus({ preventScroll: true });
 	}
 
+	function runSearch(word: string, exact: boolean, skips: number[], ways: Ways) {
+		if (searching === 'Equidistant letters') runEquidistant(word, exact, skips);
+		else if (searching === 'First letters') runWordLetters('First letters', word, ways);
+		else if (searching === 'Last letters') runWordLetters('Last letters', word, ways);
+		else runConsecutive(word, exact);
+	}
+
+	// A search found, marked in the slot it holds now — it may have been
+	// hidden or shown meanwhile — and counted.
+	function found(id: number, word: string, answer: Found) {
+		// Removed while it searched: nothing to mark.
+		const still = kept.find((m) => m.id === id);
+		if (!still || !map) return;
+		const span = letters(word).length;
+		hits.set(id, { found: answer, span });
+		if (isShown(still)) map.marks.set(still.slot, answer, span, still.color);
+		kept = counted(kept, id, answer.total, map.results.count(answer, span));
+		retally();
+	}
+
 	// The word asked for, read as written: an ELS at skip 0. Kept at once,
-	// counting; marked once found, in the slot it holds then — it may have
-	// been hidden or shown meanwhile. A search that fails is told by the
+	// counting; marked once found. A search that fails is told by the
 	// bridge and leaves no row behind.
 	function runConsecutive(word: string, exact: boolean) {
 		if (!map) return;
@@ -149,17 +179,70 @@
 		const { id } = kept[kept.length - 1];
 		if (wide) panelOpen = true;
 		map.search(word, 0, 0, exact).then(
-			(found) => {
-				// Removed while it searched: nothing to mark.
-				const still = kept.find((m) => m.id === id);
-				if (!still || !map) return;
-				const span = letters(word).length;
-				hits.set(id, { found, span });
-				if (isShown(still)) map.marks.set(still.slot, found, span, still.color);
-				kept = counted(kept, id, found.total, map.results.count(found));
-				retally();
-			},
+			(answer) => found(id, word, answer),
 			() => removeSearch(id)
+		);
+	}
+
+	// The word read with each skip asked for, one search after the other:
+	// a row for each skip that found something, in their order, none for
+	// one that found nothing. The panel opens with the first row — none
+	// found, nothing opens. A search that fails is told by the bridge and the
+	// next runs; the reset stops the run.
+	function runEquidistant(word: string, exact: boolean, skips: number[]) {
+		const searcher = map;
+		if (!searcher) return;
+		const mine = generation;
+		let first = true;
+		runSkips(
+			skips,
+			(skip) => searcher.search(word, skip, skip, exact),
+			(skip, answer) => {
+				kept = add(kept, 'Equidistant letters', word, exact, skip);
+				found(kept[kept.length - 1].id, word, answer);
+				if (first && wide) panelOpen = true;
+				first = false;
+			},
+			() => generation === mine
+		);
+	}
+
+	// The word read one letter from each word of adjacent words, side by
+	// side — in its order, or in any with Random order — the first letters,
+	// or the last. Alone, that one letter: a row kept at once, as the
+	// consecutive search's. With Every nth letter — the first letters' alone,
+	// the owner's rule — each letter of the words in turn, the first to the
+	// longest word's last, one search after the other: a row for each that
+	// found something, as the equidistant run's. Final forms are always
+	// folded: a first letter is never final, a last one is whenever it can be.
+	function runWordLetters(kind: 'First letters' | 'Last letters', word: string, ways: Ways) {
+		const searcher = map;
+		if (!searcher) return;
+		const { anyOrder } = ways;
+		const fromEnd = kind === 'Last letters';
+		if (!ways.everyNth || fromEnd) {
+			kept = add(kept, kind, word, false, 0, 0, anyOrder);
+			const { id } = kept[kept.length - 1];
+			if (wide) panelOpen = true;
+			searcher.searchWords(word, { nth: 1, fromEnd, anyOrder }).then(
+				(answer) => found(id, word, answer),
+				() => removeSearch(id)
+			);
+			return;
+		}
+		const mine = generation;
+		let first = true;
+		const nths = Array.from({ length: searcher.longestWord }, (_, k) => k + 1);
+		runSkips(
+			nths,
+			(nth) => searcher.searchWords(word, { nth, fromEnd, anyOrder }),
+			(nth, answer) => {
+				kept = add(kept, kind, word, false, 0, nth, anyOrder);
+				found(kept[kept.length - 1].id, word, answer);
+				if (first && wide) panelOpen = true;
+				first = false;
+			},
+			() => generation === mine
 		);
 	}
 
@@ -197,6 +280,19 @@
 			if (view === 'book') book?.focus();
 			else canvas.focus({ preventScroll: true });
 		}
+	}
+
+	// The reset: every search taken away, its marks cleared, and the panel
+	// with them — as when the last one is removed.
+	function clearSearches() {
+		for (const search of kept) if (isShown(search)) map?.marks.clear(search.slot);
+		generation++;
+		kept = [];
+		hits.clear();
+		retally();
+		panelOpen = false;
+		if (view === 'book') book?.focus();
+		else canvas.focus({ preventScroll: true });
 	}
 
 	// The passages the searches shown make together — holding any of them,
@@ -374,12 +470,22 @@
 		if (passage && !passage.open) passage.showModal();
 	});
 
+	// A verse clicked in a search's passages: its passage opens over the
+	// list, the same modal the map and the book open.
+	function readVerse(verse: number) {
+		const hit = map?.book.select(verse);
+		if (hit) selection = hit;
+	}
+
 	// Closed before the focus moves: while the modal is open the view beneath
-	// is inert and would refuse it. The focus goes back to the view read.
+	// is inert and would refuse it. The focus goes back to the view read — or,
+	// opened from a search's passages, stays with the list, which the dialog's
+	// own closing hands it back to.
 	function closePassage() {
 		if (!selection) return;
 		passage?.close();
 		selection = null;
+		if (listing) return;
 		if (view === 'book') book?.focus();
 		else canvas.focus({ preventScroll: true });
 	}
@@ -621,6 +727,7 @@
 				onclose={closePanel}
 				ontoggle={toggleSearch}
 				onremove={removeSearch}
+				onclear={clearSearches}
 				onrecolor={recolorSearch}
 				onresults={openResults}
 				{together}
@@ -704,12 +811,21 @@
 		listed={listing.listed}
 		contents={map.book.contents}
 		read={map.results.page}
+		onselect={readVerse}
 		onclose={closeResults}
 	/>
 {/if}
 
 {#if searching}
-	<LetterSearch title={searching} onrun={runConsecutive} onclose={closeSearch} />
+	<LetterSearch
+		title="Search word"
+		ranged={searching === 'Equidistant letters'}
+		worded={searching === 'First letters' || searching === 'Last letters'}
+		nthOffered={searching === 'First letters'}
+		maxSkip={(n) => map?.maxSkip(n) ?? 0}
+		onrun={runSearch}
+		onclose={closeSearch}
+	/>
 {/if}
 
 {#if selection}

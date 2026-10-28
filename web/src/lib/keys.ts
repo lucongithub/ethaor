@@ -63,8 +63,9 @@ export function command(event: Key): Command | null {
 
 /**
  * What Escape does. **It closes before it leaves**: an open passage or
- * notice is closed and the view stays where the reader dived — a search's
- * list of passages first, lying over everything. Only with
+ * notice is closed and the view stays where the reader dived — the
+ * passage first, which may lie over a search's list of passages, then that
+ * list, lying over everything else. Only with
  * nothing open does it go back to the overview — closing a passage used to
  * throw away a dive of ten notches. The searches' panel is closed only
  * where it lies over the view (`searches`, a narrow screen): beside it, it
@@ -78,8 +79,8 @@ export function escape(open: {
 	searches?: boolean;
 	book?: boolean;
 }): Escape {
-	if (open.results) return 'results';
 	if (open.selection) return 'selection';
+	if (open.results) return 'results';
 	if (open.notice) return 'notice';
 	if (open.searches) return 'searches';
 	return open.book ? 'none' : 'overview';

@@ -284,6 +284,12 @@ pub struct Hit {
     pub letters: Vec<Letter>,
 }
 
+impl Letter {
+    pub fn of(l: &els::Letter) -> Letter {
+        Letter { char: l.char, osis: reference::verse(l.verse).osis(), position: l.position, rank: l.rank }
+    }
+}
+
 impl Hit {
     pub fn of(hit: &els::Hit) -> Hit {
         Hit {
@@ -291,11 +297,7 @@ impl Hit {
             step: hit.skip as u64 + 1,
             from: VerseRef::of(&hit.first_verse()),
             to: VerseRef::of(&hit.last_verse()),
-            letters: hit
-                .letters
-                .iter()
-                .map(|l| Letter { char: l.char, osis: reference::verse(l.verse).osis(), position: l.position, rank: l.rank })
-                .collect(),
+            letters: hit.letters.iter().map(Letter::of).collect(),
         }
     }
 }
@@ -390,6 +392,11 @@ pub fn status(refusal: &Refusal) -> StatusCode {
 
 /// Every failure as the caller reads it — never a bare status.
 pub fn failure(failure: &Failure) -> Response {
+    failure_while(failure, "answering an ELS search")
+}
+
+/// `failure`, a fault of ours escalated with what was being answered.
+pub fn failure_while(failure: &Failure, what: &str) -> Response {
     match failure {
         Failure::Refused(refusal) => refuse(status(refusal), refusal.code(), refusal.message()),
         Failure::RateLimited(wait, client) => rate_limited(*wait, *client),
@@ -399,7 +406,7 @@ pub fn failure(failure: &Failure) -> Response {
                 .retry_after(std::time::Duration::from_secs(1))
                 .respond()
         }
-        Failure::Fault(fault) => (**fault).clone().escalate("answering an ELS search").respond(),
+        Failure::Fault(fault) => (**fault).clone().escalate(what).respond(),
     }
 }
 

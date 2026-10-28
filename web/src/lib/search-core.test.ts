@@ -61,4 +61,44 @@ describe('SearchCore', () => {
 		expect(open).toBeGreaterThan(0);
 		expect(final + open).toBe(folded);
 	});
+
+	it('reads first and last letters: -1 before the text, then each letter by verse and rank', async () => {
+		const core = await SearchCore.create();
+		expect(core.words('בבא', { nth: 1 }).total).toBe(-1);
+		booksShuffled().forEach((b) => core.tile(b.first, b.end, b.codes));
+		expect(core.readings(block(bookCuts.length - 2))).toBe(true);
+
+		// בראשית ברא אלהים: the first letters of Genesis' first words.
+		const first = core.words('בבא', { nth: 1 });
+		expect(first.form).toBe('letters');
+		expect(first.stride).toBe(6);
+		expect(Array.from(first.hits.subarray(0, 6))).toEqual([0, 0, 0, 6, 0, 9]);
+		// Any order holds the word as written, and more.
+		const any = core.words('אבב', { nth: 1, anyOrder: true });
+		expect(Array.from(any.hits.subarray(0, 6))).toEqual([0, 0, 0, 6, 0, 9]);
+		expect(any.total).toBeGreaterThan(core.words('אבב', { nth: 1 }).total);
+		// The last letters, finals told apart: ת א ם.
+		const last = core.words('תאם', { nth: 1, fromEnd: true, exact: true });
+		expect(Array.from(last.hits.subarray(0, 6))).toEqual([0, 5, 0, 8, 0, 13]);
+		expect(core.words('תאם', { nth: 1, exact: true }).hits.subarray(0, 2)).not.toEqual(
+			new Uint32Array([0, 5])
+		);
+		// A letter no word holds finds nothing.
+		expect(core.words('א', { nth: 99 }).total).toBe(0);
+	});
+
+	// The page searches first and last letters folded, never exact: a last
+	// letter is final whenever it can be, so a word typed with or without its
+	// final forms finds the same — and the words' last letters are not their
+	// first.
+	it('reads last letters folded: a final typed or not is the same search', async () => {
+		const core = await SearchCore.create();
+		booksShuffled().forEach((b) => core.tile(b.first, b.end, b.codes));
+		expect(core.readings(block(bookCuts.length - 2))).toBe(true);
+		const last = (word: string, nth = 1) => core.words(word, { nth, fromEnd: true }).total;
+		expect(last('ומם')).toBeGreaterThan(0);
+		expect(last('ומם')).toBe(last('וממ'));
+		expect(last('ומם')).not.toBe(core.words('ומם', { nth: 1 }).total);
+		expect(last('ומם', 2)).toBe(last('וממ', 2));
+	});
 });

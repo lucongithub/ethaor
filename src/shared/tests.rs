@@ -2,6 +2,7 @@
 
 use super::els::{self as search, CAP, Engine, MAX_LIMIT, Query, Refusal, STRIDE};
 use super::reference::{self, BOOKS, numeral_value};
+use super::words;
 use crate::{corpus, els, letter, pack, variant};
 
 fn query(word: &str, skip_min: u32, skip_max: u32, offset: usize, limit: usize) -> Query {
@@ -479,4 +480,97 @@ fn an_exact_query_keeps_its_finals() {
     let all = search::search(&mut engine, &folded).unwrap();
     assert!(!engine.exact, "the folded search ran exact");
     assert!(page.total < all.total, "exact found as many as folded");
+}
+
+// ------------------------------------------------------- first and last letters
+
+fn words_query(word: &str, pick: words::Pick, any_order: bool, offset: usize, limit: usize) -> words::Query {
+    words::Query { word: word.into(), exact: false, pick, any_order, offset, limit, scope: None }
+}
+
+/// A words query is refused for no letter, a letter no word holds — none
+/// before the first, none past the longest word — a page too big, or an
+/// empty scope; each with a code of its own.
+#[test]
+fn a_words_query_is_refused_with_its_reason() {
+    let mut engine = Engine::new();
+    let first = words::Pick::FIRST;
+    let mut refused = |q: words::Query| words::search(&mut engine, &q).unwrap_err();
+    assert_eq!(refused(words_query("abc", first, false, 0, 10)), Refusal::NoLetter);
+    for nth in [0, words::LONGEST_WORD + 1] {
+        let pick = words::Pick { nth, from_end: true };
+        assert_eq!(refused(words_query("אב", pick, false, 0, 10)), Refusal::LetterRange(nth));
+    }
+    assert_eq!(refused(words_query("אב", first, false, 0, MAX_LIMIT + 1)), Refusal::Limit(MAX_LIMIT + 1));
+    let mut q = words_query("אב", first, false, 0, 10);
+    q.scope = Some((10, 10));
+    assert_eq!(refused(q), Refusal::EmptyScope);
+    let codes: std::collections::HashSet<_> =
+        [Refusal::LetterRange(0), Refusal::NoLetter, Refusal::Limit(0), Refusal::EmptyScope, Refusal::SkipRange { min: 1, max: 0 }]
+            .iter()
+            .map(Refusal::code)
+            .collect();
+    assert_eq!(codes.len(), 5, "two refusals share a code");
+}
+
+/// A page is the engine's hits, in the order of the text, each letter the
+/// picked one of its word — first or last — spelling the word in order, or
+/// its letters in any; pages tile the listed hits and `limit` 0 counts.
+#[test]
+fn a_words_page_places_the_engines_hits() {
+    let mut engine = Engine::new();
+    let mut seen_any = false;
+    for (pick, any_order) in [(words::Pick::FIRST, false), (words::Pick::LAST, false), (words::Pick::FIRST, true)] {
+        let whole = words::search(&mut engine, &words_query("משה", pick, any_order, 0, MAX_LIMIT)).unwrap();
+        assert_eq!(whole.letters, "משה");
+        assert!(whole.total > 0 && whole.hits.len() as u64 == whole.total.min(MAX_LIMIT as u64));
+        for hit in &whole.hits {
+            let mut word: Vec<char> = hit.letters.iter().map(|l| l.char).collect();
+            if any_order {
+                seen_any |= word != ['מ', 'ש', 'ה'];
+                word.sort_unstable();
+                assert_eq!(word, ['ה', 'מ', 'ש']);
+            } else {
+                assert_eq!(word, ['מ', 'ש', 'ה']);
+            }
+            assert!(hit.letters.windows(2).all(|p| p[0].rank < p[1].rank), "out of reading order");
+            for l in &hit.letters {
+                assert_eq!(reference::letter(l.rank as usize), (l.verse, l.position as usize));
+                // The letter opens — or closes — a word of its verse.
+                let text = corpus::verse_text(l.verse);
+                let (mut at, mut bounds) = (0usize, Vec::new());
+                for word in text.split_whitespace() {
+                    let n = letter::letter_count(word);
+                    bounds.push(if pick.from_end { at + n - 1 } else { at });
+                    at += n;
+                }
+                assert!(bounds.contains(&(l.position as usize)), "{} not at a word's edge", l.position);
+            }
+        }
+        assert!(whole.hits.windows(2).all(|p| p[0].letters[0].rank < p[1].letters[0].rank));
+        let counted = words::search(&mut engine, &words_query("משה", pick, any_order, 0, 0)).unwrap();
+        assert_eq!((counted.total, counted.hits.len(), counted.next_offset()), (whole.total, 0, None));
+        let (a, b) = (
+            words::search(&mut engine, &words_query("משה", pick, any_order, 0, 7)).unwrap(),
+            words::search(&mut engine, &words_query("משה", pick, any_order, 7, 7)).unwrap(),
+        );
+        assert_eq!(a.next_offset(), Some(7));
+        assert_eq!([a.hits, b.hits].concat(), whole.hits[..14].to_vec());
+    }
+    assert!(seen_any, "any order found only the word as written");
+}
+
+/// A words search costs a pass over its stretch: the heaviest — the first
+/// letters of the whole Tanakh — is admitted under the API's default
+/// ceiling, and a ceiling below it refuses it before it runs.
+#[test]
+fn a_words_search_is_admitted_on_its_cost() {
+    let mut engine = Engine::new();
+    let q = words_query("א", words::Pick::FIRST, true, 0, 10);
+    let estimate = words::admit(&mut engine, &q, 300.0).unwrap();
+    assert!(estimate > 0.0 && estimate < 300.0);
+    assert!(matches!(words::admit(&mut engine, &q, estimate / 2.0), Err(Refusal::TooCostly { .. })));
+    let mut scoped = q.clone();
+    scoped.scope = Some((0, 31));
+    assert!(words::admit(&mut engine, &scoped, 300.0).unwrap() < estimate / 100.0);
 }
