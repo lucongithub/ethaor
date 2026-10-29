@@ -14,7 +14,7 @@ export type Command =
 
 /** What Escape closes, in order: the nearest thing first. `none`: nothing
  *  left to close, and no overview to go back to — the book view's. */
-export type Escape = 'results' | 'selection' | 'notice' | 'searches' | 'overview' | 'none';
+export type Escape = 'info' | 'results' | 'selection' | 'notice' | 'searches' | 'overview' | 'none';
 
 /**
  * Share of the view one arrow moves it by, and with Shift held. A small step
@@ -70,15 +70,18 @@ export function command(event: Key): Command | null {
  * throw away a dive of ten notches. The searches' panel is closed only
  * where it lies over the view (`searches`, a narrow screen): beside it, it
  * covers nothing and stays. In the book view there is no overview: the
- * reader's place is the scroll, and Escape never throws it away.
+ * reader's place is the scroll, and Escape never throws it away. What a
+ * search did (`info`), opened from the panel over everything, closes first.
  */
 export function escape(open: {
+	info?: boolean;
 	results?: boolean;
 	selection: boolean;
 	notice: boolean;
 	searches?: boolean;
 	book?: boolean;
 }): Escape {
+	if (open.info) return 'info';
 	if (open.selection) return 'selection';
 	if (open.results) return 'results';
 	if (open.notice) return 'notice';

@@ -1,8 +1,10 @@
 <script lang="ts">
 	// A search's hits, listed as passages: opened by its count in the panel,
 	// a modal centred over the view as the passage is — or the searches shown
-	// taken together, the passages holding any of them (∪) or every one (∩),
-	// opened by the panel's counts of them. Each passage says where
+	// taken together, the passages holding any of them (∪) or two at least
+	// (∩), opened by the panel's counts of them — ∩ cut by crossing, the most
+	// searches first, each under a title naming them; ∪ one list in the
+	// order of the text. Each passage says where
 	// it lies — portion, book, chapter — then reads every verse its hits
 	// reach, the letters found in their colours: the search listed always in
 	// its own, shown on the map or not; the others shown in theirs. Nothing
@@ -14,7 +16,7 @@
 	import type { Contents } from '$lib/book-view';
 	import { COLORS, grouped, inkStyle, isShown, skipPrefix, type Marked } from '$lib/marks';
 	import { inked } from '$lib/passage';
-	import { colorsOf, PAGE, stretches, type Passage } from '$lib/results';
+	import { colorsOf, crossed, PAGE, stretches, type Crossing, type Passage } from '$lib/results';
 
 	let {
 		search,
@@ -22,6 +24,7 @@
 		list,
 		passages,
 		listed,
+		crossings,
 		contents,
 		read,
 		onselect,
@@ -37,6 +40,8 @@
 		passages: number;
 		/** Hits the list holds: fewer than the total past the module's cap. */
 		listed?: number;
+		/** The searches together: the list's crossings, the widest first. */
+		crossings?: Crossing[];
 		contents: Contents;
 		/** Passages `from..from + count`. */
 		read: (from: number, count: number) => Passage[];
@@ -79,6 +84,12 @@
 	const words = $derived(search ? [search] : list.filter(isShown));
 	const sign = $derived(join === 'all' ? '∩' : '∪');
 	const plural = (n: number, one: string) => `${grouped(n)} ${one}${n === 1 ? '' : 's'}`;
+
+	// The list cut by crossing, each under its title; one search's list is
+	// one section, untitled.
+	const sections = $derived<Crossing[]>(
+		crossings?.length ? crossings : [{ slots: 0, passages, from: 0 }]
+	);
 
 	// The letters found, as the passage paints them: one colour, or bands.
 	const styleOf = (bits: number) => inkStyle(colorsOf(list, search, bits));
@@ -123,10 +134,12 @@
 						class="font-sans text-base text-white/45"
 						aria-label={join === 'all' ? 'and' : 'or'}>{sign}</span
 					>{/if}
-				<!-- An equidistant search reads `2_` then its word, left to right:
-				     the skip before the Hebrew, the underscore between them; a row
-				     of an "every nth letter" run its letter the same way. -->
-				{#if skipPrefix(m)}<span dir="ltr"
+				<!-- A row of an "every nth letter" run reads `2_` then its word,
+				     left to right: the letter before the Hebrew, the underscore
+				     between them. An equidistant search reads its word alone, no
+				     skip, and so do the searches together (∪, ∩) — the owner's
+				     rule. -->
+				{#if search && skipPrefix(m)}<span dir="ltr"
 						><span lang="en" class="font-sans text-sm text-white/58 tabular-nums"
 							>{skipPrefix(m)}</span
 						><span style:color={COLORS[m.color]}>{m.word}</span></span
@@ -137,11 +150,14 @@
 			id="results-count"
 			dir="ltr"
 			lang="en"
-			class="order-last basis-full pb-1 text-sm text-white/58 tabular-nums sm:order-none sm:me-auto sm:min-w-0 sm:basis-auto sm:truncate sm:pb-0"
+			class={search
+				? 'order-last basis-full pb-1 text-sm text-white/58 tabular-nums sm:order-none sm:me-auto sm:min-w-0 sm:basis-auto sm:truncate sm:pb-0'
+				: 'order-first shrink-0 text-sm text-white/58 tabular-nums'}
 		>
-			<!-- One search: its hits and passages, named. The searches together:
-			     the count bare, the owner's rule — the screen reader still hears
-			     the word. -->
+			<!-- One search: its hits and passages, named, after its word. The
+			     searches together: the count bare, the owner's rule — the screen
+			     reader still hears the word — and before the words, the owner's
+			     rule, as each crossing's count below. -->
 			{#if search}
 				{plural(search.total ?? 0, 'hit')} | {plural(
 					passages,
@@ -156,9 +172,14 @@
 			type="button"
 			lang="en"
 			aria-label="Close"
-			class="grid size-10 shrink-0 cursor-pointer place-items-center rounded text-white/58 transition-colors duration-150
-			       hover:bg-white/[0.06] hover:text-white focus-visible:text-white
-			       focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-white/60"
+			class={[
+				'grid size-10 shrink-0 cursor-pointer place-items-center rounded bg-white/[0.06] text-white/58 transition-colors duration-150',
+				'hover:bg-white/[0.1] hover:text-white focus-visible:text-white',
+				'focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-white/60',
+				// The words no longer pushed by a count after them: the button
+				// keeps the far end itself.
+				!search && 'ms-auto'
+			]}
 			onclick={() => dialog?.close()}
 		>
 			<svg viewBox="0 0 256 256" class="size-5 fill-current" aria-hidden="true">
@@ -169,58 +190,95 @@
 		</button>
 	</header>
 
+	<!-- Left to right, so its scrollbar takes the right edge: on the left it
+	     pushed every crossing's count off the close button's edge. -->
 	<div
+		dir="ltr"
 		class="[scrollbar-width:thin] [scrollbar-color:rgb(255_255_255/0.25)_transparent] overflow-y-auto
 		       overscroll-contain selection:bg-white/20"
 	>
-		<ol class="divide-y divide-white/10">
-			{#each shown as passage, p (p)}
-				<li class="px-5 py-5 sm:px-7 sm:py-6">
-					{#each stretches(passage, contents) as stretch, g (g)}
-						<!-- Where it lies, as the breadcrumb names it — said again
+		{#each sections as section (section.from)}
+			{#if section.from < shown.length}
+				<section
+					dir="rtl"
+					aria-labelledby={section.slots ? `crossing-${section.slots}` : undefined}
+				>
+					<!-- A crossing's title, over its passages, held at the top while
+					     they scroll: the searches its passages all hold, each in its
+					     colour, joined by ∩ — the widest first — after how many, the
+					     owner's rule: the count first, on the right where it reads. -->
+					{#if section.slots}
+						<h3
+							id={`crossing-${section.slots}`}
+							class="sticky top-0 z-10 flex items-baseline gap-x-3 border-y border-white/10 bg-black py-2 ps-5 pe-2 sm:ps-7 sm:pe-3"
+						>
+							<span dir="ltr" lang="en" class="shrink-0 text-xs text-white/58 tabular-nums"
+								>{grouped(section.passages)}<span class="sr-only">
+									{section.passages === 1 ? 'passage' : 'passages'}</span
+								></span
+							>
+							<span
+								lang="he"
+								class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 font-hebrew text-base leading-tight"
+							>
+								{#each crossed(list, section.slots) as m, k (m.id)}
+									{#if k > 0}<span class="font-sans text-sm text-white/45" aria-label="and">∩</span
+										>{/if}<span style:color={COLORS[m.color]}>{m.word}</span>
+								{/each}
+							</span>
+						</h3>
+					{/if}
+					<ol class="divide-y divide-white/10">
+						{#each shown.slice(section.from, section.from + section.passages) as passage, p (section.from + p)}
+							<li class="px-5 py-5 sm:px-7 sm:py-6">
+								{#each stretches(passage, contents) as stretch, g (g)}
+									<!-- Where it lies, as the breadcrumb names it — said again
 						     wherever a word read far apart reaches another chapter,
 						     book or portion. -->
-						<p
-							class={[
-								'mb-2 flex flex-wrap items-baseline gap-x-2 font-hebrew text-sm sm:text-base',
-								g > 0 && 'mt-4'
-							]}
-						>
-							<span class="text-white/58">{stretch.place.portion}</span>
-							<span class="text-white/25" aria-hidden="true">›</span>
-							<span class="text-white/58">{stretch.place.book}</span>
-							<span class="text-white/25" aria-hidden="true">›</span>
-							<span class="text-white/58">{stretch.place.chapter}</span>
-						</p>
-						{#each stretch.verses as verse (verse.verse)}
-							{@const runs = inked(verse.text, verse.found)}
-							<!-- The book's verse plate under the pointer: what a click reads. -->
-							<div
-								role="button"
-								tabindex="0"
-								class="-mx-[0.4em] cursor-pointer rounded px-[0.4em] font-hebrew text-lg leading-loose text-pretty text-white
+									<p
+										class={[
+											'mb-2 flex flex-wrap items-baseline gap-x-2 font-hebrew text-sm sm:text-base',
+											g > 0 && 'mt-4'
+										]}
+									>
+										<span class="text-white/58">{stretch.place.portion}</span>
+										<span class="text-white/25" aria-hidden="true">›</span>
+										<span class="text-white/58">{stretch.place.book}</span>
+										<span class="text-white/25" aria-hidden="true">›</span>
+										<span class="text-white/58">{stretch.place.chapter}</span>
+									</p>
+									{#each stretch.verses as verse (verse.verse)}
+										{@const runs = inked(verse.text, verse.found)}
+										<!-- The book's verse plate under the pointer: what a click reads. -->
+										<div
+											role="button"
+											tabindex="0"
+											class="-mx-[0.4em] cursor-pointer rounded px-[0.4em] font-hebrew text-lg leading-loose text-pretty text-white
 							       transition-colors duration-150 outline-none hover:bg-white/6 focus-visible:bg-white/6
 							       focus-visible:outline-1 focus-visible:outline-white/60 sm:text-xl"
-								onclick={() => pick(verse.verse)}
-								onkeydown={(event) => {
-									if (event.key !== 'Enter' && event.key !== ' ') return;
-									event.preventDefault();
-									onselect(verse.verse);
-								}}
-							>
-								<span class="me-1 align-[0.15em] text-[0.7em] text-white/45 select-none"
-									>{verse.number}</span
-								>
-								{#each runs as word, k (k)}{#each word as run, r (r)}{@const style = run.slots
-											? styleOf(run.slots)
-											: ''}{#if style}<span {style}>{run.text}</span
-											>{:else}{run.text}{/if}{/each}{k < runs.length - 1 ? ' ' : ''}{/each}
-							</div>
+											onclick={() => pick(verse.verse)}
+											onkeydown={(event) => {
+												if (event.key !== 'Enter' && event.key !== ' ') return;
+												event.preventDefault();
+												onselect(verse.verse);
+											}}
+										>
+											<span class="me-1 align-[0.15em] text-[0.7em] text-white/45 select-none"
+												>{verse.number}</span
+											>
+											{#each runs as word, k (k)}{#each word as run, r (r)}{@const style = run.slots
+														? styleOf(run.slots)
+														: ''}{#if style}<span {style}>{run.text}</span
+														>{:else}{run.text}{/if}{/each}{k < runs.length - 1 ? ' ' : ''}{/each}
+										</div>
+									{/each}
+								{/each}
+							</li>
 						{/each}
-					{/each}
-				</li>
-			{/each}
-		</ol>
+					</ol>
+				</section>
+			{/if}
+		{/each}
 		<div bind:this={end} aria-hidden="true">
 			{#if shown.length < passages}
 				<p dir="ltr" lang="en" class="px-5 py-6 text-center text-xs text-white/45 sm:px-7">

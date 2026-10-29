@@ -23,7 +23,10 @@ pub(crate) enum Form {
 impl Form {
     /// The form the page names: 1 letters, anything else ELS.
     pub(crate) fn of(code: u32) -> Form {
-        if code == 1 { Form::Letters } else { Form::Els }
+        match code {
+            1 => Form::Letters,
+            _ => Form::Els,
+        }
     }
 }
 
@@ -49,8 +52,8 @@ pub(crate) struct Marks {
     pub(crate) books: Vec<bool>,
     pub(crate) sections: [bool; 3],
     /// While the searches shown are joined by `all` (`App::join_marks`):
-    /// its letters and places kept to the passages holding a hit of every
-    /// one — what the map draws then. `None` joined by any: all of them.
+    /// its letters and places kept to the passages where two searches at
+    /// least cross — what the map draws then. `None` joined by any: all.
     pub(crate) joined: Option<Box<Marks>>,
 }
 
@@ -134,14 +137,14 @@ impl App {
 
     /// How the map joins the searches shown — the reader's choice in the
     /// panel: by any (`all` false), each drawn whole, or by all, each drawn
-    /// only in the passages holding a hit of every one (`shown_passages`).
+    /// only in the passages where it crosses another (`shown_crossings`).
     /// Every mark follows: letters, squares, the book view's, the passage's.
     pub(crate) fn join_marks(&mut self, all: bool) {
         self.join_all = all;
         self.rejoin();
     }
 
-    /// Keeps each shown slot's marks to the passages of all, joined by all;
+    /// Keeps each shown slot's marks to the crossing passages, joined by all;
     /// lets them go joined by any. Run whenever what is shown changes.
     fn rejoin(&mut self) {
         let passages = if self.join_all { self.shown_passages(true) } else { Vec::new() };
@@ -330,6 +333,11 @@ pub(crate) struct Results {
     /// The search's own letters, placed as `Marks::runs` are; none for the
     /// shown searches together, whose letters their slots carry.
     pub(crate) runs: Vec<(u32, u32, u32)>,
+    /// The shown searches crossing (`∩`): `(slots, passages)` per crossing,
+    /// in the order of the list — the slots holding a hit in each of its
+    /// passages, as bits, and how many follow. None for one search's list,
+    /// nor for `∪`, listed in the order of the text.
+    pub(crate) groups: Vec<(u32, u32)>,
 }
 
 impl App {
@@ -347,14 +355,19 @@ impl App {
     pub(crate) fn set_results_of(&mut self, records: &[u32], span: usize, form: Form) -> usize {
         let hits = hit_verses(records, span, form).into_iter().map(|v| (v, 0)).collect();
         let passages = merged(hits).into_iter().map(|(v, _)| v).collect();
-        self.results = Results { passages, runs: placed(records, span, form) };
+        self.results = Results { passages, runs: placed(records, span, form), groups: Vec::new() };
         self.results.passages.len()
     }
 
     /// The passages of the searches shown, their hits taken together as one
-    /// search's are: those holding a hit of any (`all` false), or of every
-    /// one (`all` true). None while no search is shown.
-    pub(crate) fn shown_passages(&self, all: bool) -> Vec<Vec<u32>> {
+    /// search's are, each with the slots holding a hit in it as bits: those
+    /// holding a hit of any (`all` false), or crossing — holding hits of two
+    /// searches at least (`all` true; of the one, while one alone is shown).
+    /// Those of any in the order of the text; those crossing grouped by
+    /// crossing, the owner's rule: the most searches first, then by their
+    /// bits, then in the order of their first verse. None while no search is
+    /// shown.
+    pub(crate) fn shown_crossings(&self, all: bool) -> Vec<(Vec<u32>, u32)> {
         let mask = self.mask(|_| true);
         if mask == 0 {
             return Vec::new();
@@ -363,13 +376,36 @@ impl App {
         for (slot, marks) in self.marks.iter().enumerate().filter(|(_, m)| m.shown) {
             hits.extend(marks.hits.iter().map(|v| (v.clone(), 1 << slot)));
         }
-        merged(hits).into_iter().filter(|p| !all || p.1 == mask).map(|(v, _)| v).collect()
+        let passages = merged(hits);
+        if !all {
+            return passages;
+        }
+        let least = mask.count_ones().min(2);
+        let mut passages: Vec<(Vec<u32>, u32)> = passages.into_iter().filter(|p| p.1.count_ones() >= least).collect();
+        // Stable: within a crossing, the order of the text `merged` gives.
+        passages.sort_by_key(|p| (std::cmp::Reverse(p.1.count_ones()), p.1));
+        passages
     }
 
-    /// Sets the list of passages to the shown searches' (`shown_passages`).
-    /// Returns the number of passages.
+    /// `shown_crossings`, the verses alone.
+    pub(crate) fn shown_passages(&self, all: bool) -> Vec<Vec<u32>> {
+        self.shown_crossings(all).into_iter().map(|(v, _)| v).collect()
+    }
+
+    /// Sets the list of passages to the shown searches' (`shown_crossings`),
+    /// with its crossings joined by all — none by any, listed in the order
+    /// of the text alone. Returns the number of passages.
     pub(crate) fn set_shown_results(&mut self, all: bool) -> usize {
-        self.results = Results { passages: self.shown_passages(all), runs: Vec::new() };
+        let crossings = self.shown_crossings(all);
+        let mut groups: Vec<(u32, u32)> = Vec::new();
+        for (_, bits) in crossings.iter().filter(|_| all) {
+            match groups.last_mut() {
+                Some(last) if last.0 == *bits => last.1 += 1,
+                _ => groups.push((*bits, 1)),
+            }
+        }
+        let passages = crossings.into_iter().map(|(v, _)| v).collect();
+        self.results = Results { passages, runs: Vec::new(), groups };
         self.results.passages.len()
     }
 

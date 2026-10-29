@@ -818,7 +818,8 @@ fn the_page_lists_a_search_s_passages() {
 /// **The panel's counts reach the page as it asks them**: `passages_count`
 /// counts the hits at `marks_buffer` as `results_set` lists them, and
 /// `passages_shown` the shown searches' together, as `results_shown` lists
-/// them — of any, of all; `marks_join` keeps the map's squares to the
+/// them — of any, of all — and `results_groups` the crossings of `∩`, none
+/// for `∪`; `marks_join` keeps the map's squares to the
 /// passages of all, and gives them back whole.
 #[test]
 fn the_page_counts_passages() {
@@ -841,7 +842,12 @@ fn the_page_counts_passages() {
     let (any, all) = (passages_shown(0), passages_shown(1));
     assert!(any >= found[0].max(found[1]) && all > 0 && all < any);
     assert_eq!(results_shown(1), all);
+    // The crossings reach the page as the list holds them: one, both slots.
+    let n = results_groups() as usize;
+    let groups = unsafe { core::slice::from_raw_parts(results_groups_ptr(), 2 * n) }.to_vec();
+    assert_eq!(groups, [0b110, all], "∩ of two: one crossing of both");
     assert_eq!(results_shown(0), any);
+    assert_eq!(results_groups(), 0, "∪, in the text's order, has crossings");
     results_clear();
 
     // Joined by all, fewer places hold a square; by any, as many as before.
@@ -854,3 +860,4 @@ fn the_page_counts_passages() {
     marks_clear(1);
     marks_clear(2);
 }
+

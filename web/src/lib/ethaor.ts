@@ -39,7 +39,7 @@ import {
 	type Found as BookFound
 } from './book-view';
 import type { Found as Inked } from './passage';
-import { readResults, type Passage } from './results';
+import { readCrossings, readResults, type Crossing, type Passage } from './results';
 
 /**
  * Books fetched at once in the background. One at a time paid a round trip
@@ -187,8 +187,11 @@ interface Wasm {
 	results_page(from: number, count: number): number;
 	results_ptr(): number;
 	results_clear(): void;
-	/** Lists the searches shown together: of any (0) or of all (1); how many. */
+	/** Lists the searches shown together: of any (0) or where two cross (1); how many. */
 	results_shown(all: number): number;
+	/** The list's crossings, `(slots, passages)` pairs at `results_groups_ptr`; how many. */
+	results_groups(): number;
+	results_groups_ptr(): number;
 	/** How many passages the searches shown make, of any (0) or of all (1). */
 	passages_shown(all: number): number;
 	/** How many passages the hits at `marks_buffer` make; the buffer taken. */
@@ -326,8 +329,10 @@ export interface TanakhMap {
 export interface Results {
 	/** Lists a search's hits, `span` letters each; the number of passages. */
 	set(found: Found, span: number): number;
-	/** Lists the searches shown together: those holding any, or all of them. */
+	/** Lists the searches shown together: those holding any, or where two cross. */
 	shown(all: boolean): number;
+	/** The crossings of the list `shown` set, the widest first. */
+	crossings(): Crossing[];
 	/** How many passages a search's hits make, `span` letters each, as `set` would list them. */
 	count(found: Found, span: number): number;
 	/** How many passages the searches shown make: of any, of all. */
@@ -1126,6 +1131,10 @@ export async function createTanakhMap(
 			return wasm.results_set(span, formOf(found));
 		},
 		shown: (all) => wasm.results_shown(all ? 1 : 0),
+		crossings() {
+			const n = wasm.results_groups();
+			return readCrossings(new Uint32Array(wasm.memory.buffer, wasm.results_groups_ptr(), 2 * n));
+		},
 		count(found, span) {
 			const at = wasm.marks_buffer(found.hits.length);
 			new Uint32Array(wasm.memory.buffer, at, found.hits.length).set(found.hits);

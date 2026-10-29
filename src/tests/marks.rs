@@ -751,7 +751,7 @@ fn the_searches_shown_make_passages_together() {
     let mut alone = reference_app();
     alone.set_results(&both, 3);
     let any = app.shown_passages(false);
-    assert_eq!(any, alone.results.passages, "any: the hits of the shown searches as one");
+    assert_eq!(any, alone.results.passages, "any: the hits of the shown searches as one, in the text's order");
 
     let holds = |hits: &[u32], p: &Vec<u32>| hits.chunks_exact(els::STRIDE).any(|h| p.binary_search(&h[4]).is_ok());
     let all = app.shown_passages(true);
@@ -765,8 +765,57 @@ fn the_searches_shown_make_passages_together() {
     assert!(app.results.runs.is_empty(), "the shown searches' letters are their slots'");
 
     app.set_marks(7, &[], 3);
-    assert!(app.shown_passages(true).is_empty(), "a search found nowhere, yet passages of all");
+    assert_eq!(app.shown_passages(true), all, "a search found nowhere changed the crossings");
     assert_eq!(app.shown_passages(false), any, "a search found nowhere changed the passages of any");
+}
+
+/// **With three searches, `∩` lists every crossing, the widest first**: a
+/// passage holding hits of two searches at least, never of one alone;
+/// grouped by the searches it holds, more before fewer, each group's
+/// passages in the order of the text; the groups the list's crossings say,
+/// summing to it. **`∪` lists in the order of the text alone**, crossings
+/// and single searches mixed, with no group.
+#[test]
+fn the_crossings_are_listed_widest_first() {
+    let mut app = reference_app();
+    let found = [records("משה", 0), records("אהרן", 0), records("פרעה", 0)];
+    for (slot, hits) in found.iter().enumerate() {
+        app.set_marks(slot, hits, [3, 4, 4][slot]);
+    }
+    let holds = |hits: &[u32], p: &Vec<u32>| hits.chunks_exact(els::STRIDE).any(|h| p.binary_search(&h[4]).is_ok());
+    let crossings = app.shown_crossings(true);
+    let mut widths = Vec::new();
+    for (verses, bits) in &crossings {
+        let want: u32 = (0..3).filter(|&s| holds(&found[s], verses)).map(|s| 1 << s).sum();
+        assert_eq!(*bits, want, "a passage's bits are not the searches it holds");
+        widths.push(bits.count_ones());
+    }
+    assert!(widths.iter().all(|&w| w >= 2), "∩ lists a passage of one search");
+    assert!(widths.windows(2).all(|w| w[0] >= w[1]), "a narrower crossing before a wider");
+    assert!(widths.contains(&3) && widths.contains(&2), "no crossing of three, or of two: {widths:?}");
+    for pair in crossings.windows(2) {
+        if pair[0].1 == pair[1].1 {
+            assert!(pair[0].0 < pair[1].0, "a crossing's passages out of the text's order");
+        }
+    }
+    assert_eq!(app.set_shown_results(true), crossings.len());
+    let mut at = 0;
+    for &(bits, count) in &app.results.groups {
+        let group = &crossings[at..at + count as usize];
+        assert!(group.iter().all(|p| p.1 == bits), "a group holds another crossing");
+        at += count as usize;
+        assert!(crossings.get(at).is_none_or(|p| p.1 != bits), "a crossing cut in two groups");
+    }
+    assert_eq!(at, crossings.len(), "the groups do not sum to the list");
+
+    let any = app.shown_crossings(false);
+    assert!(any.windows(2).all(|p| p[0].0 < p[1].0), "∪ out of the text's order");
+    let widths: Vec<u32> = any.iter().map(|p| p.1.count_ones()).collect();
+    assert!(widths.contains(&1) && widths.contains(&3), "∪ without its single searches or its crossings");
+    assert_eq!(app.set_shown_results(false), any.len());
+    assert!(app.results.groups.is_empty(), "∪ has groups");
+    app.set_results(&found[0], 3);
+    assert!(app.results.groups.is_empty(), "one search's list has crossings");
 }
 
 /// **Joined by all, the map draws a search only where every one is**: each
@@ -907,3 +956,4 @@ fn a_words_search_lists_the_verses_its_letters_lie_in() {
     app.set_results(&found, 3);
     assert_ne!(app.results.runs, as_letters);
 }
+

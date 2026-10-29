@@ -67,6 +67,10 @@ pub enum Refusal {
     TooCostly { estimate_ms: f64, limit_ms: f64 },
     /// A first- or last-letters search asks for a letter no word holds.
     LetterRange(u32),
+    /// A gematria method no key of the catalogue names.
+    UnknownMethod(String),
+    /// A gematria text past `gematria::MAX_LETTERS` letters.
+    TooManyLetters,
 }
 
 impl Refusal {
@@ -81,6 +85,8 @@ impl Refusal {
             Refusal::EmptyScope => "empty_scope",
             Refusal::TooCostly { .. } => "too_costly",
             Refusal::LetterRange(_) => "letter_range",
+            Refusal::UnknownMethod(_) => "unknown_method",
+            Refusal::TooManyLetters => "text_too_long",
         }
     }
 
@@ -104,6 +110,13 @@ impl Refusal {
                 "letter ({letter}) must lie from 1 to {}: the letters of the Tanakh's longest word",
                 crate::words::LONGEST_WORD
             ),
+            Refusal::UnknownMethod(key) => format!(
+                "method={key:?} names no gematria method: give keys parted by commas, among {}",
+                crate::gematria::Method::ALL.map(|m| super::gematria::info(m).key).join(", ")
+            ),
+            Refusal::TooManyLetters => {
+                format!("the text holds more than {} Hebrew letters", crate::gematria::MAX_LETTERS)
+            }
         }
     }
 }

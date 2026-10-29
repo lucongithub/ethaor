@@ -4,13 +4,14 @@
 	// hits, the
 	// eye (shows or hides its marks on the map), the cross (takes it away).
 	// Ten are shown at most, each its own colour; a hidden one waits for a
-	// slot. The word is no control of its own: it is kept free for what a
-	// search will open. The count is a control of its own, the owner's rule:
+	// slot. The word opens what the search did (`SearchInfo`): its kind, how
+	// the text was read, what was asked. The count is a control of its own, the owner's rule:
 	// it opens the list of the search's passages (`ResultsModal`). Above the
 	// rows, once two are shown, the passages they make together: holding any
 	// (∪) or every one (∩), each count opening its list. Each sign picks what
 	// the map draws, the owner's rule: ∪ by default, every search whole; ∩,
-	// each only in the passages of all.
+	// each only in the passages of all. A count opening its list picks its
+	// sign too.
 	//
 	// It slides over the map from the right and takes no room from it — the
 	// owner's rule. On a wide screen the map stays live beside it; on a narrow
@@ -24,7 +25,7 @@
 		isShown,
 		MAX_SHOWN,
 		searchName,
-		skipLabel,
+		rowLabel,
 		type Color,
 		type Marked
 	} from '$lib/marks';
@@ -38,6 +39,7 @@
 		onclear,
 		onrecolor,
 		onresults,
+		oninfo,
 		together = { any: 0, all: 0 },
 		ontogether,
 		join = 'any',
@@ -54,6 +56,8 @@
 		onrecolor: (id: number, color: Color) => void;
 		/** A search's passages asked for, by its count. */
 		onresults?: (id: number) => void;
+		/** A search explained, asked for by its word. */
+		oninfo?: (id: number) => void;
 		/** Passages the searches shown make together: holding any, or all. */
 		together?: { any: number; all: number };
 		/** Those passages asked for: of all (`true`), of any (`false`). */
@@ -211,10 +215,11 @@
 	<header
 		class="flex h-12 shrink-0 items-center gap-2 pr-[calc(0.25rem+env(safe-area-inset-right))] pl-4"
 	>
-		<h2 class="text-sm tracking-wide text-white">Searches</h2>
-		<!-- How many the map shows, of the ten it can. -->
-		<p class="flex-1 text-sm text-white/55 tabular-nums" aria-live="polite">
-			{shown} of {MAX_SHOWN} on the map
+		<!-- How many the map shows: the panel's only title, the number bare —
+		     the owner's rule, no "Searches" over it, no "of 10 on the map"
+		     after it. The screen reader still hears the words. -->
+		<p class="flex-1 text-sm text-white tabular-nums" aria-live="polite">
+			{shown}<span class="sr-only"> of {MAX_SHOWN} on the map</span>
 		</p>
 		<button
 			type="button"
@@ -292,7 +297,11 @@
 						aria-disabled={off}
 						aria-label={`${j.name}: ${waiting ? 'counting' : passagesOf(n)}`}
 						onclick={() => {
-							if (!off) ontogether?.(j.all);
+							if (off) return;
+							// Its list opened, its sign picked too — the owner's rule:
+							// the map then draws what the list reads.
+							if (!picked) onjoin?.(j.all ? 'all' : 'any');
+							ontogether?.(j.all);
 						}}
 						onpointerenter={(event) => {
 							if (hovers(event)) showTip(j.name, event.currentTarget);
@@ -340,24 +349,38 @@
 					</button>
 
 					<!-- The word: named by the tip, as the rail names its icons — the
-					     kind of search, and whether its finals are told apart. -->
-					<div
-						role="presentation"
+					     kind of search, and whether its finals are told apart — and
+					     clicked, the search explained (`SearchInfo`). -->
+					<button
+						id={`word-${search.id}`}
+						type="button"
 						class={[
-							'flex h-11 min-w-0 flex-1 items-center justify-end gap-2 px-2 transition-colors duration-150 md:h-9',
-							on ? 'text-white' : 'text-white/45'
+							'flex h-11 min-w-0 flex-1 cursor-pointer items-center justify-end gap-2 rounded px-2 transition-colors duration-150 md:h-9',
+							'hover:bg-white/[0.06] focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-white/60',
+							on ? 'text-white' : 'text-white/45 hover:text-white focus-visible:text-white'
 						]}
+						aria-label={`${search.word}: ${named(search, false)} — what this search did`}
+						onclick={() => {
+							hideTip();
+							oninfo?.(search.id);
+						}}
 						onpointerenter={(event) => {
 							if (hovers(event)) showTip(named(search, false), event.currentTarget);
 						}}
 						onpointerleave={hideTip}
+						onfocus={(event) => {
+							if (event.currentTarget.matches(':focus-visible'))
+								showTip(named(search, false), event.currentTarget);
+						}}
+						onblur={hideTip}
 					>
 						<!-- The word first, from the right, flush with every other row's;
-						     its skip after it, to its left — never under it: one equidistant
-						     run's rows share their word, and the skip tells them apart. -->
-						{#if skipLabel(search)}
+						     its letter or method after it, to its left — never under it.
+						     An equidistant row shows no skip, the owner's rule: its tip
+						     names it. -->
+						{#if rowLabel(search)}
 							<span dir="ltr" lang="en" class="shrink-0 text-xs text-white/45 tabular-nums"
-								>{skipLabel(search)}</span
+								>{rowLabel(search)}</span
 							>
 						{/if}
 						<span
@@ -367,7 +390,7 @@
 						>
 							{search.word}
 						</span>
-					</div>
+					</button>
 
 					<!-- The count: how many hits, and the way to their passages. -->
 					<button

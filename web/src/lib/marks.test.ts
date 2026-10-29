@@ -17,6 +17,7 @@ import {
 	recolor,
 	remove,
 	searchName,
+	rowLabel,
 	skipLabel,
 	skipPrefix,
 	slotsOf,
@@ -85,9 +86,21 @@ describe('add', () => {
 		list = add(list, 'Equidistant letters', 'תורה', false, 6);
 		expect(list.map((m) => m.skip)).toEqual([0, 5, 6]);
 		expect(list.map(skipLabel)).toEqual(['', 'skip 5', 'skip 6']);
-		// A list's title: `5_` then the word, the underscore between.
-		expect(list.map((m) => skipPrefix(m) + m.word)).toEqual(['תורה', '5_תורה', '6_תורה']);
+		// The panel's row shows no skip: the tip alone names it.
+		expect(list.map(rowLabel)).toEqual(['', '', '']);
 		expect(new Set(list.map((m) => m.slot)).size).toBe(3);
+	});
+
+	// The owner's rule: an equidistant search's list is titled by its word
+	// alone, never `5_תורה` — whatever its skip, its finals or its order.
+	it('titles an equidistant list by its word alone, never its skip', () => {
+		for (const skip of [1, 5, 49, 1200]) {
+			for (const exact of [false, true]) {
+				const m = add([], 'Equidistant letters', 'מדא', exact, skip)[0];
+				expect(skipPrefix(m)).toBe('');
+				expect(skipPrefix(m) + m.word).toBe('מדא');
+			}
+		}
 	});
 
 	// One row per letter of an "every nth letter" run: each told apart by
@@ -101,6 +114,7 @@ describe('add', () => {
 			[2, false]
 		]);
 		expect(list.map(skipLabel)).toEqual(['', 'letter 2']);
+		expect(list.map(rowLabel)).toEqual(['', 'letter 2']);
 		expect(list.map((m) => skipPrefix(m) + m.word)).toEqual(['משה', '2_משה']);
 		expect(list.map(searchName)).toEqual([
 			'First letters · Random order',

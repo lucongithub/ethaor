@@ -10,7 +10,7 @@ its volume, and zooming reveals its contents inside it.
 
 **Rules here, numbers in tests.** This file states invariants, intent and
 rejected alternatives — the things a test cannot express. Every measurement,
-ratio, count and threshold lives in `cargo test` (441 tests, 10 s), which is the
+ratio, count and threshold lives in `cargo test` (481 tests, 10 s), which is the
 only place they stay true. Do not restate a measured value here; if a rule can
 be asserted, assert it and leave only the *why* in prose.
 
@@ -72,7 +72,8 @@ build/variants.rs               the other edition's readings, same inclusion
 build/variants.tsv              their table, measured and versioned
 src/pack.rs                     the corpus packed for transport, unpacked here
 src/words.rs                    first and last letters: one letter per word
-src/{corpus,els,letter,pack,treemap,variant,words}/tests.rs   module-private tests
+src/gematria.rs                 gematria: a text read once, every method off it
+src/{corpus,els,gematria,letter,pack,treemap,variant,words}/tests.rs   module-private tests
 src/tests/                      app tests: camera, frame, click, breadcrumb, …
 tests/builder.rs                corpus build tests
 TESTS.md                        every test along the file tree, generated
@@ -100,6 +101,7 @@ web/                            SvelteKit 2 + Svelte 5 + Tailwind 4
   src/lib/letters.ts            that word's letters: typed, inserted, erased
   src/lib/marks.ts              the searches kept: slots, colours, ten shown
   src/lib/components/ResultsModal.svelte  a search's passages, opened by its count
+  src/lib/components/SearchInfo.svelte    what a search did, opened by its word
   src/lib/results.ts            that list's record read, places, colours
   src/lib/components/BookView.svelte    the Tanakh read by scrolling
   src/lib/book-view.ts          that view's logic: records read, heights, zoom
@@ -145,7 +147,7 @@ and two theme tokens (`--font-sans`, `--font-hebrew`).
 ## Build
 
 ```sh
-cargo test         # 441 tests, 10 s, crate and server — before any commit
+cargo test         # 481 tests, 10 s, crate and server — before any commit
 cargo run -p ethaor-server --release   # web/build + /api on 127.0.0.1:8080
                    # run from the repository root; settings from the
                    # environment, else from `.env` there (see Settings)
@@ -318,6 +320,16 @@ frames, which only a canvas reads, have none.
 - **The contents list every portion, book and chapter**
   (`GET /api/contents`, no parameter): each named every way, so an agent
   finds any chapter's OSIS without a guide. Twin of `contents_record`.
+- **Gematria answers every method at once** (`GET /api/gematria?text=`,
+  `method` to keep to some keys): each named every way — key, English,
+  Hebrew, other names, description — beside its value. **No WebAssembly
+  twin** — the owner's rule: the page offers no gematria, the API alone
+  serves it, to callers without a browser. No engine, no cache: the text is bounded and read
+  once, cheaper than a cache's bookkeeping.
+- **Gematria search reads one method a request**
+  (`GET /api/gematria/search?text=&method=`): every run of words of one
+  verse worth the text's value, paged and scoped as the words search,
+  admitted on its cost. No twin either.
 - **A WebAssembly build names `-p ethaor`**: the workspace's default members
   take the server, which has no WebAssembly build.
 
@@ -1106,6 +1118,53 @@ same search with `from_end`.
   letter a pick can ask for, known before the text lands; past it, or at
   0, `letter_range`.
 
+## Gematria (`gematria.rs`)
+
+**A Hebrew text read as a number, by each method TorahCalc documents**
+(https://www.torahcalc.com/info/gematria): the reference for what each
+method gives, measured against its API on words, verses and edge cases
+before the tests were written. The tests stand alone; the reference is
+never called.
+
+- **One pass, then arithmetic.** The pass tallies each of the 27 forms,
+  the letters, the words and one sum weighted by place (`Tally`); a method
+  that values each form is a dot product with its table, the others
+  (Musafi, Bone'eh, Ne'elam, HaMerubah HaKlali, Ha'achor, Katan Mispari,
+  Kolel) a formula over the same numbers. Every method costs the pass.
+- **The tables are computed at compile time from their rules**, not typed:
+  the standard values, the letters' names, the numbers' names, and each
+  cipher's shape (mirrored, swapped halves, shifted nines…). A value cannot
+  be mistyped; the tests hold each table to the reference's chart.
+- **The reference's choices are kept**: Siduri counts the finals 23 to 27,
+  AtBach and Ayak Bachar count the 27 forms with finals at 500–900, Kolel
+  adds the number of words, Shemi and Ne'elam spell the names one way
+  (`NAMES`).
+- **Only the Tanakh's Hebrew is read** — the owner's rule: the 27 letters
+  of the Unicode block count, points and cantillation are skipped inside a
+  word, maqaf, paseq and sof pasuq part words. Rejected: presentation forms
+  (U+FB1D–U+FB4F), Yiddish ligatures, a geresh or gershayim kept inside a
+  word — none is in the Tanakh, and each was code to keep. The reference
+  reads them; here they count for nothing.
+- **Method keys are the Hebrew names transliterated**, snake case:
+  `mispar_hapanim` (the standard value, מספר הפנים) first — the owner's
+  rule.
+- **A text is bounded** (`MAX_LETTERS`): every value stays under 2^53, exact
+  in JSON and in JavaScript, and the refusal is reachable through a URL.
+- **The search finds every word, and every run of consecutive words, worth
+  the text's value** (`gematria/search.rs`). **A run never leaves its
+  verse** — the owner's rule: a phrase read as one. **Mispar Katan Mispari
+  matches single words** — the owner's rule: a digital root makes about one
+  run in nine a hit.
+- **Two pointers, one pass per verse**: every letter is worth more than
+  zero, so a run gains when it grows at its end and loses when it shrinks
+  at its start; each first word has one last word at most, and the last
+  word only moves forward. Bone'eh and Ha'achor, which weigh a letter by
+  its place in the run, read prefix sums over the verse; HaMerubah HaKlali
+  is Mispar haPanim at the target's root. The Tanakh is read once into a
+  stream of forms and word starts, at the first search.
+- **A hit is a run of letters** (`STRIDE`: verse, first rank, end rank),
+  named every way by the API.
+
 ## Interface
 
 **Every number the page shows groups its thousands with a space** — the
@@ -1321,8 +1380,15 @@ Rejected: one button naming where it goes — the rail never said where one was.
   One row each: its colour, a square, opens the palette (four by four;
   colours worn by another shown search are not offered to a shown one),
   its word, its count, the eye shows or hides its marks, the cross
-  removes it — each its own control, the owner's rule: the word is kept
-  free for what a search will open, the count for its hits.
+  removes it — each its own control, the owner's rule: the word opens
+  what the search did, the count its hits.
+- **The word opens the search** (`SearchInfo.svelte`) — the owner's rule,
+  kept bare: a modal centred over everything, the word on top at its
+  full size — the dialog as wide as the word, which wraps onto more lines
+  once the screen limits it, never shrunk —, then its colour beside its
+  name as the row's tip gives it (`searchName`), then its hits and
+  passages. No explanation, no settings list. Escape closes it before
+  anything else.
 - **The count opens the search's passages** (`ResultsModal.svelte`,
   `results.ts`, `App::results_page`): a modal over everything, each
   passage named portion › book › chapter, then **the verses its hits'
@@ -1347,16 +1413,24 @@ Rejected: one button naming where it goes — the rail never said where one was.
 - **A row counts its hits; the searches together count passages** — the
   owner's rule. The row's count opens the search's list, passage by
   passage. **Once two searches are shown, the panel counts the
-  passages they make together**: holding any of them (`∪`) and holding
-  every one (`∩`) — the shown ones only, so hiding a search takes it out
-  and the reader composes the intersection with the eyes. Their hits are
-  taken as one search's (`App::shown_passages`), so a passage of `∩` is a
-  passage of `∪` holding a hit of each. Each count opens its list, every
-  search's letters in its colour; while a shown search still searches, the
-  two counts wait. **Each sign picks what the map draws** — the owner's
+  passages they make together**: holding any of them (`∪`) and where two
+  at least cross (`∩`) — the shown ones only, so hiding a search takes it
+  out and the reader composes the crossings with the eyes. Their hits are
+  taken as one search's (`App::shown_crossings`), so a passage of `∩` is a
+  passage of `∪` holding hits of two searches or more; one holding a
+  single search's is never in `∩` — the owner's rule. **`∩` is cut by
+  crossing, the widest first** — the owner's rule: a section per set of
+  searches a passage holds, more searches before fewer, each under a title
+  held at the top while it scrolls, naming its searches in their colours
+  joined by `∩` and counting its passages. The module names the sections
+  (`results_groups`). **`∪` is one list in the order of the text** —
+  chapter, book, portion — under its one title, the words joined by `∪`. Each count
+  opens its list, every search's letters in its colour; while a shown
+  search still searches, the two counts wait. **Each sign picks what the map draws** — the owner's
   rule (`App::join_marks`): `∪`, the default, every shown search whole;
-  `∩`, each only in the passages of `∩` — letters, squares, the book view
-  and the passage alike. The pick sits on a plate; under two shown the
+  `∩`, each only in the passages of `∩`, where it crosses another — letters, squares, the book view
+  and the passage alike. **A count opening its list picks its sign too** —
+  the owner's rule: the map then draws what the list reads. The pick sits on a plate; under two shown the
   signs go and the map is back to `∪`. **It lies over the map, never taking its room** — the owner's
   rule. On a wide screen (`md`) the map stays live beside it and it opens
   itself when a search is run; on a narrow one a veil lies beneath, every
@@ -1386,11 +1460,11 @@ Rejected: one button naming where it goes — the rail never said where one was.
   (`LETTER_COUNT`), so the bound is known before the text lands. No HTTP
   twin: past it the engine finds nothing, which the API answers by itself.
   Each row is a search like any other: shown, hidden, coloured, and joined
-  by `∪` and `∩` with every kind. In the panel its word comes first, flush
-  right with every other row's, its skip after it, to its left (`skip 5`)
-  — never under it: one run's rows share their word. A list's title reads
-  `2_` (the skip, in the interface's smaller size) then the word, the underscore parting the skip from the
-  Hebrew — the owner's rule.
+  by `∪` and `∩` with every kind. In the panel its row shows the word
+  alone, flush right with every other row's — no skip, the owner's rule:
+  its tip names it. Its list's title reads the word alone, never `2_`
+  before it — the owner's rule, held by a test; the list of `∪` or `∩`
+  reads the words alone too, with no prefix of any kind.
 - **First letters** and **Last letters** are the same modal, two ways
   offered under the word, untitled, either, both or neither — the owner's
   rule — and **no Exact letters**: a word's first letter is never final,
@@ -1406,6 +1480,9 @@ Rejected: one button naming where it goes — the rail never said where one was.
   one row kept at once. A row of an "every nth" run reads `letter
   2` where an equidistant one reads its skip, and `2_` in its list's title;
   its tip names `Random order` when it is.
+- **Gematria is not a search of the page** — the owner's rule: it was
+  offered in the sidebar and removed, its modal, rows and lists with it;
+  `GET /api/gematria` and `/api/gematria/search` stay.
 - **The passage a click opens wears the same colours**: the selection
   carries its verse's found letters (`selection_marks_*`), cut in our verse
   — the one the passage shows — the other edition's insertions taken out of
@@ -1464,7 +1541,7 @@ several UTF-16 units.
 
 **Nothing is added to the computation without a test.** That is the counterpart
 of the guiding principle: if everything is computed here, everything is verified
-here. `cargo test` holds 441 tests and answers in 10 s, so there is no reason not
+here. `cargo test` holds 481 tests and answers in 10 s, so there is no reason not
 to run it at every step.
 
 ```sh
@@ -1513,6 +1590,7 @@ anywhere must be an assertion.
 | `src/tests/handoff.rs` | every chapter shown is read and named back, its verse at the centre; on nine windows once measured; `here` never deeper than the image; a chapter out of range moves nothing |
 | `web/src/lib/book-view.test.ts` | every chapter read from the real module with its names and verses, the other reading cut out as its own parts, the two forms of a pair sharing their reading; nothing read before a chapter lands; heights estimated from text, size and column; the text's size stepped within bounds; chapters not in grouped into runs; the window around the screen within the Tanakh; the breadcrumb's steps lead each to its level, and name the book and its portion below the books alone |
 | `src/els/tests.rs` | the stream is every verse read letter by letter; postings, residue lists and planes say what the stream says; **every method equals trying every start and every skip**, on random streams of every size and range; the cap keeps the first hits in (skip, start) order with the exact total; two letters counted without listing; the cost model picks the measured winner; radix sort; placement tables; memo; finals and pointing fold; an occurrence across two verses; every record placed where its hit is; `תורה` every fiftieth letter from the first tav; time budget; `hits` is the records unplaced, from the same memory; a scoped search finds exactly what lies wholly in its stretch, tried one by one; the whole stretch is the plain search; the cost is estimated without searching and tells a flood from a light query; the exact stream is the folded one with its finals told apart; folded is the union of the exact spellings; an exact hit is spelled as asked; the memory keeps the two modes apart |
+| `src/gematria/tests.rs` | every table is the reference's chart; the ciphers keep their shape (pairs swapped, three steps back, undone); the reference's examples, every method of `תורה` worked out by hand; **every verse worth what each definition gives letter by letter**; only consonants count; words parted where the text parts them; only the Hebrew block's letters count; **every search finds exactly the runs worth its target**, read one by one by their definition, for every method; a phrase finds itself; a square's runs are its root's; the cap and the scope; the heaviest text exact under 2^53, one letter more told; time budget |
 | `src/words/tests.rs` | the longest word welded is the text's; every stream is the picked letter of each word long enough, where it lies, a break for each run of others; **both searches equal reading every window**, on random streams; a hit's words adjacent in the text, a word too short breaking the run; the first and last letters never broken; the cap and the exact total; nothing for an impossible query; Genesis' first words spell their first and last letters; any order holds the word as written; exact letters tell finals apart; a scoped search keeps what lies wholly in its verses; every record places each letter; memo; the cost is the stretch read |
 | `src/pack/tests.rs` | the packed corpus unpacks to the working form **byte for byte**; the map alone holds names, labels and counts and reserves the text's room; the packed form is a fraction of the working one; Hebrew numerals; label exceptions carry only what breaks the rule; varints |
 | `web/src/lib/text-open.test.ts` | gzip opened byte for byte, from a view too; a Range asks `from..to` end excluded, and a server ignoring it is read only as far as needed; the lanes take each item once, never more at once than their count, and choose each item when a lane frees — so the view's move is seen; every decoded fragment keyed apart, a verse past a kilobyte included; a failed download tried again after each wait, bounded, never at once |
@@ -1524,7 +1602,7 @@ anywhere must be an assertion.
 | `src/tests/landing.rs` | the next book fetched is the nearest to the view, follows it when it moves, each book once; before the text lands the map stays whole — no black frame however deep, no verse drawn, clicked or named — and the verses come once it lands; the overview is identical with and without the text; a chapter's tile is asked two notches or more ahead of its reading level, once, only for chapters on screen, with its exact byte range |
 | `src/variant/tests.rs` | the welded table: taking the insertions out gives the verse back byte for byte, every range is a slice on a letter boundary |
 | `src/tests/readings.rs` | the other reading **in the flow, never over it**: the runs of a line tile it from the right and recompose it, the ink marks theirs and only theirs, a verse without a variant stays one command, a click never names the other edition ; the index opens on the two forms alone, never on the rest of their chapter nor on its number; the answer is the pointed pair's reading, theirs alone, the very runs the frame cuts out |
-| `src/tests/marks.rs` | a verse's letters are ours, in order, with their marks; the letters inked are the letters found, across a verse break too; a chapter, book or portion is marked exactly when it holds one; hidden, shown, cleared; the found letters are runs of their own that still recompose the line, a letter several searches found carrying every shown one's bit; the passage carries the letters the map inks, cut in our verse; the book view carries them inside its record, and a place's bits are its squares; a square of each search by each name holding the word and none by the others, never on a letter, every slot's in a chapter's cell; a row grows one square per search then shrinks to fit; a cell reading its text inks its letters and has no square; a search's passages hold every hit whole, sharing no verse, listing the verses its letters lie in and no other — a word read far apart its few verses —, every verse named and ours, its own letters marked shown or not, paged, counted as listed; the shown searches' passages of any are their hits as one search's, of all those holding each, a hidden one left out; a first-letters hit inks each letter where it lies, its passages the verses they lie in |
+| `src/tests/marks.rs` | a verse's letters are ours, in order, with their marks; the letters inked are the letters found, across a verse break too; a chapter, book or portion is marked exactly when it holds one; hidden, shown, cleared; the found letters are runs of their own that still recompose the line, a letter several searches found carrying every shown one's bit; the passage carries the letters the map inks, cut in our verse; the book view carries them inside its record, and a place's bits are its squares; a square of each search by each name holding the word and none by the others, never on a letter, every slot's in a chapter's cell; a row grows one square per search then shrinks to fit; a cell reading its text inks its letters and has no square; a search's passages hold every hit whole, sharing no verse, listing the verses its letters lie in and no other — a word read far apart its few verses —, every verse named and ours, its own letters marked shown or not, paged, counted as listed; the shown searches' passages of any are their hits as one search's, of all those holding two at least, a hidden one left out; those of all listed by crossing, the widest first, each crossing's passages in the text's order; those of any in the text's order, with no crossing; a first-letters hit inks each letter where it lies, its passages the verses they lie in |
 | `web/src/lib/marks.test.ts` | the colours are Tailwind's 500 steps, sixteen, more than the ten slots the module marks; every search kept, the first ten shown each in its slot and colour, the rest hidden; hidden gives the slot back, shown takes the lowest free one and a colour no shown search wears; a freed slot and an unworn colour taken; each change touches its search alone; a letter of several searches wears the shown ones' colours, in equal bands cut sharp; the squares by a name grow one per search, then shrink to fit the row; a count's thousands grouped by a space; a first-letters row keeps its letter and order, named in its label, title and tip |
 | `web/src/lib/skips.test.ts` | a range asks one skip per whole number between its ends, either order, skip 0 and past the bounds refused, a skip bounded by the word's length in the whole Tanakh; one search at a time, lowest first, a row only for a skip that found something, past a failure, stopped by the reset |
 | `web/src/lib/letters.test.ts` | the keyboard's 27 letters in order, finals after theirs; only consonants kept; a letter put at the caret or over the selection, one erased before it |

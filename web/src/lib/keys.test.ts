@@ -46,6 +46,15 @@ describe('command', () => {
 });
 
 describe('escape', () => {
+	// What a search did, opened by its word in the panel, lies over
+	// everything: Escape closes it before anything else, in the book too.
+	it('closes what a search did before anything else', () => {
+		const all = { results: true, selection: true, notice: true, searches: true };
+		expect(escape({ info: true, ...all })).toBe('info');
+		expect(escape({ info: true, selection: false, notice: false, book: true })).toBe('info');
+		expect(escape({ info: false, ...all })).toBe('selection');
+	});
+
 	// A search's passages lie over everything but the passage a click in
 	// them opens, which lies over them: Escape closes that one, then them.
 	it('closes the passages of a search first, after the passage opened from them', () => {

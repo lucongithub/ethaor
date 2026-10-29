@@ -574,3 +574,127 @@ fn a_words_search_is_admitted_on_its_cost() {
     scoped.scope = Some((0, 31));
     assert!(words::admit(&mut engine, &scoped, 300.0).unwrap() < estimate / 100.0);
 }
+
+/// Every gematria method is named every way, by a key of its own in snake
+/// case that names it back; its Hebrew name is Hebrew, its English name and
+/// description are there.
+#[test]
+fn every_gematria_method_is_named_every_way() {
+    use super::gematria::{Method, info, method};
+    let mut keys = std::collections::HashSet::new();
+    for m in Method::ALL {
+        let named = info(m);
+        assert!(keys.insert(named.key), "{} names two methods", named.key);
+        assert!(named.key.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'), "{} is not snake case", named.key);
+        assert_eq!(method(named.key), Some(m), "{} does not name its method back", named.key);
+        assert!(!named.name.is_empty() && !named.description.is_empty(), "{} is unnamed or undescribed", named.key);
+        assert!(named.hebrew.chars().any(|c| letter::exact_code(c).is_some()), "{}: no Hebrew name", named.key);
+        assert!(named.hebrew.chars().all(|c| !c.is_ascii_alphabetic()), "{}: Latin in the Hebrew name", named.key);
+    }
+    assert_eq!(info(Method::MisparHapanim).key, "mispar_hapanim");
+    assert_eq!(info(Method::MisparHapanim).hebrew, "מספר הפנים");
+    for other in ["Mispar_Hapanim", "standard", "", "mispar_hapanim "] {
+        assert_eq!(method(other), None, "{other:?} names a method");
+    }
+}
+
+/// The methods asked for: all without a list; a list parted by commas
+/// answered in the catalogue's order, each once; a key it does not hold —
+/// an empty one too — refused with the key and the list of good ones.
+#[test]
+fn gematria_methods_are_asked_by_key() {
+    use super::gematria::{Method, methods};
+    assert_eq!(methods(None), Ok(Method::ALL.to_vec()));
+    assert_eq!(methods(Some("atbash,mispar_hapanim,atbash")), Ok(vec![Method::MisparHapanim, Method::Atbash]));
+    for bad in ["", "atbash,", "AtBash", "atbash,nope", "atbash, albam"] {
+        let refused = methods(Some(bad)).unwrap_err();
+        assert_eq!(refused.code(), "unknown_method", "{bad:?}");
+        assert!(refused.message().contains("mispar_hapanim"), "{bad:?}: the message lists no key");
+    }
+}
+
+/// A text is read by the methods asked, the consonants it was read as
+/// beside them; one with no Hebrew letter, or past the bound, is refused
+/// with its own code.
+#[test]
+fn a_gematria_text_is_read_or_refused() {
+    use super::gematria::{MAX_LETTERS, Method, read};
+    let reading = read("תּוֹרָה, abc", &[Method::MisparHapanim, Method::MisparKolel]).unwrap();
+    assert_eq!(reading.letters, "תורה");
+    assert_eq!((reading.letter_count, reading.words), (4, 1));
+    assert_eq!(reading.values, vec![(Method::MisparHapanim, 611), (Method::MisparKolel, 612)]);
+    assert_eq!(read("שָׁלוֹם, abc", &[]).unwrap().letters, "שלום", "the letters read are not the text's consonants");
+    for empty in ["", "abc", "\u{05B8}\u{0591}"] {
+        assert_eq!(read(empty, &Method::ALL).unwrap_err(), Refusal::NoLetter, "{empty:?}");
+    }
+    let longest: String = std::iter::repeat_n('א', MAX_LETTERS).collect();
+    assert!(read(&longest, &Method::ALL).is_ok(), "the bound itself is refused");
+    let over = longest + "א";
+    assert_eq!(read(&over, &Method::ALL).unwrap_err(), Refusal::TooManyLetters);
+    let codes: std::collections::HashSet<_> =
+        [Refusal::NoLetter, Refusal::TooManyLetters, Refusal::UnknownMethod(String::new()), Refusal::LetterRange(0), Refusal::Limit(0)]
+            .iter()
+            .map(Refusal::code)
+            .collect();
+    assert_eq!(codes.len(), 5, "two refusals share a code");
+}
+
+fn gematria_query(text: &str, method: super::gematria::Method, offset: usize, limit: usize) -> super::gematria::Query {
+    super::gematria::Query { text: text.into(), method, offset, limit, scope: None }
+}
+
+/// A gematria search's page is the stream's runs, in the order of the
+/// text: pages tile the listed runs, `limit` 0 counts, every run's words
+/// are the verse's own and worth the text's value, the first words of
+/// Genesis among those of `בראשית ברא`.
+#[test]
+fn a_gematria_page_lists_the_runs_worth_the_text() {
+    use super::gematria::{Method, search};
+    let full = search(&gematria_query("בראשית ברא", Method::MisparHapanim, 0, MAX_LIMIT)).unwrap();
+    assert_eq!(full.value, 913 + 203);
+    assert!(full.total > 0 && full.listed as u64 == full.total.min(CAP as u64));
+    assert_eq!(full.hits[0].place().verse, 0, "Genesis 1:1 not first");
+    assert_eq!(crate::gematria::letters(full.hits[0].words()).collect::<String>(), "בראשיתברא");
+    assert_eq!(full.hits[0].words().split(' ').count(), 2, "not the two words, whole");
+    for hit in &full.hits {
+        assert_eq!(crate::gematria::tally(hit.words()).value(Method::MisparHapanim), full.value, "{}: not worth the text", hit.words());
+        assert!(corpus::verse_text(hit.verse).contains(hit.words()), "{}: not its verse's words", hit.words());
+    }
+    let mut walked = Vec::new();
+    let mut offset = 0;
+    loop {
+        let page = search(&gematria_query("בראשית ברא", Method::MisparHapanim, offset, 7)).unwrap();
+        walked.extend(page.hits.clone());
+        match page.next_offset() {
+            Some(next) => offset = next,
+            None => break,
+        }
+    }
+    assert_eq!(walked, full.hits, "pages do not tile the runs");
+    let counted = search(&gematria_query("בראשית ברא", Method::MisparHapanim, 0, 0)).unwrap();
+    assert_eq!((counted.total, counted.hits.len()), (full.total, 0));
+}
+
+/// A gematria search is refused with its reason before it runs: no Hebrew
+/// letter, a limit past the most, an empty scope, a cost past the ceiling;
+/// a scope keeps its runs inside it.
+#[test]
+fn a_gematria_search_is_refused_or_kept_to_its_scope() {
+    use super::gematria::{Method, admit, check_search, search};
+    let refused = |q: super::gematria::Query| check_search(&q).unwrap_err();
+    assert_eq!(refused(gematria_query("abc", Method::Atbash, 0, 10)), Refusal::NoLetter);
+    assert_eq!(refused(gematria_query("א", Method::Atbash, 0, MAX_LIMIT + 1)), Refusal::Limit(MAX_LIMIT + 1));
+    let mut q = gematria_query("א", Method::Atbash, 0, 10);
+    q.scope = Some((10, 10));
+    assert_eq!(refused(q.clone()), Refusal::EmptyScope);
+    q.scope = Some((1533, 4000));
+    let page = search(&q).unwrap();
+    assert!(page.total > 0);
+    assert!(page.hits.iter().all(|h| (1533..4000).contains(&h.verse)), "a run outside its scope");
+    let whole = gematria_query("א", Method::Atbash, 0, 10);
+    let estimate = admit(&whole, f64::MAX).unwrap();
+    assert!(estimate > 0.0);
+    assert!(admit(&q, f64::MAX).unwrap() < estimate, "a scope costs as much as the whole");
+    assert!(matches!(admit(&whole, estimate / 2.0), Err(Refusal::TooCostly { .. })));
+}
+

@@ -132,7 +132,19 @@ export function add(
 	const color = freeColor(list);
 	return [
 		...list,
-		{ id, slot, kind, word, exact, skip, nth, anyOrder, color, total: null, passages: null }
+		{
+			id,
+			slot,
+			kind,
+			word,
+			exact,
+			skip,
+			nth,
+			anyOrder,
+			color,
+			total: null,
+			passages: null
+		}
 	];
 }
 
@@ -141,16 +153,25 @@ export function add(
  * equidistant one (`skip 5`); the letter of each word, for a row of an
  * "every nth letter" run (`letter 2`); nothing for the others.
  */
-export const skipLabel = (m: Marked): string =>
-	m.skip > 0 ? `skip ${m.skip}` : m.nth > 0 ? `letter ${m.nth}` : '';
+export function skipLabel(m: Marked): string {
+	return m.skip > 0 ? `skip ${m.skip}` : m.nth > 0 ? `letter ${m.nth}` : '';
+}
+
+/**
+ * What a row of the panel shows beside its word — the owner's rule: no
+ * skip for an equidistant search (its tip still names it); the rest as
+ * `skipLabel` says.
+ */
+export const rowLabel = (m: Marked): string => (m.skip > 0 ? '' : skipLabel(m));
 
 /**
  * What stands before the word in a list's title — the owner's rule — read
- * left to right up to the word: `2_` then `מדא`, the underscore
- * parting the skip from the Hebrew. Nothing for the consecutive search.
+ * left to right up to the word: for a row of an "every nth letter" run,
+ * `2_` then `מדא`, the underscore parting the letter from the Hebrew.
+ * Nothing for any other search — an equidistant one included, the
+ * owner's rule: its list is titled by its word alone, never `5_מדא`.
  */
-export const skipPrefix = (m: Marked): string =>
-	m.skip > 0 ? `${m.skip}_` : m.nth > 0 ? `${m.nth}_` : '';
+export const skipPrefix = (m: Marked): string => (m.nth > 0 ? `${m.nth}_` : '');
 
 /**
  * The name a row's tip gives a search: its kind, then what sets it apart —

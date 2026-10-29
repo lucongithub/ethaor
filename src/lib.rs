@@ -16,6 +16,7 @@
 
 mod corpus;
 mod els;
+mod gematria;
 mod letter;
 mod map;
 mod pack;

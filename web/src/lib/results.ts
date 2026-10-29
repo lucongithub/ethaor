@@ -7,7 +7,7 @@
  */
 
 import type { Contents } from './book-view';
-import { MAX_SHOWN, worn, type Color, type Marked } from './marks';
+import { MAX_SHOWN, slotsOf, worn, type Color, type Marked } from './marks';
 import type { Found } from './passage';
 
 /** The bit a search's own letters carry, past every slot's: `OWN` in the module. */
@@ -66,6 +66,35 @@ export function readResults(
 	}
 	return passages;
 }
+
+/**
+ * A crossing of the searches shown together: the slots holding a hit in
+ * each of its passages, as bits, how many passages, and where they start
+ * in the list.
+ */
+export interface Crossing {
+	slots: number;
+	passages: number;
+	from: number;
+}
+
+/**
+ * The list's crossings read from the module's `(slots, passages)` pairs
+ * (`results_groups`), each with the index of its first passage.
+ */
+export function readCrossings(record: ArrayLike<number>): Crossing[] {
+	const out: Crossing[] = [];
+	let from = 0;
+	for (let at = 0; at + 1 < record.length; at += 2) {
+		out.push({ slots: record[at], passages: record[at + 1], from });
+		from += record[at + 1];
+	}
+	return out;
+}
+
+/** The searches a crossing holds, lowest slot first: the words its title reads. */
+export const crossed = (list: readonly Marked[], slots: number): Marked[] =>
+	slotsOf(slots).flatMap((slot) => list.filter((m) => m.slot === slot));
 
 /** Where verses lie, every level in Hebrew, as the breadcrumb names it. */
 export interface Place {

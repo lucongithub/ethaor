@@ -609,14 +609,38 @@ pub extern "C" fn results_set(span: u32, form: u32) -> u32 {
 }
 
 /// Sets the list of passages to the searches shown together: those holding
-/// a hit of any (`all` 0) or of every one (`all` 1). Returns how many.
+/// a hit of any (`all` 0) or where two at least cross (`all` 1), grouped by
+/// crossing (`results_groups`). Returns how many.
 #[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn results_shown(all: u32) -> u32 {
     app().set_shown_results(all != 0) as u32
 }
 
+/// The crossings of the list last set by `results_shown`.
+static mut RESULTS_GROUPS: Vec<u32> = Vec::new();
+
+/// Writes the list's crossings at `results_groups_ptr` — `(slots,
+/// passages)` pairs in the order of the list, slots as bits — and returns
+/// how many; none for one search's list.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+#[allow(static_mut_refs)]
+pub extern "C" fn results_groups() -> u32 {
+    let out = unsafe { &mut RESULTS_GROUPS };
+    out.clear();
+    for &(bits, count) in &app().results.groups {
+        out.extend_from_slice(&[bits, count]);
+    }
+    (out.len() / 2) as u32
+}
+
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+#[allow(static_mut_refs)]
+pub extern "C" fn results_groups_ptr() -> *const u32 {
+    unsafe { RESULTS_GROUPS.as_ptr() }
+}
+
 /// How many passages the searches shown make together, of any (`all` 0)
-/// or of every one (`all` 1), the list left as it is.
+/// or where two at least cross (`all` 1), the list left as it is.
 #[cfg_attr(feature = "map", unsafe(no_mangle))]
 pub extern "C" fn passages_shown(all: u32) -> u32 {
     app().shown_passages(all != 0).len() as u32

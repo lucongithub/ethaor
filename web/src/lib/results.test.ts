@@ -1,7 +1,17 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { readContents, type Contents } from './book-view';
-import { add, toggle, type Marked } from './marks';
-import { colorsOf, OWN, PAGE, readResults, VERSE_HEAD, stretches, type Passage } from './results';
+import { add, slotsOf, toggle, type Marked } from './marks';
+import {
+	colorsOf,
+	crossed,
+	OWN,
+	PAGE,
+	readCrossings,
+	readResults,
+	VERSE_HEAD,
+	stretches,
+	type Passage
+} from './results';
 import { SearchCore, type Found } from './search-core';
 import { block, bookCuts, booksShuffled, map, read, serveArtifacts } from './tests/artifacts';
 
@@ -22,6 +32,8 @@ interface Module {
 	results_ptr(): number;
 	results_clear(): void;
 	results_shown(all: number): number;
+	results_groups(): number;
+	results_groups_ptr(): number;
 	passages_shown(all: number): number;
 	passages_count(span: number, form: number): number;
 	marks_clear(slot: number): void;
@@ -254,6 +266,59 @@ describe('the searches shown together', () => {
 		module.results_clear();
 		module.marks_clear(1);
 		module.marks_clear(2);
+	});
+
+	// Three searches: ∩ lists every crossing of two at least, the widest
+	// first, each crossing's passages holding exactly its searches' letters;
+	// the crossings sum to the list. ∪ has none: one list, the text's order.
+	it('are listed by crossing, the widest first', () => {
+		const words = [
+			['משה', 0],
+			['אהרן', 1],
+			['פרעה', 2]
+		] as const;
+		let list: Marked[] = [];
+		for (const [word, slot] of words) {
+			hand(core.els(word, 0, 0));
+			module.marks_set(slot, word.length, 0);
+			list = add(list, 'Consecutive letters', word);
+		}
+		const total = module.results_shown(1);
+		const n = module.results_groups();
+		const crossings = readCrossings(
+			new Uint32Array(module.memory.buffer, module.results_groups_ptr(), 2 * n).slice()
+		);
+		const widths = crossings.map((c) => slotsOf(c.slots).length);
+		expect(widths).toEqual([...widths].sort((a, b) => b - a));
+		expect(widths[0]).toBe(3);
+		expect(widths.includes(1)).toBe(false);
+		expect(crossings.reduce((s, c) => s + c.passages, 0)).toBe(total);
+		for (const c of crossings) {
+			expect(crossed(list, c.slots).map((m) => m.word)).toEqual(
+				slotsOf(c.slots).map((s) => words[s][0])
+			);
+			for (const passage of page(c.from, c.passages)) {
+				const bits = passage.flatMap((v) => v.found).reduce((b, f) => b | f.slots, 0);
+				expect(bits).toBe(c.slots);
+			}
+		}
+
+		const any = module.results_shown(0);
+		expect(module.results_groups()).toBe(0);
+		const firsts = page(0, any).map((p) => p[0].verse);
+		expect(firsts).toEqual([...firsts].sort((a, b) => a - b));
+		module.results_clear();
+		for (const [, slot] of words) module.marks_clear(slot);
+	});
+
+	// The module's pairs read as crossings, each knowing where it starts.
+	it('read their crossings with where each starts', () => {
+		expect(readCrossings([7, 2, 3, 5, 1, 4])).toEqual([
+			{ slots: 7, passages: 2, from: 0 },
+			{ slots: 3, passages: 5, from: 2 },
+			{ slots: 1, passages: 4, from: 7 }
+		]);
+		expect(readCrossings([])).toEqual([]);
 	});
 });
 

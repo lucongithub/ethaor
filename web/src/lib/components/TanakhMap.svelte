@@ -8,12 +8,14 @@
 		type Selection,
 		type TanakhMap
 	} from '$lib/ethaor';
+	import type { Crossing } from '$lib/results';
 	import { escalate, reporter, watch, type Fault } from '$lib/fault';
 	import { command, escape } from '$lib/keys';
 	import Rail, { type Search, type View } from './Rail.svelte';
 	import LetterSearch, { type Ways } from './LetterSearch.svelte';
 	import SearchPanel from './SearchPanel.svelte';
 	import ResultsModal from './ResultsModal.svelte';
+	import SearchInfo from './SearchInfo.svelte';
 	import { letters } from '$lib/letters';
 	import { runSkips } from '$lib/skips';
 	import {
@@ -94,8 +96,8 @@
 		canvas.focus({ preventScroll: true });
 	}
 
-	// The search picked in the sidebar, its modal open. The consecutive, the
-	// equidistant and the first letters have one yet.
+	// The search picked in the sidebar, its modal open: every one the
+	// sidebar offers.
 	let searching = $state<Search | null>(null);
 	const WIRED: readonly Search[] = [
 		'Consecutive letters',
@@ -306,7 +308,7 @@
 	}
 
 	// How the map joins the searches shown, picked by the panel's signs: any
-	// (∪), each drawn whole, or all (∩), each only where every one is.
+	// (∪), each drawn whole, or crossing (∩), each only where another is too.
 	let join = $state<'any' | 'all'>('any');
 	function joinMarks(next: 'any' | 'all') {
 		if (next === join) return;
@@ -318,7 +320,14 @@
 	// count in the panel from the hits kept here, or the searches shown
 	// together, opened by the panel's counts of them. The module holds the
 	// list while it is open and forgets it once closed.
-	type Listing = { id: number | null; join: 'any' | 'all'; passages: number; listed?: number };
+	type Listing = {
+		id: number | null;
+		join: 'any' | 'all';
+		passages: number;
+		listed?: number;
+		/** The searches together: their crossings, the widest first. */
+		crossings?: Crossing[];
+	};
 	let listing = $state<Listing | null>(null);
 	const listedSearch = $derived(
 		listing?.id == null ? null : (kept.find((m) => m.id === listing!.id) ?? null)
@@ -349,7 +358,10 @@
 	function openTogether(all: boolean) {
 		if (!map) return;
 		const results = map.results;
-		list(() => ({ id: null, join: all ? 'all' : 'any', passages: results.shown(all) }));
+		list(() => {
+			const passages = results.shown(all);
+			return { id: null, join: all ? 'all' : 'any', passages, crossings: results.crossings() };
+		});
 	}
 
 	// Closed, the focus goes back to the count it was opened from.
@@ -358,6 +370,17 @@
 		const from = listing.id === null ? `together-${listing.join}` : `count-${listing.id}`;
 		listing = null;
 		map?.results.clear();
+		tick().then(() => document.getElementById(from)?.focus());
+	}
+
+	// The search whose word was clicked in the panel, explained in a modal.
+	let explaining = $state<number | null>(null);
+	const explained = $derived(kept.find((m) => m.id === explaining) ?? null);
+
+	function closeInfo() {
+		if (explaining === null) return;
+		const from = `word-${explaining}`;
+		explaining = null;
 		tick().then(() => document.getElementById(from)?.focus());
 	}
 
@@ -427,13 +450,15 @@
 	function onWindowKeydown(event: KeyboardEvent) {
 		if (event.key !== 'Escape') return;
 		const closes = escape({
+			info: explaining !== null,
 			results: listing !== null,
 			selection: selection !== null,
 			notice: notice !== null,
 			searches: panelOpen,
 			book: view === 'book'
 		});
-		if (closes === 'results') closeResults();
+		if (closes === 'info') closeInfo();
+		else if (closes === 'results') closeResults();
 		else if (closes === 'selection') closePassage();
 		else if (closes === 'notice') notice = null;
 		else if (closes === 'searches') closePanel();
@@ -730,6 +755,7 @@
 				onclear={clearSearches}
 				onrecolor={recolorSearch}
 				onresults={openResults}
+				oninfo={(id) => (explaining = id)}
 				{together}
 				ontogether={openTogether}
 				{join}
@@ -809,11 +835,16 @@
 		list={kept}
 		passages={listing.passages}
 		listed={listing.listed}
+		crossings={listing.crossings}
 		contents={map.book.contents}
 		read={map.results.page}
 		onselect={readVerse}
 		onclose={closeResults}
 	/>
+{/if}
+
+{#if explained}
+	<SearchInfo search={explained} onclose={closeInfo} />
 {/if}
 
 {#if searching}

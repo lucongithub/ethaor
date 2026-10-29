@@ -9,6 +9,7 @@
 
 pub mod contents;
 pub mod els;
+pub mod gematria;
 pub mod passage;
 pub mod reference;
 pub mod words;

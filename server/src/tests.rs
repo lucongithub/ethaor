@@ -7,6 +7,7 @@ mod describe;
 mod els;
 mod faults;
 mod files;
+mod gematria;
 mod guard;
 mod load;
 mod logs;

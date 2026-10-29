@@ -4,8 +4,7 @@
 		'Consecutive letters',
 		'Equidistant letters',
 		'First letters',
-		'Last letters',
-		'Guematria'
+		'Last letters'
 	] as const;
 	export type Search = (typeof SEARCHES)[number];
 </script>
@@ -64,8 +63,7 @@
 	];
 
 	// The searches, in a menu beside the rail: names only, no icon. Picking
-	// one closes the menu and hands its name to the page; all but Guematria
-	// are wired yet.
+	// one closes the menu and hands its name to the page.
 	const searches = SEARCHES;
 
 	let open = $state(false);

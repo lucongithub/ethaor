@@ -41,6 +41,7 @@ pub const CODES: &[(&str, &str)] = &[
     ("task_lost", "a blocking task ended without an answer (api/pool.rs)"),
     ("answer_unwritten", "a search answer could not be serialised (api/els.rs)"),
     ("words_answer_unwritten", "a words answer could not be serialised (api/words.rs)"),
+    ("gematria_answer_unwritten", "a gematria search answer could not be serialised (api/gematria.rs)"),
 ];
 
 /// Whether faults log their whole escalation and backtrace.
