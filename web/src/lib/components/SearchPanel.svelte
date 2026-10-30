@@ -1,11 +1,9 @@
 <script lang="ts">
 	// The searches kept, in a panel on the right — as many as the reader runs,
-	// newest last. Each row: its colour (the palette), its word, its count of
-	// hits, the
-	// eye (shows or hides its marks on the map), the cross (takes it away).
-	// Ten are shown at most, each its own colour; a hidden one waits for a
-	// slot. The word opens what the search did (`SearchInfo`): its kind, how
-	// the text was read, what was asked. The count is a control of its own, the owner's rule:
+	// newest last. Each row: its colour (the palette), its word and its count
+	// of hits, the eye (shows or hides its marks on the map), the cross (takes
+	// it away). Ten are shown at most, each its own colour; a hidden one waits
+	// for a slot. The word and the count are one control, the owner's rule:
 	// it opens the list of the search's passages (`ResultsModal`). Above the
 	// rows, once two are shown, the passages they make together: holding any
 	// (∪) or every one (∩), each count opening its list. Each sign picks what
@@ -41,7 +39,6 @@
 		onclear,
 		onrecolor,
 		onresults,
-		oninfo,
 		together = { any: 0, all: 0 },
 		ontogether,
 		join = 'any',
@@ -56,10 +53,8 @@
 		/** Every search taken away at once: the reset at the panel's foot. */
 		onclear: () => void;
 		onrecolor: (id: number, color: Color) => void;
-		/** A search's passages asked for, by its count. */
+		/** A search's passages asked for, by its word and count. */
 		onresults?: (id: number) => void;
-		/** A search explained, asked for by its word. */
-		oninfo?: (id: number) => void;
 		/** Passages the searches shown make together: holding any, or all. */
 		together?: { any: number; all: number };
 		/** Those passages asked for: of all (`true`), of any (`false`). */
@@ -332,6 +327,7 @@
 			{@const color = COLORS[search.color]}
 			{@const on = isShown(search)}
 			{@const blocked = !on && !room}
+			{@const listable = !!search.passages}
 			<li class="relative col-span-full grid grid-cols-subgrid">
 				<div class="col-span-full grid grid-cols-subgrid items-center">
 					<button
@@ -350,21 +346,26 @@
 						></span>
 					</button>
 
-					<!-- The word: named by the tip, as the rail names its icons — the
-					     kind of search, and whether its finals are told apart — and
-					     clicked, the search explained (`SearchInfo`). -->
+					<!-- The word and its count, one control over two columns: named by
+					     the tip, as the rail names its icons — the kind of search, and
+					     whether its finals are told apart — and clicked, its passages.
+					     Nothing to list, still searching or nothing found, it rests. -->
 					<button
-						id={`word-${search.id}`}
+						id={`search-${search.id}`}
 						type="button"
 						class={[
-							'flex h-11 min-w-0 flex-1 cursor-pointer items-center justify-end gap-2 rounded px-2 transition-colors duration-150 md:h-9',
-							'hover:bg-white/[0.06] focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-white/60',
-							on ? 'text-white' : 'text-white/45 hover:text-white focus-visible:text-white'
+							'group col-span-2 grid h-11 min-w-0 grid-cols-subgrid items-center rounded transition-colors duration-150 md:h-9',
+							'focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-white/60',
+							listable ? 'cursor-pointer hover:bg-white/[0.06]' : 'cursor-default'
 						]}
-						aria-label={`${search.word}: ${named(search, false)} — what this search did`}
+						aria-disabled={!listable}
+						aria-label={search.passages === null
+							? `${search.word}: searching`
+							: `${totalOf(search)} of ${search.word}, in ${passagesOf(search.passages)}: ${named(search, false)}`}
 						onclick={() => {
+							if (!listable) return;
 							hideTip();
-							oninfo?.(search.id);
+							onresults?.(search.id);
 						}}
 						onpointerenter={(event) => {
 							if (hovers(event)) showTip(named(search, false), event.currentTarget);
@@ -380,40 +381,36 @@
 						     its letter or method after it, to its left — never under it.
 						     An equidistant row shows no skip, the owner's rule: its tip
 						     names it. -->
-						{#if rowLabel(search)}
-							<span dir="ltr" lang="en" class="shrink-0 text-xs text-white/45 tabular-nums"
-								>{rowLabel(search)}</span
-							>
-						{/if}
 						<span
-							dir="rtl"
-							lang="he"
-							class="min-w-0 truncate text-right font-hebrew text-lg leading-none"
+							class={[
+								'flex min-w-0 items-center justify-end gap-2 px-2 transition-colors duration-150',
+								on ? 'text-white' : 'text-white/45',
+								listable && 'group-hover:text-white group-focus-visible:text-white'
+							]}
 						>
-							{shownWord(search)}
+							{#if rowLabel(search)}
+								<span dir="ltr" lang="en" class="shrink-0 text-xs text-white/45 tabular-nums"
+									>{rowLabel(search)}</span
+								>
+							{/if}
+							<span
+								dir="rtl"
+								lang="he"
+								class="min-w-0 truncate text-right font-hebrew text-lg leading-none"
+							>
+								{shownWord(search)}
+							</span>
 						</span>
-					</button>
-
-					<!-- The count: how many hits, and the way to their passages. -->
-					<button
-						id={`count-${search.id}`}
-						type="button"
-						class={[
-							'h-11 rounded px-2 text-right text-sm tabular-nums transition-colors duration-150 md:h-9',
-							'focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-white/60',
-							search.passages === null
-								? 'cursor-default text-white/35'
-								: 'cursor-pointer text-white/58 hover:bg-white/[0.06] hover:text-white focus-visible:text-white'
-						]}
-						aria-disabled={search.passages === null}
-						aria-label={search.passages === null
-							? `${search.word}: searching`
-							: `${totalOf(search)} of ${search.word}, in ${passagesOf(search.passages)}`}
-						onclick={() => {
-							if (search.passages !== null) onresults?.(search.id);
-						}}
-					>
-						{search.passages === null ? '…' : count(search.total ?? 0)}
+						<span
+							class={[
+								'px-2 text-right text-sm tabular-nums transition-colors duration-150',
+								listable
+									? 'text-white/58 group-hover:text-white group-focus-visible:text-white'
+									: 'text-white/35'
+							]}
+						>
+							{search.passages === null ? '…' : count(search.total ?? 0)}
+						</span>
 					</button>
 
 					<!-- The eye shows or hides the search's marks on the map. -->

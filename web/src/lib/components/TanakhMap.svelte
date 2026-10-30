@@ -15,7 +15,6 @@
 	import LetterSearch, { type Ways } from './LetterSearch.svelte';
 	import SearchPanel from './SearchPanel.svelte';
 	import ResultsModal from './ResultsModal.svelte';
-	import SearchInfo from './SearchInfo.svelte';
 	import LetterCount from './LetterCount.svelte';
 	import GematriaReading from './GematriaReading.svelte';
 	import type { Gematria } from '$lib/gematria';
@@ -515,23 +514,12 @@
 		});
 	}
 
-	// Closed, the focus goes back to the count it was opened from.
+	// Closed, the focus goes back to the row or count it was opened from.
 	function closeResults() {
 		if (!listing) return;
-		const from = listing.id === null ? `together-${listing.join}` : `count-${listing.id}`;
+		const from = listing.id === null ? `together-${listing.join}` : `search-${listing.id}`;
 		listing = null;
 		map?.results.clear();
-		tick().then(() => document.getElementById(from)?.focus());
-	}
-
-	// The search whose word was clicked in the panel, explained in a modal.
-	let explaining = $state<number | null>(null);
-	const explained = $derived(kept.find((m) => m.id === explaining) ?? null);
-
-	function closeInfo() {
-		if (explaining === null) return;
-		const from = `word-${explaining}`;
-		explaining = null;
 		tick().then(() => document.getElementById(from)?.focus());
 	}
 
@@ -609,7 +597,7 @@
 	function onWindowKeydown(event: KeyboardEvent) {
 		if (event.key !== 'Escape') return;
 		const closes = escape({
-			info: explaining !== null || tally !== null || reckoned !== null,
+			info: tally !== null || reckoned !== null,
 			results: listing !== null,
 			selection: selection !== null,
 			excerpt: excerpted !== null,
@@ -617,10 +605,8 @@
 			searches: panelOpen,
 			book: view === 'book'
 		});
-		if (closes === 'info') {
-			if (tally || reckoned) closeTally();
-			else closeInfo();
-		} else if (closes === 'results') closeResults();
+		if (closes === 'info') closeTally();
+		else if (closes === 'results') closeResults();
 		else if (closes === 'selection') closePassage();
 		else if (closes === 'excerpt') dropExcerpt();
 		else if (closes === 'notice') notice = null;
@@ -920,7 +906,6 @@
 				onclear={clearSearches}
 				onrecolor={recolorSearch}
 				onresults={openResults}
-				oninfo={(id) => (explaining = id)}
 				{together}
 				ontogether={openTogether}
 				{join}
@@ -1038,10 +1023,6 @@
 			Gematria
 		</button>
 	</div>
-{/if}
-
-{#if explained}
-	<SearchInfo search={explained} onclose={closeInfo} />
 {/if}
 
 {#if tally}

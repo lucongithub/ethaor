@@ -1,6 +1,7 @@
 <script lang="ts">
-	// A search's hits, listed as passages: opened by its count in the panel,
-	// a modal centred over the view as the passage is — or the searches shown
+	// A search's hits, listed as passages: opened by its row in the panel, a
+	// modal centred over the view as the passage is, its kind small on top —
+	// or the searches shown
 	// taken together, the passages holding any of them (∪) or two at least
 	// (∩), opened by the panel's counts of them — ∩ cut by crossing, the most
 	// searches first, each under a title naming them; ∪ one list in the
@@ -26,6 +27,7 @@
 		inkStyle,
 		isSelection,
 		isShown,
+		searchName,
 		shownWord,
 		skipPrefix,
 		totalOf,
@@ -228,7 +230,7 @@
 	bind:this={dialog}
 	dir="rtl"
 	aria-labelledby="results-word"
-	aria-describedby="results-count"
+	aria-describedby={search ? 'results-kind results-count' : 'results-count'}
 	{onclick}
 	{onclose}
 	class="m-auto max-h-[min(88dvh,56rem)] w-[calc(100%-2rem)] max-w-2xl flex-col overflow-hidden
@@ -236,6 +238,18 @@
 	       duration-200 ease-out backdrop:bg-black/80 open:flex motion-reduce:transition-none
 	       lg:max-w-3xl starting:scale-[0.98] starting:opacity-0"
 >
+	<!-- What the search is, small over its word: the row's tip, kept in sight.
+	     The searches together are no one kind. -->
+	{#if search}
+		<p
+			id="results-kind"
+			dir="ltr"
+			lang="en"
+			class="shrink-0 border-b border-white/10 bg-white/[0.06] px-5 py-2 text-center text-xs text-balance text-white"
+		>
+			{searchName(search)}
+		</p>
+	{/if}
 	<header
 		class="flex shrink-0 flex-wrap items-center gap-x-3 border-b border-white/10 py-2 ps-5 pe-2 sm:flex-nowrap sm:ps-7 sm:pe-3"
 	>
@@ -278,12 +292,14 @@
 			dir="ltr"
 			lang="en"
 			class={selection
-				? 'order-last basis-full pb-1 text-sm text-white/58 tabular-nums sm:order-none sm:shrink-0 sm:basis-auto sm:pb-0'
+				? 'order-last basis-full pb-1 pl-3 text-center text-sm text-white/58 tabular-nums sm:order-none sm:shrink-0 sm:basis-auto sm:pb-0 sm:pl-0 sm:text-start'
 				: search
-					? 'order-last basis-full pb-1 text-sm text-white/58 tabular-nums sm:order-none sm:me-auto sm:min-w-0 sm:basis-auto sm:truncate sm:pb-0'
+					? 'order-last basis-full pb-1 pl-3 text-center text-sm text-white/58 tabular-nums sm:order-none sm:me-auto sm:min-w-0 sm:basis-auto sm:truncate sm:pb-0 sm:pl-0 sm:text-start'
 					: 'order-first shrink-0 text-sm text-white/58 tabular-nums'}
 		>
-			<!-- One search: its hits and passages, named, after its word. The
+			<!-- On its own line, on a small screen, it is centred on the frame:
+			     `pl-3` evens out the header's two paddings. One search: its hits
+			     and passages, named, after its word. The
 			     searches together: the count bare, the owner's rule — the screen
 			     reader still hears the word — and before the words, the owner's
 			     rule, as each crossing's count below. -->

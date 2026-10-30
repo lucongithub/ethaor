@@ -745,7 +745,7 @@ name, what it holds (its doc comment), and its nature.
           - `leaves every key held with Ctrl, Cmd or Alt to the browser, Ctrl + included` — leaves every key held with Ctrl, Cmd or Alt to the browser, Ctrl + included. <sub>page logic, on the real artifacts</sub>
           - `gives nothing for a key it does not know, Escape and Tab included` — gives nothing for a key it does not know, Escape and Tab included. <sub>page logic, on the real artifacts</sub>
         - module `escape` · vitest
-          - `closes what a search did before anything else` — What a search did, opened by its word in the panel, lies over everything: Escape closes it before anything else, in the book too. <sub>page logic, on the real artifacts</sub>
+          - `closes a count told once before anything else` — A count or gematria told once lies over everything: Escape closes it before anything else, in the book too. <sub>page logic, on the real artifacts</sub>
           - `closes the passages of a search first, after the passage opened from them` — A search's passages lie over everything but the passage a click in them opens, which lies over them: Escape closes that one, then them. <sub>page logic, on the real artifacts</sub>
           - `closes an open passage before anything else, the view kept` — closes an open passage before anything else, the view kept. <sub>page logic, on the real artifacts</sub>
           - `closes a notice next` — closes a notice next. <sub>page logic, on the real artifacts</sub>

@@ -102,8 +102,7 @@ web/                            SvelteKit 2 + Svelte 5 + Tailwind 4
   src/lib/components/SearchPanel.svelte the searches kept, in a panel on the right
   src/lib/letters.ts            that word's letters: typed, inserted, erased
   src/lib/marks.ts              the searches kept: slots, colours, ten shown
-  src/lib/components/ResultsModal.svelte  a search's passages, opened by its count
-  src/lib/components/SearchInfo.svelte    what a search did, opened by its word
+  src/lib/components/ResultsModal.svelte  a search's passages, opened by its row
   src/lib/results.ts            that list's record read, places, colours
   src/lib/excerpt.ts            a stretch selected: read, its menu, copied
   src/lib/gematria.ts           a selection's gematria read: each letter as
@@ -1392,18 +1391,13 @@ Rejected: one button naming where it goes — the rail never said where one was.
   **Reset** takes every search away, the panel with them.
   One row each: its colour, a square, opens the palette (four by four;
   colours worn by another shown search are not offered to a shown one),
-  its word, its count, the eye shows or hides its marks, the cross
-  removes it — each its own control, the owner's rule: the word opens
-  what the search did, the count its hits.
-- **The word opens the search** (`SearchInfo.svelte`) — the owner's rule,
-  kept bare: a modal centred over everything, the word on top at its
-  full size — the dialog as wide as the word, which wraps onto more lines
-  once the screen limits it, never shrunk —, then its colour beside its
-  name as the row's tip gives it (`searchName`), then its hits and
-  passages. No explanation, no settings list. Escape closes it before
-  anything else.
-- **The count opens the search's passages** (`ResultsModal.svelte`,
-  `results.ts`, `App::results_page`): a modal over everything, each
+  its word and count, one control, the eye shows or hides its marks, the
+  cross removes it. Rejected, by the owner: the word opening a modal of
+  its own on what the search did — it said little the list could not.
+- **The word and count open the search's passages** — one block, the
+  owner's rule (`ResultsModal.svelte`, `results.ts`,
+  `App::results_page`): a modal over everything, its search's name small
+  and centred on top, as the row's tip gives it (`searchName`), each
   passage named portion › book › chapter, then **the verses its hits'
   letters lie in, and no other** — the owner's rule: a word read across a
   verse break shows both, a word read every two hundred letters its three
@@ -1424,7 +1418,7 @@ Rejected: one button naming where it goes — the rail never said where one was.
   pointer, and Enter reads it too. Escape closes the passage, then the
   list.
 - **A row counts its hits; the searches together count passages** — the
-  owner's rule. The row's count opens the search's list, passage by
+  owner's rule. The row opens the search's list, passage by
   passage. **Once two searches are shown, the panel counts the
   passages they make together**: holding any of them (`∪`) and where two
   at least cross (`∩`) — the shown ones only, so hiding a search takes it
@@ -1593,8 +1587,7 @@ text's spacing — ruby was tried and spread them apart — odd and even
 numbers on two tiers so three digits never collide, never selected, so a
 copy is the text alone. Its count says letters, not hits (`totalOf`); its
 title holds one line, cut with an ellipsis. A row shows the selection as it
-reads, never spelled (`shownWord`); its word opens the text counted in a
-box that scrolls, however long. **Names and numbers alone are counted, never kept** —
+reads, never spelled (`shownWord`). **Names and numbers alone are counted, never kept** —
 the owner's rule (`keepsCount`): holding no verse's letter, they have
 nothing to ink or list, so no row; the count is told once in a modal
 (`LetterCount.svelte`), each letter numbered over it as the list numbers

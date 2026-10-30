@@ -46,9 +46,9 @@ describe('command', () => {
 });
 
 describe('escape', () => {
-	// What a search did, opened by its word in the panel, lies over
-	// everything: Escape closes it before anything else, in the book too.
-	it('closes what a search did before anything else', () => {
+	// A count or gematria told once lies over everything: Escape closes it
+	// before anything else, in the book too.
+	it('closes a count told once before anything else', () => {
 		const all = { results: true, selection: true, notice: true, searches: true };
 		expect(escape({ info: true, ...all })).toBe('info');
 		expect(escape({ info: true, selection: false, notice: false, book: true })).toBe('info');

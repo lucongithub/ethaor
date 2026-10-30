@@ -71,8 +71,8 @@ export function command(event: Key): Command | null {
  * throw away a dive of ten notches. The searches' panel is closed only
  * where it lies over the view (`searches`, a narrow screen): beside it, it
  * covers nothing and stays. In the book view there is no overview: the
- * reader's place is the scroll, and Escape never throws it away. What a
- * search did (`info`), opened from the panel over everything, closes first.
+ * reader's place is the scroll, and Escape never throws it away. A count
+ * or gematria told once (`info`), over everything, closes first.
  * A stretch selected in the selection mode (`excerpt`), its menu beside it,
  * goes after the passage and the list, before the notice.
  */
