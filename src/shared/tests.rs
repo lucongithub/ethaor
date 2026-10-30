@@ -614,7 +614,7 @@ fn gematria_methods_are_asked_by_key() {
 }
 
 /// A text is read by the methods asked, the consonants it was read as
-/// beside them; one with no Hebrew letter, or past the bound, is refused
+/// beside them, and each as a method replacing letters reads them; one with no Hebrew letter, or past the bound, is refused
 /// with its own code.
 #[test]
 fn a_gematria_text_is_read_or_refused() {
@@ -624,6 +624,12 @@ fn a_gematria_text_is_read_or_refused() {
     assert_eq!((reading.letter_count, reading.words), (4, 1));
     assert_eq!(reading.values, vec![(Method::MisparHapanim, 611), (Method::MisparKolel, 612)]);
     assert_eq!(read("שָׁלוֹם, abc", &[]).unwrap().letters, "שלום", "the letters read are not the text's consonants");
+    assert_eq!(reading.read_as, [None, None], "a method weighing the letters replaces them");
+    let read_as = |method| read("תּוֹרָה", &[method]).unwrap().read_as[0].clone();
+    // AtBash reads ת ו ר ה as א פ ג צ; Ofanim as each name's last letter.
+    assert_eq!(read_as(Method::Atbash).as_deref(), Some("אפגצ"));
+    assert_eq!(read_as(Method::Ofanim).as_deref(), Some("וושא"));
+    assert_eq!(read_as(Method::AyakBachar).as_deref(), Some("דסבנ"));
     for empty in ["", "abc", "\u{05B8}\u{0591}"] {
         assert_eq!(read(empty, &Method::ALL).unwrap_err(), Refusal::NoLetter, "{empty:?}");
     }

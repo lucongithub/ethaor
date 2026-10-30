@@ -906,3 +906,50 @@ fn the_page_counts_passages() {
     marks_clear(2);
 }
 
+
+/// A selection's gematria as the page reads it: the text written where the
+/// module gives room, then every method's value, what it is, each letter
+/// as it reads it and each letter's share — AtBash reading תורה as אפגצ,
+/// worth 1, 80, 3 and 90; the names, one line a method; a text with no
+/// letter, or past the bound, refused with nothing read.
+#[test]
+fn the_page_reads_a_selection_s_gematria() {
+    use crate::gematria::{MAX_LETTERS, Method, tally};
+    use crate::wasm::gematria::*;
+    let _hold = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    let read = |text: &str| {
+        let room = gematria_buffer(text.len() as u32);
+        unsafe { core::ptr::copy_nonoverlapping(text.as_ptr(), room, text.len()) };
+        gematria_read(text.len() as u32)
+    };
+    let methods = Method::ALL.len();
+    assert_eq!(read("תּוֹרָה"), 4);
+    let values = unsafe { core::slice::from_raw_parts(gematria_values_ptr(), methods) }.to_vec();
+    let flags = unsafe { core::slice::from_raw_parts(gematria_flags_ptr(), methods) }.to_vec();
+    let read_as = unsafe { core::slice::from_raw_parts(gematria_read_as_ptr(), 4 * methods) }.to_vec();
+    let shares = unsafe { core::slice::from_raw_parts(gematria_shares_ptr(), 4 * methods) }.to_vec();
+    let forms = |word: &str| word.chars().filter_map(crate::letter::exact_code).collect::<Vec<u8>>();
+    for (m, method) in Method::ALL.into_iter().enumerate() {
+        assert_eq!(values[m], tally("תורה").value(method) as f64, "{method:?}");
+        assert_eq!(flags[m] & SUMMED != 0, method.summed(), "{method:?}");
+        assert_eq!(flags[m] & REPLACES != 0, method.substitute().is_some(), "{method:?}");
+        let row = &shares[4 * m..4 * m + 4];
+        if method.summed() {
+            assert_eq!(row.iter().map(|&s| f64::from(s)).sum::<f64>(), values[m], "{method:?}: shares");
+        }
+        if method.substitute().is_none() {
+            assert_eq!(read_as[4 * m..4 * m + 4], forms("תורה"), "{method:?} replaced letters");
+        }
+    }
+    let atbash = Method::Atbash as usize;
+    assert_eq!(read_as[4 * atbash..4 * atbash + 4], forms("אפגצ"));
+    assert_eq!(shares[4 * atbash..4 * atbash + 4], [1, 80, 3, 90]);
+    assert_eq!(gematria_words(), 1);
+    let len = gematria_names() as usize;
+    let names = std::str::from_utf8(unsafe { core::slice::from_raw_parts(gematria_names_ptr(), len) }).unwrap();
+    assert_eq!(names.lines().count(), methods);
+    assert_eq!(names.lines().next(), Some("mispar_hapanim\tMispar haPanim\tמספר הפנים"));
+    assert_eq!(read("abc"), -1);
+    assert_eq!(read(""), -1);
+    assert_eq!(read(&"א".repeat(MAX_LETTERS + 1)), -2);
+}

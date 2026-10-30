@@ -46,12 +46,15 @@ fn assert_letters(method: Method, chart: [u32; 22]) {
 }
 
 /// A substitution: letter by letter, the value of the letter the chart puts
-/// in its place, read in `values`.
+/// in its place, read in `values` — and that letter itself, the one the
+/// page shows in its place (`substitute`).
 fn assert_substitution(method: Method, order: &str, partners: &str, values: fn(char) -> u32) {
     let t = table(method);
+    let read_as = method.substitute().unwrap_or_else(|| panic!("{method:?} replaces no letter"));
     assert_eq!(order.chars().count(), partners.chars().count(), "{method:?}: the chart is cut short");
     for (c, partner) in order.chars().zip(partners.chars()) {
         assert_eq!(t[form(c)], values(partner), "{method:?}: {c} does not take {partner}'s value");
+        assert_eq!(read_as[form(c)] as usize, form(partner), "{method:?}: {c} is not read as {partner}");
     }
 }
 
@@ -103,7 +106,7 @@ fn gadol_and_siduri_continue_the_alphabet_with_the_finals() {
 }
 
 /// Every substitution is the reference's chart: each letter takes the value
-/// of the letter it names, final forms worth their letter — but for AtBach
+/// of the letter it names, and is read as that letter; final forms worth their letter — but for AtBach
 /// and Ayak Bachar, which count the 27 forms, finals at 500 to 900. Ofanim's
 /// is the last letter of each name (`last_letter`).
 #[test]
@@ -240,6 +243,65 @@ fn every_verse_is_worth_what_each_definition_gives() {
         let values: Vec<u64> = Method::ALL.iter().map(|&m| read.value(m)).collect();
         assert_eq!(values, by_definition(text, words as u64), "verse {verse}: {text}");
         assert_eq!(read.words as usize, words, "verse {verse}: words miscounted");
+    }
+}
+
+/// A cipher's letters read back its value: over every verse, the letters
+/// each replaced as the method reads them are worth, by their large value,
+/// what the method gives the verse. Only the ciphers and Ofanim replace
+/// letters; every other method reads them as they are.
+#[test]
+fn a_cipher_s_letters_read_back_its_value() {
+    let replacing = [
+        Method::Atbash,
+        Method::Albam,
+        Method::Achbi,
+        Method::Atbach,
+        Method::AyakBachar,
+        Method::Ofanim,
+        Method::AchasBeta,
+        Method::Avgad,
+        Method::ReverseAvgad,
+    ];
+    for method in Method::ALL {
+        assert_eq!(method.substitute().is_some(), replacing.contains(&method), "{method:?}");
+    }
+    let mut read = String::new();
+    for verse in 0..corpus::verse_count() {
+        let text = corpus::verse_text(verse);
+        for method in replacing {
+            let read_as = method.substitute().unwrap();
+            read.clear();
+            read.extend(letters(text).map(|c| FORMS_IN_ORDER.chars().nth(read_as[form(c)] as usize).unwrap()));
+            assert_eq!(tally(&read).value(Method::MisparGadol), tally(text).value(method), "{method:?}, verse {verse}");
+        }
+    }
+}
+
+/// Each letter's share of a text's value, over every verse: the shares add
+/// up to the value, but for Kolel, HaMerubah HaKlali and Katan Mispari,
+/// whose letters each carry their standard value, read by the formula; one
+/// share a letter, in order — אחד builds to 3 + 16 + 4, each letter in the
+/// running totals from it on.
+#[test]
+fn each_letter_s_shares_add_up_to_the_value() {
+    let mut shares_of = Vec::new();
+    shares("אחד", Method::MisparBoneeh, &mut shares_of);
+    assert_eq!(shares_of, [3, 16, 4]);
+    shares("אחד", Method::MisparHaachor, &mut shares_of);
+    assert_eq!(shares_of, [1, 16, 12]);
+    let formulas = [Method::MisparHamerubahHaklali, Method::MisparKatanMispari, Method::MisparKolel];
+    for verse in (0..corpus::verse_count()).step_by(7) {
+        let text = corpus::verse_text(verse);
+        let read = tally(text);
+        for method in Method::ALL {
+            shares(text, method, &mut shares_of);
+            assert_eq!(shares_of.len(), read.letters as usize, "{method:?}, verse {verse}: one share a letter");
+            let sum: u64 = shares_of.iter().map(|&s| u64::from(s)).sum();
+            assert_eq!(method.summed(), !formulas.contains(&method), "{method:?}");
+            let expected = if method.summed() { read.value(method) } else { read.value(Method::MisparHapanim) };
+            assert_eq!(sum, expected, "{method:?}, verse {verse}: {text}");
+        }
     }
 }
 

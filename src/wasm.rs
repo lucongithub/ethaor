@@ -6,6 +6,7 @@
 pub mod chapter;
 pub mod els;
 pub mod fault;
+pub mod gematria;
 pub mod landing;
 pub mod map;
 pub mod words;

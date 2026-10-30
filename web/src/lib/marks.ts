@@ -193,14 +193,28 @@ export function searchName(m: Marked): string {
 /** The kind of a count of the letters selected: a search kept as any other. */
 export const COUNT = 'Count letters';
 
+/** The kind of a selection read by every gematria method: kept as a count is. */
+export const GEMATRIA = 'Gematria';
+
+/** Whether a search keeps a stretch selected — a count, a gematria — not a word asked for. */
+export const isSelection = (m: Marked): boolean => m.kind === COUNT || m.kind === GEMATRIA;
+
 /**
  * A search's word as the page shows it: a searched word spelled
- * (`spelled`); a count's selection as it reads, words and all.
+ * (`spelled`); a selection kept as it reads, words and all.
  */
-export const shownWord = (m: Marked): string => (m.kind === COUNT ? m.word : spelled(m.word));
+export const shownWord = (m: Marked): string => (isSelection(m) ? m.word : spelled(m.word));
 
-/** What a search's count counts: a count's letters, any other's hits. */
-export const unitOf = (m: Marked): string => (m.kind === COUNT ? 'letter' : 'hit');
+/**
+ * What a search's count says: a count's letters, a gematria's standard
+ * value under its name — the one the panel shows — any other's hits.
+ */
+export function totalOf(m: Marked): string {
+	const n = m.total ?? 0;
+	if (m.kind === GEMATRIA) return `Mispar haPanim ${grouped(n)}`;
+	const unit = m.kind === COUNT ? 'letter' : 'hit';
+	return `${grouped(n)} ${unit}${n === 1 ? '' : 's'}`;
+}
 
 /** The list with one search changed; the others untouched. */
 function change(list: readonly Marked[], id: number, to: Partial<Marked>): Marked[] {

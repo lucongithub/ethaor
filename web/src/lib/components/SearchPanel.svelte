@@ -27,7 +27,7 @@
 		searchName,
 		rowLabel,
 		shownWord,
-		unitOf,
+		totalOf,
 		type Color,
 		type Marked
 	} from '$lib/marks';
@@ -408,7 +408,7 @@
 						aria-disabled={search.passages === null}
 						aria-label={search.passages === null
 							? `${search.word}: searching`
-							: `${count(search.total ?? 0)} ${unitOf(search)}s of ${search.word}, in ${passagesOf(search.passages)}`}
+							: `${totalOf(search)} of ${search.word}, in ${passagesOf(search.passages)}`}
 						onclick={() => {
 							if (search.passages !== null) onresults?.(search.id);
 						}}

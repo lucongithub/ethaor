@@ -6,7 +6,7 @@
 //! read off it. No corpus, no engine: nothing here waits for the text.
 
 pub use crate::gematria::search::{self, STRIDE};
-pub use crate::gematria::{MAX_LETTERS, Method, Tally};
+pub use crate::gematria::{MAX_LETTERS, Method, Tally, shares};
 
 use std::ops::Range;
 
@@ -258,6 +258,9 @@ pub struct Reading {
     pub letter_count: u32,
     pub words: u32,
     pub values: Vec<(Method, u64)>,
+    /// Beside each value, the consonants as its method reads them, for one
+    /// that replaces letters (`read_as`).
+    pub read_as: Vec<Option<String>>,
 }
 
 /// Checks a text: one Hebrew letter at least, `MAX_LETTERS` at most.
@@ -280,7 +283,17 @@ pub fn read(text: &str, methods: &[Method]) -> Result<Reading, Refusal> {
         letter_count: tally.letters,
         words: tally.words,
         values: methods.iter().map(|&m| (m, tally.value(m))).collect(),
+        read_as: methods.iter().map(|&m| read_as(text, m)).collect(),
     })
+}
+
+/// The consonants of `text` as `method` reads them, each replaced by the
+/// letter it is read as — AtBash reads alef as tav; `None` for a method
+/// that weighs the letters themselves (`Method::substitute`).
+pub fn read_as(text: &str, method: Method) -> Option<String> {
+    let read_as = method.substitute()?;
+    let form = |c| char::from_u32(0x05D0 + u32::from(read_as[usize::from(crate::letter::exact_code(c)?)]));
+    Some(crate::gematria::letters(text).filter_map(form).collect())
 }
 
 /// A gematria search as both transports ask it: every run of consecutive

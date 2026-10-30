@@ -186,3 +186,38 @@ async fn the_page_and_the_api_keep_to_the_same_verses() {
         }
     }
 }
+
+/// A selection's gematria as the page reads it (`src/wasm/gematria.rs`) and
+/// as `/api/gematria` answers it: every method's value, and each letter a
+/// method replacing letters reads, the same — on a word, a pointed verse and
+/// a text mixing finals, marks and Latin.
+#[tokio::test]
+async fn the_page_and_the_api_read_the_same_gematria() {
+    use ethaor::shared::gematria::Method;
+    use ethaor::wasm::gematria::*;
+    let texts = ["תורה", "בְּרֵאשִׁית בָּרָא אֱלֹהִים אֵת הַשָּׁמַיִם וְאֵת הָאָרֶץ", "מֶלֶךְ, abc צדק ץ"];
+    for text in texts {
+        let (n, values, read_as) = {
+            let _hold = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+            let room = gematria_buffer(text.len() as u32);
+            unsafe { core::ptr::copy_nonoverlapping(text.as_ptr(), room, text.len()) };
+            let n = gematria_read(text.len() as u32) as usize;
+            let methods = Method::ALL.len();
+            let values = unsafe { core::slice::from_raw_parts(gematria_values_ptr(), methods) }.to_vec();
+            let read_as = unsafe { core::slice::from_raw_parts(gematria_read_as_ptr(), n * methods) }.to_vec();
+            (n, values, read_as)
+        };
+        let json = super::get(super::api_only(), &format!("/api/gematria?{}", super::query(&[("text", text)])), &[])
+            .await
+            .json();
+        let methods = json["methods"].as_array().unwrap();
+        assert_eq!(methods.len(), values.len(), "{text}");
+        for (m, method) in methods.iter().enumerate() {
+            assert_eq!(method["value"].as_f64(), Some(values[m]), "{text}: {}", method["method"]);
+            if let Some(letters) = method["letters"].as_str() {
+                let page: String = read_as[m * n..(m + 1) * n].iter().map(|&f| char::from_u32(0x05D0 + u32::from(f)).unwrap()).collect();
+                assert_eq!(page, letters, "{text}: {}", method["method"]);
+            }
+        }
+    }
+}

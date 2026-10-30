@@ -186,6 +186,19 @@ export function numberedLetters(text: string, after = 0, slots = 0): Numbered[] 
 }
 
 /**
+ * Only the letters a count holds, word by word across a passage's verses
+ * (`numbered`): each word keeps its numbered letters alone, a word holding
+ * none goes — what a gematria's method shows under its title, never the
+ * whole passage, the owner's rule.
+ */
+export function countedWords(pieces: Numbered[][][]): Numbered[][] {
+	return pieces
+		.flat()
+		.map((word) => word.filter((piece) => piece.n > 0))
+		.filter((word) => word.length > 0);
+}
+
+/**
  * A passage's verses cut as the list draws them, each word into its runs —
  * and every letter of the search's own (`OWN`) apart, numbered in reading
  * order across the passage, from 1: a count's letters, each with its
@@ -205,17 +218,30 @@ export function numbered(passage: Passage): Numbered[][][] {
 	);
 }
 
+/** Where each tier of numbers sits over its letter, the lowest first. */
+const TIERS = [
+	'bottom-[82%]',
+	'bottom-[calc(82%+1.15em)]',
+	'bottom-[calc(82%+2.3em)]',
+	'bottom-[calc(82%+3.45em)]'
+];
+
 /**
  * The classes of a counted letter's number: small, centred over its letter,
  * out of the flow so the letters keep the text's own spacing, never
- * selected nor read aloud — a copy is the text alone. Odd numbers sit just
- * over the letter, even ones a tier higher: two neighbours never share a
- * line, so three digits over a narrow letter still read apart.
+ * selected nor read aloud — a copy is the text alone. Neighbours take the
+ * `tiers` in turn, the first just over the letter: two never share a line,
+ * so a long number over a narrow letter still reads apart.
  */
-export function numberClass(n: number): string {
+export function numberClass(n: number, tiers = 2): string {
 	return [
 		'pointer-events-none absolute left-1/2 -translate-x-1/2 select-none',
 		'font-sans text-[0.36em] leading-none tracking-tight whitespace-nowrap text-white/70 tabular-nums',
-		n % 2 ? 'bottom-[82%]' : 'bottom-[calc(82%+1.15em)]'
+		TIERS[(n - 1) % Math.min(Math.max(tiers, 1), TIERS.length)]
 	].join(' ');
+}
+
+/** The lines' height for numbers on `tiers` tiers: room over every letter for all of them. */
+export function leadingFor(tiers: number): string {
+	return tiers <= 2 ? 'leading-[2.6]' : tiers === 3 ? 'leading-[3.4]' : 'leading-[4.2]';
 }

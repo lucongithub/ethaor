@@ -88,6 +88,11 @@ export const CATALOGUE = {
 		level: 'warn',
 		message: 'The selection could not be copied. It is still selected: copy it with the keyboard.'
 	},
+	'gematria-too-long': {
+		show: true,
+		level: 'warn',
+		message: 'The selection is too long for gematria: select fewer letters.'
+	},
 	uncaught: { show: true, level: 'error', message: 'Something unexpected went wrong.' },
 	unawaited: { show: true, level: 'error', message: 'Something unexpected went wrong.' }
 } as const satisfies Record<

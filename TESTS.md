@@ -13,12 +13,12 @@ name, what it holds (its doc comment), and its nature.
 
 | area | files | tests | ignored | without a doc |
 |---|---|---|---|---|
-| Rust core, module-private | 9 | 162 | 3 | 21 |
-| Rust app (`src/tests/`) | 13 | 201 | 0 | 12 |
+| Rust core, module-private | 9 | 164 | 3 | 21 |
+| Rust app (`src/tests/`) | 13 | 202 | 0 | 12 |
 | Corpus build (`tests/`) | 1 | 31 | 0 | 15 |
-| Server (`server/`) | 17 | 102 | 1 | 12 |
-| Page (`web/`) | 13 | 146 | 0 | 0 |
-| **total** | **53** | **642** | **4** | **60** |
+| Server (`server/`) | 17 | 103 | 1 | 12 |
+| Page (`web/`) | 14 | 153 | 0 | 0 |
+| **total** | **54** | **653** | **4** | **60** |
 
 ## By file
 
@@ -81,9 +81,9 @@ name, what it holds (its doc comment), and its nature.
           - `no_path_climbs_out_of_the_build` — Nothing outside the build is ever served, however the path climbs. <sub>service, called in memory · async</sub>
           - `a_file_asked_again_is_not_resent` — A browser asking again with what it holds is told it holds it: no bytes resent. <sub>service, called in memory · async</sub>
       - [`gematria.rs`](server/src/tests/gematria.rs) — 10 tests — covers [`server/src/api/gematria.rs`](server/src/api/gematria.rs)
-        <br>`GET /api/gematria`: every method named every way beside its value, its refusals, its description. No WebAssembly twin: the page offers no gematria — the API alone does, for callers without a browser.
+        <br>`GET /api/gematria`: every method named every way beside its value, its refusals, its description. Its WebAssembly twin, the page's reading of a selection, is held to it in `parity.rs`.
         - module `tests::gematria` · ethaor-server
-          - `every_method_answers_named_every_way` — Without `method`, every method answers, in the catalogue's order, each with its key, its English and Hebrew names, the names it also goes by, its description and its value; the text is echoed with the consonants read, and the answer may be kept by anyone. <sub>service, called in memory · async</sub>
+          - `every_method_answers_named_every_way` — Without `method`, every method answers, in the catalogue's order, each with its key, its English and Hebrew names, the names it also goes by, its description and its value — and a method replacing letters, the letters it reads; the text is echoed with the consonants read, and the answer may be kept by anyone. <sub>service, called in memory · async</sub>
           - `the_gematria_answer_is_the_shared_reading` — The JSON is the shared layer's reading, field for field. <sub>service, called in memory · async</sub>
           - `method_keeps_to_the_keys_asked` — `method` keeps to the keys asked, in the catalogue's order, each once. <sub>service, called in memory · async</sub>
           - `each_gematria_refusal_has_its_code` — Each refusal its code, a 400 and nothing kept: no Hebrew letter, a text past the bound, a method no key names, a parameter missing or unknown. <sub>service, called in memory · async</sub>
@@ -120,13 +120,14 @@ name, what it holds (its doc comment), and its nature.
           - `a_follower_reads_across_files_and_is_told_what_it_missed` — A follower reads on as the files roll, every line once and in order; one so slow that files it had not read were deleted is told how many, then goes on from the oldest left. <sub>service, called in memory · async</sub>
           - `no_log_file_is_a_503` — With no log file, the endpoint says so — a 503, not an empty stream. <sub>service, called in memory · async</sub>
           - `a_flush_writes_the_lines_and_wakes_a_follower_at_once` — Lines wait in the buffer until the flush — no system call each — and the flush wakes a waiting follower at once, well before it would have looked on its own. <sub>service, called in memory · multi-thread</sub>
-      - [`parity.rs`](server/src/tests/parity.rs) — 4 tests
+      - [`parity.rs`](server/src/tests/parity.rs) — 5 tests
         <br>The two transports answer alike: what the page reads from the module's memory (`src/wasm/els.rs`) and what the API sends (`api/els.rs`) are the same hits, in the same order, placed in the same verses.
         - module `tests::parity` · ethaor-server
           - `the_page_and_the_api_find_the_same_hits` — *(no doc: say what it holds)* <sub>service, called in memory · parity WebAssembly ↔ API · async</sub>
           - `the_page_and_the_api_read_the_same_chapter` — The book view and the API read a chapter alike: what the page reads from the module's record (`src/wasm/chapter.rs`) and what `/api/chapter` answers are the same verses, shown the same, the same forms the other edition's — on chapters holding another reading, and a stride through the rest. <sub>service, called in memory · parity WebAssembly ↔ API · async</sub>
           - `the_page_and_the_api_list_the_same_contents` — The book view and the API list the same contents: what the page reads from `contents_record` and what `/api/contents` answers are the same portions, books and chapters, named alike. <sub>service, called in memory · parity WebAssembly ↔ API · async</sub>
           - `the_page_and_the_api_keep_to_the_same_verses` — Scoped, too: the page's `els_search_in` over a stretch of verses and the API's scope over the same verses find the same hits. <sub>service, called in memory · parity WebAssembly ↔ API · async</sub>
+          - `the_page_and_the_api_read_the_same_gematria` — A selection's gematria as the page reads it (`src/wasm/gematria.rs`) and as `/api/gematria` answers it: every method's value, and each letter a method replacing letters reads, the same — on a word, a pointed verse and a text mixing finals, marks and Latin. <sub>service, called in memory · parity WebAssembly ↔ API · async</sub>
       - [`robust.rs`](server/src/tests/robust.rs) — 4 tests
         <br>The service never goes down for a request: a panic is answered and the next request served, an engine that panicked is replaced, a bad setting falls back to its default.
         - module `tests::robust` · ethaor-server
@@ -238,15 +239,17 @@ name, what it holds (its doc comment), and its nature.
         - `an_exact_hit_is_spelled_as_asked` — **An exact hit is spelled as asked**: every letter of every hit of `אדמ` is in the exact stream the form the word gives — a mem never final — and `אדם` exactly finds its final mem only. <sub>unit, module-private</sub>
         - `the_memory_keeps_folded_and_exact_apart` — **A query asked folded then exact is two answers**: the memory keys the mode — codes alone collide, folded `כ` and exact `ך` both being 10 — so a recall never hands one for the other. <sub>unit, module-private</sub>
   - **gematria/**
-    - [`tests.rs`](src/gematria/tests.rs) — 18 tests — covers [`src/gematria.rs`](src/gematria.rs)
+    - [`tests.rs`](src/gematria/tests.rs) — 20 tests — covers [`src/gematria.rs`](src/gematria.rs)
       <br>Gematria: each table is the chart the reference publishes and the rule that defines it, the tally is the text read once, and every method answers what its definition gives letter by letter — over every verse.
       - module `gematria::tests` · ethaor
         - `the_value_tables_are_the_reference_s_charts` — The value tables are the reference's charts, number for number: each of the 22 letters, and each final form worth its letter — the tables `table_of` builds, for the methods `has_table` says are one. <sub>unit, module-private</sub>
         - `gadol_and_siduri_continue_the_alphabet_with_the_finals` — Mispar Gadol and Mispar Siduri give the finals values of their own, continuing the alphabet: 500 to 900, and ranks 23 to 27. <sub>unit, module-private</sub>
-        - `the_substitutions_are_the_reference_s_charts` — Every substitution is the reference's chart: each letter takes the value of the letter it names, final forms worth their letter — but for AtBach and Ayak Bachar, which count the 27 forms, finals at 500 to 900. Ofanim's is the last letter of each name (`last_letter`). <sub>unit, module-private</sub>
+        - `the_substitutions_are_the_reference_s_charts` — Every substitution is the reference's chart: each letter takes the value of the letter it names, and is read as that letter; final forms worth their letter — but for AtBach and Ayak Bachar, which count the 27 forms, finals at 500 to 900. Ofanim's is the last letter of each name (`last_letter`). <sub>unit, module-private</sub>
         - `the_ciphers_are_permutations_of_their_shape` — The ciphers keep their shape: AtBash, AlBam and AchBi swap pairs (twice is the letter back), Achas Beta comes back in three steps, Avgad and Reverse Avgad undo each other, and each is a permutation of the alphabet — no two letters take one value. <sub>unit, module-private</sub>
         - `the_reference_s_examples_are_found` — The classic examples the reference gives: תורה is 611; alef's name (אלף) is 111, without its alef 110; אחד builds to 23 and spells 13, whose root is 4; and every value of תורה, each worked out by hand. <sub>unit, module-private</sub>
         - `every_verse_is_worth_what_each_definition_gives` — Over every verse of the Tanakh, pointed as it is, each method answers what its definition gives letter by letter: one pass and a few multiplications are the sums written out. Words are the verse's, parted by spaces and the maqaf. <sub>unit, module-private</sub>
+        - `a_cipher_s_letters_read_back_its_value` — A cipher's letters read back its value: over every verse, the letters each replaced as the method reads them are worth, by their large value, what the method gives the verse. Only the ciphers and Ofanim replace letters; every other method reads them as they are. <sub>unit, module-private</sub>
+        - `each_letter_s_shares_add_up_to_the_value` — Each letter's share of a text's value, over every verse: the shares add up to the value, but for Kolel, HaMerubah HaKlali and Katan Mispari, whose letters each carry their standard value, read by the formula; one share a letter, in order — אחד builds to 3 + 16 + 4, each letter in the running totals from it on. <sub>unit, module-private</sub>
         - `only_consonants_count` — Only consonants count: points and cantillation change nothing, nor do Latin letters, digits or punctuation; a final form stays itself. <sub>unit, module-private</sub>
         - `words_are_parted_where_the_text_parts_them` — Words are runs of letters and their marks holding a consonant, parted by a space, a maqaf, a paseq, a sof pasuq or anything else — a gershayim too; marks alone are no word. Each character as `class` sorts it. <sub>unit, module-private</sub>
         - `only_the_hebrew_block_s_letters_count` — Only the 27 letters of the Unicode block are Hebrew letters: a presentation form (a shin with its dot welded in, U+FB2A) or a Yiddish ligature (U+05F0) is no letter of the Tanakh and counts for nothing. <sub>unit, module-private</sub>
@@ -315,11 +318,11 @@ name, what it holds (its doc comment), and its nature.
         - `a_words_search_is_admitted_on_its_cost` — A words search costs a pass over its stretch: the heaviest — the first letters of the whole Tanakh — is admitted under the API's default ceiling, and a ceiling below it refuses it before it runs. <sub>unit, module-private</sub>
         - `every_gematria_method_is_named_every_way` — Every gematria method is named every way, by a key of its own in snake case that names it back; its Hebrew name is Hebrew, its English name and description are there. <sub>unit, module-private</sub>
         - `gematria_methods_are_asked_by_key` — The methods asked for: all without a list; a list parted by commas answered in the catalogue's order, each once; a key it does not hold — an empty one too — refused with the key and the list of good ones. <sub>unit, module-private</sub>
-        - `a_gematria_text_is_read_or_refused` — A text is read by the methods asked, the consonants it was read as beside them; one with no Hebrew letter, or past the bound, is refused with its own code. <sub>unit, module-private</sub>
+        - `a_gematria_text_is_read_or_refused` — A text is read by the methods asked, the consonants it was read as beside them, and each as a method replacing letters reads them; one with no Hebrew letter, or past the bound, is refused with its own code. <sub>unit, module-private</sub>
         - `a_gematria_page_lists_the_runs_worth_the_text` — A gematria search's page is the stream's runs, in the order of the text: pages tile the listed runs, `limit` 0 counts, every run's words are the verse's own and worth the text's value, the first words of Genesis among those of `בראשית ברא`. <sub>unit, module-private</sub>
         - `a_gematria_search_is_refused_or_kept_to_its_scope` — A gematria search is refused with its reason before it runs: no Hebrew letter, a limit past the most, an empty scope, a cost past the ceiling; a scope keeps its runs inside it. <sub>unit, module-private</sub>
   - **tests/**
-    - [`api.rs`](src/tests/api.rs) — 30 tests
+    - [`api.rs`](src/tests/api.rs) — 31 tests
       <br>The interface the page really calls.
       - module `tests::api` · ethaor
         - `the_page_can_draw_a_frame_from_a_cold_start` — *(no doc: say what it holds)* <sub>app: the module as the page drives it</sub>
@@ -352,6 +355,7 @@ name, what it holds (its doc comment), and its nature.
         - `the_book_view_reads_found_letters_inside_its_record` — **The book view reads a chapter's found letters inside its record**: each triple `chapter_marks` leaves lies in one verse as the record shows it; `marks_at` gives the chapter, its book and its portion their bits. <sub>app: the module as the page drives it</sub>
         - `the_page_lists_a_search_s_passages` — **A search's passages reach the page as it lists them**: its records copied into `marks_buffer`, set by `results_set` — then `results_page` writes at `results_ptr` the record `App::results_page` writes, a page past the end writes nothing, and `results_clear` forgets the list. <sub>app: the module as the page drives it</sub>
         - `the_page_counts_passages` — **The panel's counts reach the page as it asks them**: `passages_count` counts the hits at `marks_buffer` as `results_set` lists them, and `passages_shown` the shown searches' together, as `results_shown` lists them — of any, of all — and `results_groups` the crossings of `∩`, none for `∪`; `marks_join` keeps the map's squares to the passages of all, and gives them back whole. <sub>app: the module as the page drives it</sub>
+        - `the_page_reads_a_selection_s_gematria` — A selection's gematria as the page reads it: the text written where the module gives room, then every method's value, what it is, each letter as it reads it and each letter's share — AtBash reading תורה as אפגצ, worth 1, 80, 3 and 90; the names, one line a method; a text with no letter, or past the bound, refused with nothing read. <sub>app: the module as the page drives it</sub>
     - [`breadcrumb.rs`](src/tests/breadcrumb.rs) — 14 tests
       <br>The breadcrumb: where one is, from the zoom and from the pointer.
       - module `tests::breadcrumb` · ethaor
@@ -723,6 +727,16 @@ name, what it holds (its doc comment), and its nature.
         - module `the catalogue` · vitest
           - `speaks English to the user, plainly` — speaks English to the user, plainly. <sub>page logic, on the real artifacts</sub>
           - `has each code raised at one place, which it therefore names` — has each code raised at one place, which it therefore names. <sub>page logic, on the real artifacts</sub>
+      - [`gematria.test.ts`](web/src/lib/gematria.test.ts) — 5 tests — covers [`web/src/lib/gematria.ts`](web/src/lib/gematria.ts)
+        - module `readGematria` · vitest
+          - `reads a text by every method, each letter as the method reads it and its share` — The real map module reads תורה: every method, the standard value first at 611; AtBash reading it אפגצ, 1 + 80 + 3 + 90; the words counted. <sub>page logic, on the real artifacts</sub>
+          - `tells a text with no letter, or too long, from a reading` — No Hebrew letter, or more than the module reads exactly: told why. <sub>page logic, on the real artifacts</sub>
+        - module `letterAs` · vitest
+          - `shows each letter as its method reads it, its share over it` — A replacing method shows the letter it reads, bare; another the letter as written; each its share over it — without a method, its number. <sub>page logic, on the real artifacts</sub>
+        - module `formula` · vitest
+          - `says how Kolel, HaMerubah HaKlali and Katan Mispari reach their value` — The three methods no sum of their letters say how they reach their value from the standard one; the others say nothing. <sub>page logic, on the real artifacts</sub>
+        - module `tiersFor` · vitest
+          - `takes a tier more for longer numbers` — Short shares keep the count's two tiers; longer ones take more. <sub>page logic, on the real artifacts</sub>
       - [`keys.test.ts`](web/src/lib/keys.test.ts) — 13 tests — covers [`web/src/lib/keys.ts`](web/src/lib/keys.ts)
         - module `command` · vitest
           - `zooms one notch in on + or =, out on - or _` — zooms one notch in on + or =, out on - or _. <sub>page logic, on the real artifacts</sub>
@@ -804,14 +818,14 @@ name, what it holds (its doc comment), and its nature.
         - module `changes` · vitest
           - `each touches its search alone` — each touches its search alone. <sub>page logic, on the real artifacts</sub>
         - module `a count of letters` · vitest
-          - `shows its selection as it reads and counts letters` — Kept as any search, a count shows its selection as it reads — never spelled letter by letter, as a searched word is — and counts letters. <sub>page logic, on the real artifacts</sub>
+          - `shows its selection as it reads and counts letters` — Kept as any search, a count or a gematria shows its selection as it reads — never spelled letter by letter, as a searched word is; a count counts letters, a gematria says its standard value, any other its hits. <sub>page logic, on the real artifacts</sub>
       - [`passage.test.ts`](web/src/lib/passage.test.ts) — 4 tests — covers [`web/src/lib/passage.ts`](web/src/lib/passage.ts)
         - module `passage` · vitest
           - `cuts a verse at its spaces, every pointed letter whole` — cuts a verse at its spaces, every pointed letter whole. <sub>page logic, on the real artifacts</sub>
           - `picks each word in place: head, word and tail give the verse back` — picks each word in place: head, word and tail give the verse back. <sub>page logic, on the real artifacts</sub>
           - `picks nothing out of the verse, and reads no word picked as none` — picks nothing out of the verse, and reads no word picked as none. <sub>page logic, on the real artifacts</sub>
           - `cuts each word into the runs the searches found, by bytes, the word given back whole` — cuts each word into the runs the searches found, by bytes, the word given back whole. <sub>page logic, on the real artifacts</sub>
-      - [`results.test.ts`](web/src/lib/results.test.ts) — 14 tests — covers [`web/src/lib/results.ts`](web/src/lib/results.ts)
+      - [`results.test.ts`](web/src/lib/results.test.ts) — 16 tests — covers [`web/src/lib/results.ts`](web/src/lib/results.ts)
         - module `a search's passages` · vitest
           - `carry its own letters under the bit past every slot` — The module's own bit is the page's: one past the slots it marks. <sub>page logic, on the real artifacts</sub>
           - `spell the word once per hit, every verse whole, hidden or not` — Read page by page, the list holds every hit whole: its own letters, across all passages, spell the word once per hit — with no slot set, the search hidden from the map — and every verse is ours, numbered, its chapter in its book. <sub>page logic, on the real artifacts</sub>
@@ -827,10 +841,13 @@ name, what it holds (its doc comment), and its nature.
           - `always show the search listed, and the others shown` — The search listed wears its colour on its own letters whether it is shown or hidden; the shown ones theirs, lowest slot first; never twice. <sub>page logic, on the real artifacts</sub>
         - module `a count's passages` · vitest
           - `number every letter counted, in order, across its verses` — The letters a selection holds — here verse 1's from its 4th letter on and verse 2's first ten, as the book names them by rank — kept as a search: its one passage holds both verses, every letter of the count numbered from 1 in reading order, the numbers running on from one verse to the next, and only those letters. <sub>page logic, on the real artifacts</sub>
+        - module `countedWords` · vitest
+          - `keeps the counted letters alone, word by word, across verses` — A gematria's method shows the counted letters alone: a word keeps its numbered letters, in order, across verses; a word with none goes, and what is not a counted letter in a word goes too. <sub>page logic, on the real artifacts</sub>
         - module `numberedLetters` · vitest
           - `numbers each letter with its marks, on from where it is told` — Each consonant with its marks is one piece, numbered on from `after`; spaces stay between, unnumbered, and the pieces read the text whole. <sub>page logic, on the real artifacts</sub>
         - module `numberClass` · vitest
           - `sets odd and even numbers on two tiers, out of the flow and the selection` — Neighbours never share a tier: odd numbers just over their letter, even ones a tier higher; neither selected nor taking the flow. <sub>page logic, on the real artifacts</sub>
+          - `takes as many tiers as asked, each neighbour its own, the lines tall enough` — Longer numbers take more tiers: n neighbours in a row, each its own, the lines made tall enough for all of them. <sub>page logic, on the real artifacts</sub>
         - module `crossingsTitled` · vitest
           - `titles the crossings only when there are several` — A crossing's own title only among several: a single one would repeat the list's title. <sub>page logic, on the real artifacts</sub>
       - [`search-core.test.ts`](web/src/lib/search-core.test.ts) — 6 tests — covers [`web/src/lib/search-core.ts`](web/src/lib/search-core.ts)

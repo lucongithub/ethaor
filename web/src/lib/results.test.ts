@@ -5,7 +5,9 @@ import { countOf, ranked } from './excerpt';
 import {
 	colorsOf,
 	crossed,
+	countedWords,
 	crossingsTitled,
+	leadingFor,
 	numberClass,
 	numbered,
 	numberedLetters,
@@ -381,6 +383,24 @@ describe("a count's passages", () => {
 	});
 });
 
+describe('countedWords', () => {
+	// A gematria's method shows the counted letters alone: a word keeps its
+	// numbered letters, in order, across verses; a word with none goes, and
+	// what is not a counted letter in a word goes too.
+	it('keeps the counted letters alone, word by word, across verses', () => {
+		const run = (text: string, n: number) => ({ text, slots: 0, n });
+		const verses = [
+			[
+				[run('ב', 0), run('ר', 0)],
+				[run('ב', 1), run('ְ', 0), run('ר', 2)]
+			],
+			[[run('א', 3)], [run('ת', 0)], [run('ו', 4), run('ה', 5)]]
+		];
+		expect(countedWords(verses).map((w) => w.map((p) => p.n))).toEqual([[1, 2], [3], [4, 5]]);
+		expect(countedWords([])).toEqual([]);
+	});
+});
+
 describe('numberedLetters', () => {
 	// Each consonant with its marks is one piece, numbered on from `after`;
 	// spaces stay between, unnumbered, and the pieces read the text whole.
@@ -407,6 +427,17 @@ describe('numberClass', () => {
 			expect(c).toContain('absolute');
 			expect(c).toContain('select-none');
 		}
+	});
+
+	// Longer numbers take more tiers: n neighbours in a row, each its own,
+	// the lines made tall enough for all of them.
+	it('takes as many tiers as asked, each neighbour its own, the lines tall enough', () => {
+		const three = [1, 2, 3].map((n) => numberClass(n, 3));
+		expect(new Set(three).size).toBe(3);
+		expect(numberClass(4, 3)).toBe(three[0]);
+		expect(numberClass(4, 4)).not.toBe(three[0]);
+		expect(new Set([2, 3, 4].map(leadingFor)).size).toBe(3);
+		expect(leadingFor(2)).toBe('leading-[2.6]');
 	});
 });
 

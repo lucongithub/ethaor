@@ -12,25 +12,33 @@
 	//
 	// The passages come a page at a time, as the reader scrolls down to them:
 	// a common word has thousands, and pointed Hebrew is heavy to lay out.
-	import { onMount } from 'svelte';
+	//
+	// A gematria's list reads its passage, then the passage again under each
+	// method, a few at a time: its letters as the method reads them, each
+	// share of the value over its letter, the value in the method's title.
+	import { onMount, tick } from 'svelte';
 	import type { Contents } from '$lib/book-view';
+	import { formula, tiersFor, type Gematria } from '$lib/gematria';
 	import {
 		COLORS,
 		COUNT,
 		grouped,
 		inkStyle,
+		isSelection,
 		isShown,
 		shownWord,
 		skipPrefix,
-		unitOf,
+		totalOf,
 		type Marked
 	} from '$lib/marks';
 	import { inked } from '$lib/passage';
+	import Letters from './Letters.svelte';
 	import {
 		colorsOf,
+		countedWords,
 		crossed,
 		crossingsTitled,
-		numberClass,
+		leadingFor,
 		numbered,
 		OWN,
 		PAGE,
@@ -49,6 +57,7 @@
 		crossings,
 		contents,
 		read,
+		gematria = null,
 		onselect,
 		onclose
 	}: {
@@ -67,6 +76,8 @@
 		contents: Contents;
 		/** Passages `from..from + count`. */
 		read: (from: number, count: number) => Passage[];
+		/** A gematria's reading by every method, for its list. */
+		gematria?: Gematria | null;
 		/** A verse clicked, by its global index: its passage opens, as on the map. */
 		onselect: (verse: number) => void;
 		onclose: () => void;
@@ -82,19 +93,38 @@
 	let dialog = $state<HTMLDialogElement>();
 	let end = $state<HTMLElement>();
 	let shown = $state<Passage[]>([]);
+	// A gematria's methods laid so far, after its passages.
+	let methods = $state(0);
+	const METHODS_AT_ONCE = 4;
 
-	function more() {
-		if (shown.length >= passages) return;
-		shown = [...shown, ...read(shown.length, PAGE)];
+	// The next page — of passages, then of a gematria's methods; whether
+	// anything was added.
+	function more(): boolean {
+		if (shown.length < passages) {
+			shown = [...shown, ...read(shown.length, PAGE)];
+			return true;
+		}
+		if (gematria && methods < gematria.methods.length) {
+			methods += METHODS_AT_ONCE;
+			return true;
+		}
+		return false;
 	}
 
 	onMount(() => {
 		dialog?.showModal();
 		more();
-		// The next page once the end of the list nears the bottom of the scroll.
+		// The next page once the end of the list nears the bottom of the scroll
+		// — and again while it stays near once laid: the observer only says
+		// when it comes near, and a short page leaves it there.
 		const observer = new IntersectionObserver(
 			(entries) => {
-				if (entries.some((e) => e.isIntersecting)) more();
+				if (!entries.some((e) => e.isIntersecting) || !more() || !end) return;
+				const at = end;
+				tick().then(() => {
+					observer.unobserve(at);
+					observer.observe(at);
+				});
 			},
 			{ root: end?.parentElement, rootMargin: '0px 0px 600px 0px' }
 		);
@@ -119,12 +149,14 @@
 	// A count's list numbers each of its letters, over it, in reading order
 	// across the passage; any other's verses are cut into their runs alone.
 	const counting = $derived(search?.kind === COUNT);
+	// A selection kept — a count, a gematria — colours its own letters alone.
+	const selection = $derived(search !== null && isSelection(search));
 
 	// The letters found, as the passage paints them: one colour, or bands.
-	// A count's list colours its own letters alone — the others' would only
-	// stand between the reader and the numbers.
+	// A selection's list colours its own letters alone — the others' would
+	// only stand between the reader and the numbers.
 	const styleOf = (bits: number) =>
-		counting
+		selection
 			? bits & OWN && search
 				? inkStyle([search.color])
 				: ''
@@ -136,15 +168,61 @@
 					inked(verse.text, verse.found).map((word) => word.map((run) => ({ ...run, n: 0 })))
 				);
 
-	// A count's selection may run long: in a title it holds one line, cut
-	// with an ellipsis, so the header keeps its count and its close button.
-	const clamp = (m: Marked) => (m.kind === COUNT ? 'block min-w-0 truncate' : '');
+	// A selection may run long: in a title it holds one line, cut with an
+	// ellipsis, so the header keeps its count and its close button.
+	const clamp = (m: Marked) => (isSelection(m) ? 'block min-w-0 truncate' : '');
 
 	// A click on the backdrop — the dialog itself, never its content — closes it.
 	function onclick(event: MouseEvent) {
 		if (event.target === dialog) dialog?.close();
 	}
 </script>
+
+{#snippet reading(passage: Passage, pieces: Numbered[][][])}
+	{#each stretches(passage, contents) as stretch, g (g)}
+		<!-- Where it lies, as the breadcrumb names it — said again wherever a
+		     word read far apart reaches another chapter, book or portion. -->
+		<p
+			class={[
+				'mb-2 flex flex-wrap items-baseline gap-x-2 font-hebrew text-sm sm:text-base',
+				g > 0 && 'mt-4'
+			]}
+		>
+			<span class="text-white/58">{stretch.place.portion}</span>
+			<span class="text-white/25" aria-hidden="true">›</span>
+			<span class="text-white/58">{stretch.place.book}</span>
+			<span class="text-white/25" aria-hidden="true">›</span>
+			<span class="text-white/58">{stretch.place.chapter}</span>
+		</p>
+		{#each stretch.verses as verse (verse.verse)}
+			<!-- The book's verse plate under the pointer: what a click reads. A
+			     numbered letter wears its number over it, out of the flow — its
+			     place in the count, or its share of a method's value — the
+			     letters spaced as the text is. -->
+			<div
+				role="button"
+				tabindex="0"
+				class={[
+					'-mx-[0.4em] cursor-pointer rounded px-[0.4em] font-hebrew text-pretty text-white',
+					'transition-colors duration-150 outline-none hover:bg-white/6 focus-visible:bg-white/6',
+					'focus-visible:outline-1 focus-visible:outline-white/60',
+					counting ? ['text-xl sm:text-2xl', leadingFor(2)] : 'text-lg leading-loose sm:text-xl'
+				]}
+				onclick={() => pick(verse.verse)}
+				onkeydown={(event) => {
+					if (event.key !== 'Enter' && event.key !== ' ') return;
+					event.preventDefault();
+					onselect(verse.verse);
+				}}
+			>
+				<span class="me-1 align-[0.15em] text-[0.7em] text-white/45 select-none"
+					>{verse.number}</span
+				>
+				<Letters words={pieces[passage.indexOf(verse)] ?? []} style={styleOf} />
+			</div>
+		{/each}
+	{/each}
+{/snippet}
 
 <dialog
 	bind:this={dialog}
@@ -175,7 +253,7 @@
 			lang="he"
 			class={[
 				'flex min-w-0 flex-1 items-baseline gap-x-2 font-hebrew text-lg leading-tight',
-				counting ? 'basis-0' : 'flex-wrap sm:flex-none'
+				selection ? 'basis-0' : 'flex-wrap sm:flex-none'
 			]}
 		>
 			{#each words as m, k (m.id)}
@@ -199,7 +277,7 @@
 			id="results-count"
 			dir="ltr"
 			lang="en"
-			class={counting
+			class={selection
 				? 'order-last basis-full pb-1 text-sm text-white/58 tabular-nums sm:order-none sm:shrink-0 sm:basis-auto sm:pb-0'
 				: search
 					? 'order-last basis-full pb-1 text-sm text-white/58 tabular-nums sm:order-none sm:me-auto sm:min-w-0 sm:basis-auto sm:truncate sm:pb-0'
@@ -210,10 +288,10 @@
 			     reader still hears the word — and before the words, the owner's
 			     rule, as each crossing's count below. -->
 			{#if search}
-				{plural(search.total ?? 0, unitOf(search))} | {plural(
+				{totalOf(search)} | {plural(
 					passages,
 					'passage'
-				)}{#if !counting && search.total !== null && listed !== undefined && listed < search.total}
+				)}{#if !selection && search.total !== null && listed !== undefined && listed < search.total}
 					| first {grouped(listed)} listed{/if}
 			{:else}
 				{grouped(passages)}<span class="sr-only"> {passages === 1 ? 'passage' : 'passages'}</span>
@@ -281,73 +359,80 @@
 					{/if}
 					<ol class="divide-y divide-white/10">
 						{#each shown.slice(section.from, section.from + section.passages) as passage, p (section.from + p)}
-							{@const pieces = cut(passage)}
 							<li class="px-5 py-5 sm:px-7 sm:py-6">
-								{#each stretches(passage, contents) as stretch, g (g)}
-									<!-- Where it lies, as the breadcrumb names it — said again
-						     wherever a word read far apart reaches another chapter,
-						     book or portion. -->
-									<p
-										class={[
-											'mb-2 flex flex-wrap items-baseline gap-x-2 font-hebrew text-sm sm:text-base',
-											g > 0 && 'mt-4'
-										]}
-									>
-										<span class="text-white/58">{stretch.place.portion}</span>
-										<span class="text-white/25" aria-hidden="true">›</span>
-										<span class="text-white/58">{stretch.place.book}</span>
-										<span class="text-white/25" aria-hidden="true">›</span>
-										<span class="text-white/58">{stretch.place.chapter}</span>
-									</p>
-									{#each stretch.verses as verse (verse.verse)}
-										{@const runs = pieces[passage.indexOf(verse)] ?? []}
-										<!-- The book's verse plate under the pointer: what a click reads. A
-										     counted letter wears its number over it, out of the flow: its
-										     place in the count, read from the right, the letters spaced as
-										     the text is. -->
-										<div
-											role="button"
-											tabindex="0"
-											class={[
-												'-mx-[0.4em] cursor-pointer rounded px-[0.4em] font-hebrew text-pretty text-white',
-												'transition-colors duration-150 outline-none hover:bg-white/6 focus-visible:bg-white/6',
-												'focus-visible:outline-1 focus-visible:outline-white/60',
-												counting
-													? 'text-xl leading-[2.6] sm:text-2xl'
-													: 'text-lg leading-loose sm:text-xl'
-											]}
-											onclick={() => pick(verse.verse)}
-											onkeydown={(event) => {
-												if (event.key !== 'Enter' && event.key !== ' ') return;
-												event.preventDefault();
-												onselect(verse.verse);
-											}}
-										>
-											<span class="me-1 align-[0.15em] text-[0.7em] text-white/45 select-none"
-												>{verse.number}</span
-											>
-											{#each runs as word, k (k)}{#each word as run, r (r)}{@const style = run.slots
-														? styleOf(run.slots)
-														: ''}{#if run.n}<span class="relative"
-															><span {style}>{run.text}</span><span
-																class={numberClass(run.n)}
-																aria-hidden="true">{grouped(run.n)}</span
-															></span
-														>{:else if style}<span {style}>{run.text}</span
-														>{:else}{run.text}{/if}{/each}{k < runs.length - 1 ? ' ' : ''}{/each}
-										</div>
-									{/each}
-								{/each}
+								{@render reading(passage, cut(passage))}
 							</li>
 						{/each}
 					</ol>
 				</section>
 			{/if}
 		{/each}
+		<!-- A gematria, method after method: its title held at the top while
+		     it scrolls — the value first, the method's names at the line's far
+		     end, the owner's rule — then the letters counted alone, word by
+		     word, never the whole passage: each as the method reads it, its
+		     share of the value over it; a method no sum of its letters says how
+		     it reaches its value under them. -->
+		{#if gematria && shown.length >= passages}
+			{#each gematria.methods.slice(0, methods) as method (method.key)}
+				{@const tiers = tiersFor(method.shares)}
+				<section dir="rtl" aria-labelledby={`method-${method.key}`}>
+					<h3
+						id={`method-${method.key}`}
+						class="sticky top-0 z-10 flex items-baseline gap-x-3 border-y border-white/10 bg-black py-2 ps-5 pe-2 sm:ps-7 sm:pe-3"
+					>
+						<span dir="ltr" lang="en" class="shrink-0 text-base text-white tabular-nums"
+							>{grouped(method.value)}</span
+						>
+						<span class="ms-auto flex min-w-0 items-baseline gap-x-3">
+							<span lang="he" class="shrink-0 font-hebrew text-base leading-tight text-white"
+								>{method.hebrew}</span
+							>
+							<span dir="ltr" lang="en" class="min-w-0 truncate text-xs text-white/58"
+								>{method.name}</span
+							>
+						</span>
+					</h3>
+					<ol class="divide-y divide-white/10">
+						{#each shown as passage, p (p)}
+							<li class="px-5 py-5 sm:px-7 sm:py-6">
+								<p
+									lang="he"
+									class={[
+										'text-center font-hebrew text-xl [overflow-wrap:anywhere] text-white sm:text-2xl',
+										leadingFor(tiers)
+									]}
+								>
+									<Letters
+										words={countedWords(numbered(passage))}
+										{method}
+										style={styleOf}
+										{tiers}
+									/>
+								</p>
+								{#if !method.summed}
+									<p
+										dir="ltr"
+										lang="en"
+										class="mt-3 text-center text-sm text-white/58 tabular-nums"
+									>
+										{formula(gematria, method)}
+									</p>
+								{/if}
+							</li>
+						{/each}
+					</ol>
+				</section>
+			{/each}
+		{/if}
 		<div bind:this={end} aria-hidden="true">
 			{#if shown.length < passages}
 				<p dir="ltr" lang="en" class="px-5 py-6 text-center text-xs text-white/45 sm:px-7">
 					{grouped(passages - shown.length)} more
+				</p>
+			{:else if gematria && methods < gematria.methods.length}
+				<p dir="ltr" lang="en" class="px-5 py-6 text-center text-xs text-white/45 sm:px-7">
+					{plural(gematria.methods.length - methods, 'more method')}
 				</p>
 			{/if}
 		</div>

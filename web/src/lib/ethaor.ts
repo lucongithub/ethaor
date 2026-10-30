@@ -40,6 +40,7 @@ import {
 } from './book-view';
 import type { Found as Inked } from './passage';
 import { readCrossings, readResults, type Crossing, type Passage } from './results';
+import { readGematria, type Gematria, type GematriaExports, type Unread } from './gematria';
 
 /**
  * Books fetched at once in the background. One at a time paid a round trip
@@ -85,7 +86,7 @@ const KIND_SELECT = 5;
 const INK_MARK = 2;
 
 /** Signature of the module's exports. Every float is CSS pixels. */
-interface Wasm {
+interface Wasm extends GematriaExports {
 	memory: WebAssembly.Memory;
 	fault_ptr(): number;
 	fault_len(): number;
@@ -341,6 +342,8 @@ export interface TanakhMap {
 	selecting(on: boolean): void;
 	/** Takes the stretch selected away. */
 	unselect(): void;
+	/** A text — a stretch selected — read by every gematria method, or why it cannot be. */
+	gematria(text: string): Gematria | Unread;
 }
 
 /**
@@ -1302,6 +1305,7 @@ export async function createTanakhMap(
 			wasm.excerpt_clear();
 			draw();
 		},
+		gematria: (text) => readGematria(wasm, text),
 		destroy() {
 			observer.disconnect();
 			portions.remove();

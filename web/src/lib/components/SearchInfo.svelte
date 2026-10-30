@@ -4,14 +4,23 @@
 	// owner's rule. A modal centred over the view, as a search's passages are;
 	// its backdrop, its close button or Escape put it away.
 	import { onMount } from 'svelte';
-	import { COLORS, COUNT, grouped, searchName, shownWord, unitOf, type Marked } from '$lib/marks';
+	import {
+		COLORS,
+		grouped,
+		isSelection,
+		searchName,
+		shownWord,
+		totalOf,
+		type Marked
+	} from '$lib/marks';
 
 	let { search, onclose }: { search: Marked; onclose: () => void } = $props();
 
 	const color = $derived(COLORS[search.color]);
-	// A count's selection may run to whole chapters: read as a passage is,
-	// flush right, scrolling in its own box under a fixed name and count.
-	const counting = $derived(search.kind === COUNT);
+	// A selection kept — a count, a gematria — may run to whole chapters:
+	// read as a passage is, flush right, scrolling in its own box under a
+	// fixed name and count.
+	const counting = $derived(isSelection(search));
 	const plural = (n: number, one: string) => `${grouped(n)} ${one}${n === 1 ? '' : 's'}`;
 
 	let dialog = $state<HTMLDialogElement>();
@@ -97,7 +106,7 @@
 				{#if search.passages === null}
 					searching…
 				{:else}
-					{plural(search.total ?? 0, unitOf(search))} · {plural(search.passages, 'passage')}
+					{totalOf(search)} · {plural(search.passages, 'passage')}
 				{/if}
 			</p>
 		</div>

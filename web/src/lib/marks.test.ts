@@ -19,13 +19,15 @@ import {
 	remove,
 	searchName,
 	shownWord,
+	isSelection,
+	GEMATRIA,
 	rowLabel,
 	skipLabel,
 	skipPrefix,
 	spelled,
 	slotsOf,
 	toggle,
-	unitOf,
+	totalOf,
 	worn,
 	type Marked
 } from './marks';
@@ -308,14 +310,21 @@ describe('changes', () => {
 });
 
 describe('a count of letters', () => {
-	// Kept as any search, a count shows its selection as it reads — never
-	// spelled letter by letter, as a searched word is — and counts letters.
+	// Kept as any search, a count or a gematria shows its selection as it
+	// reads — never spelled letter by letter, as a searched word is; a count
+	// counts letters, a gematria says its standard value, any other its hits.
 	it('shows its selection as it reads and counts letters', () => {
 		const [search] = add([], 'Consecutive letters', 'אדם');
 		const [count] = add([], COUNT, 'בְּרֵאשִׁית בָּרָא');
+		const [gematria] = add([], GEMATRIA, 'בְּרֵאשִׁית בָּרָא');
 		expect(shownWord(search)).toBe('א ד ם');
 		expect(shownWord(count)).toBe('בְּרֵאשִׁית בָּרָא');
-		expect(unitOf(search)).toBe('hit');
-		expect(unitOf(count)).toBe('letter');
+		expect(shownWord(gematria)).toBe('בְּרֵאשִׁית בָּרָא');
+		expect([search, count, gematria].map(isSelection)).toEqual([false, true, true]);
+		expect(totalOf({ ...search, total: 1 })).toBe('1 hit');
+		expect(totalOf({ ...search, total: 1200 })).toBe('1 200 hits');
+		expect(totalOf({ ...count, total: 9 })).toBe('9 letters');
+		expect(totalOf({ ...count, total: 1 })).toBe('1 letter');
+		expect(totalOf({ ...gematria, total: 1116 })).toBe('Mispar haPanim 1 116');
 	});
 });

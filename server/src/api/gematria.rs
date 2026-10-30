@@ -8,9 +8,10 @@
 //! bookkeeping. The text is bounded (`MAX_LETTERS`), so the work is; each
 //! request is charged its one unit by the guard, like every other.
 //!
-//! `GET /api/gematria/search` — the twin of `gematria_search_in` — reads the
-//! whole Tanakh: it runs as the other searches do, admitted on its cost,
-//! charged to its client, on the pool, its answers kept.
+//! `GET /api/gematria/search` reads the whole Tanakh, and has no twin — the
+//! page reads a selection, never searches by value: it runs as the other
+//! searches do, admitted on its cost, charged to its client, on the pool,
+//! its answers kept.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -74,7 +75,8 @@ pub fn tool() -> Value {
              TorahCalc documents. Only Hebrew consonants count (final forms as the method says); vowel \
              points, cantillation and anything else are ignored. Each method is answered with its key, its \
              English and Hebrew names, the names it also goes by, a description of how it counts, and its \
-             value. Values are exact integers.",
+             value; a method that reads each letter as another (AtBash, AlBam, Ofanim…) also gives \
+             `letters`, the consonants as it reads them. Values are exact integers.",
             Method::ALL.len()
         ),
         "input_schema": {
@@ -112,6 +114,10 @@ pub struct MethodValue {
     pub also_known_as: &'static [&'static str],
     pub description: &'static str,
     pub value: u64,
+    /// The consonants as the method reads them, for one that replaces
+    /// letters (the ciphers, Ofanim); absent for the others.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub letters: Option<String>,
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq)]
@@ -141,7 +147,8 @@ impl Answer {
             methods: reading
                 .values
                 .iter()
-                .map(|&(m, value)| {
+                .zip(&reading.read_as)
+                .map(|(&(m, value), letters)| {
                     let info = gematria::info(m);
                     MethodValue {
                         method: info.key,
@@ -150,6 +157,7 @@ impl Answer {
                         also_known_as: info.also_known_as,
                         description: info.description,
                         value,
+                        letters: letters.clone(),
                     }
                 })
                 .collect(),

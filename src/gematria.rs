@@ -90,6 +90,46 @@ impl Method {
     pub fn table(self) -> Option<&'static [u32; FORMS]> {
         TABLES[self as usize].as_ref()
     }
+
+    /// For a method that reads each letter as another — the ciphers and
+    /// Ofanim — the form each form is read as, by its value: the one form
+    /// whose large value (Mispar Gadol) is the value the method gives it.
+    /// `None` for a method that weighs the letters themselves.
+    pub fn substitute(self) -> Option<&'static [u8; FORMS]> {
+        SUBSTITUTES[self as usize].as_ref()
+    }
+
+    /// Whether the value is the sum of the letters' `shares`: all but
+    /// three — Kolel adds the words, HaMerubah HaKlali squares the total,
+    /// Katan Mispari takes its root.
+    pub fn summed(self) -> bool {
+        !matches!(self, MisparHamerubahHaklali | MisparKatanMispari | MisparKolel)
+    }
+}
+
+/// Each letter's share of `text`'s value by `method`, in reading order, into
+/// `out` — up to `MAX_LETTERS`, as `tally` reads them. They add up to the
+/// value when the method is `summed`; the three that are not give each
+/// letter its standard value, which their formula then reads.
+pub fn shares(text: &str, method: Method, out: &mut Vec<u32>) {
+    out.clear();
+    out.extend(letters(text).take(MAX_LETTERS).filter_map(letter::exact_code).map(u32::from));
+    let n = out.len() as u32;
+    let table = method.table();
+    for (k, share) in out.iter_mut().enumerate() {
+        let form = *share as usize;
+        let (v, k) = (STANDARD[form], k as u32 + 1);
+        *share = match (table, method) {
+            (Some(table), _) => table[form],
+            (_, MisparMusafi) => v + 1,
+            // The k-th of n letters is in the running totals of the n − k + 1
+            // letters from it on.
+            (_, MisparBoneeh) => v * (n - k + 1),
+            (_, MisparNeelam) => SHEMI[form] - v,
+            (_, MisparHaachor) => v * k,
+            _ => v,
+        };
+    }
 }
 
 /// Letters a text may hold to be read: past it, a value could pass 2^53
@@ -293,6 +333,44 @@ const fn table_of(method: Method) -> Option<[u32; FORMS]> {
         f += 1;
     }
     Some(table)
+}
+
+/// Every method's substitution, form by form, `None` for a method that
+/// reads the letters as they are.
+static SUBSTITUTES: [Option<[u8; FORMS]>; Method::ALL.len()] = {
+    let mut substitutes = [None; Method::ALL.len()];
+    let mut m = 0;
+    while m < Method::ALL.len() {
+        let method = Method::ALL[m];
+        if let (true, Some(table)) = (replaces(method), table_of(method)) {
+            let mut read_as = [0; FORMS];
+            let mut f = 0;
+            while f < FORMS {
+                read_as[f] = carrying(table[f]);
+                f += 1;
+            }
+            substitutes[m] = Some(read_as);
+        }
+        m += 1;
+    }
+    substitutes
+};
+
+const fn replaces(method: Method) -> bool {
+    matches!(method, Atbash | Albam | Achbi | Atbach | AyakBachar | Ofanim | AchasBeta | Avgad | ReverseAvgad)
+}
+
+/// The form whose large value is `v`: the large values tell the 27 forms
+/// apart, and every value a cipher gives is one of them — or the build stops.
+const fn carrying(v: u32) -> u8 {
+    let mut f = 0;
+    while f < FORMS {
+        if value(SEQUENCE[f]) == v {
+            return f as u8;
+        }
+        f += 1;
+    }
+    panic!("a cipher gives a value no form carries")
 }
 
 const fn has_table(method: Method) -> bool {

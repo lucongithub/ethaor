@@ -9,7 +9,7 @@
 		type TanakhMap
 	} from '$lib/ethaor';
 	import type { Crossing } from '$lib/results';
-	import { escalate, reporter, watch, type Fault } from '$lib/fault';
+	import { escalate, raise, reporter, watch, type Fault } from '$lib/fault';
 	import { command, escape } from '$lib/keys';
 	import Rail, { type Search, type View } from './Rail.svelte';
 	import LetterSearch, { type Ways } from './LetterSearch.svelte';
@@ -17,12 +17,15 @@
 	import ResultsModal from './ResultsModal.svelte';
 	import SearchInfo from './SearchInfo.svelte';
 	import LetterCount from './LetterCount.svelte';
+	import GematriaReading from './GematriaReading.svelte';
+	import type { Gematria } from '$lib/gematria';
 	import { letters } from '$lib/letters';
 	import { runSkips } from '$lib/skips';
 	import {
 		add,
 		COUNT,
 		counted,
+		GEMATRIA,
 		inkStyle,
 		isShown,
 		recolor,
@@ -183,9 +186,49 @@
 	// Closed, the focus goes back to the view read.
 	function closeTally() {
 		tally = null;
+		reckoned = null;
 		if (view === 'book') book?.focus();
 		else canvas.focus({ preventScroll: true });
 	}
+
+	// The stretch selected read by every gematria method: kept as a search,
+	// as a count is — its letters inked, squared, listed and joined by ∪ and
+	// ∩ — its count the standard value (Mispar haPanim); its list reads the
+	// passage, then the passage again under each method, each letter as the
+	// method reads it, its share of the value over it. A gematria of names
+	// and numbers alone is told once, in a modal, and kept nowhere, as a
+	// count is. Past the letters a value stays exact for, it is refused, told,
+	// and the selection kept.
+	function reckonExcerpt() {
+		if (!excerpted || !map) return;
+		const { text } = excerpted;
+		const reading = map.gematria(text);
+		if (reading === 'too-long') {
+			const fault = raise('gematria-too-long', 'reading the gematria of a selection');
+			reporter.report(fault);
+			shown(fault);
+			return;
+		}
+		// A stretch holding no Hebrew letter has no value to tell.
+		if (reading === 'no-letter') return dropExcerpt();
+		const answer = countOf(excerpted.letters);
+		if (!keepsCount(answer)) {
+			reckoned = { text, gematria: reading };
+			dropExcerpt();
+			return;
+		}
+		kept = add(kept, GEMATRIA, text);
+		const { id } = kept[kept.length - 1];
+		reckonings.set(id, reading);
+		found(id, text, answer, answer.hits.length / 2, reading.methods[0].value);
+		if (wide) panelOpen = true;
+		dropExcerpt();
+	}
+
+	// A gematria with nothing to keep, told once.
+	let reckoned = $state.raw<{ text: string; gematria: Gematria } | null>(null);
+	// Each gematria kept, by its search's id: what its list reads.
+	const reckonings = new Map<number, Gematria>();
 
 	const menuItem = [
 		'flex w-full cursor-pointer items-center rounded px-3 py-2 text-left text-sm whitespace-nowrap text-white/70',
@@ -379,6 +422,7 @@
 		const search = kept.find((m) => m.id === id);
 		kept = remove(kept, id);
 		hits.delete(id);
+		reckonings.delete(id);
 		if (search && isShown(search)) map?.marks.clear(search.slot);
 		retally();
 		// The last one gone, the panel and its button go with it: the focus
@@ -397,6 +441,7 @@
 		generation++;
 		kept = [];
 		hits.clear();
+		reckonings.clear();
 		retally();
 		panelOpen = false;
 		if (view === 'book') book?.focus();
@@ -564,7 +609,7 @@
 	function onWindowKeydown(event: KeyboardEvent) {
 		if (event.key !== 'Escape') return;
 		const closes = escape({
-			info: explaining !== null || tally !== null,
+			info: explaining !== null || tally !== null || reckoned !== null,
 			results: listing !== null,
 			selection: selection !== null,
 			excerpt: excerpted !== null,
@@ -573,7 +618,7 @@
 			book: view === 'book'
 		});
 		if (closes === 'info') {
-			if (tally) closeTally();
+			if (tally || reckoned) closeTally();
 			else closeInfo();
 		} else if (closes === 'results') closeResults();
 		else if (closes === 'selection') closePassage();
@@ -958,6 +1003,7 @@
 		crossings={listing.crossings}
 		contents={map.book.contents}
 		read={map.results.page}
+		gematria={listedSearch ? (reckonings.get(listedSearch.id) ?? null) : null}
 		onselect={readVerse}
 		onclose={closeResults}
 	/>
@@ -988,6 +1034,9 @@
 		<button type="button" role="menuitem" class={menuItem} onclick={countExcerpt}>
 			Count letters
 		</button>
+		<button type="button" role="menuitem" class={menuItem} onclick={reckonExcerpt}>
+			Gematria
+		</button>
 	</div>
 {/if}
 
@@ -997,6 +1046,10 @@
 
 {#if tally}
 	<LetterCount text={tally.text} count={tally.count} onclose={closeTally} />
+{/if}
+
+{#if reckoned}
+	<GematriaReading text={reckoned.text} gematria={reckoned.gematria} onclose={closeTally} />
 {/if}
 
 {#if searching}

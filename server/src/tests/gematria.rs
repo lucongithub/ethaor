@@ -1,6 +1,6 @@
 //! `GET /api/gematria`: every method named every way beside its value, its
-//! refusals, its description. No WebAssembly twin: the page offers no
-//! gematria — the API alone does, for callers without a browser.
+//! refusals, its description. Its WebAssembly twin, the page's reading of a
+//! selection, is held to it in `parity.rs`.
 
 use axum::http::StatusCode;
 use ethaor::shared::els::Refusal;
@@ -15,8 +15,9 @@ async fn ask(pairs: &[(&str, &str)]) -> super::Answer {
 
 /// Without `method`, every method answers, in the catalogue's order, each
 /// with its key, its English and Hebrew names, the names it also goes by,
-/// its description and its value; the text is echoed with the consonants
-/// read, and the answer may be kept by anyone.
+/// its description and its value — and a method replacing letters, the
+/// letters it reads; the text is echoed with the consonants read, and the
+/// answer may be kept by anyone.
 #[tokio::test]
 async fn every_method_answers_named_every_way() {
     let answer = ask(&[("text", "תּוֹרָה")]).await;
@@ -38,6 +39,9 @@ async fn every_method_answers_named_every_way() {
     assert_eq!(methods[0]["method"], "mispar_hapanim");
     assert_eq!(methods[0]["hebrew"], "מספר הפנים");
     assert_eq!(methods[0]["value"], 611);
+    assert!(methods[0].get("letters").is_none(), "a method weighing the letters gives letters");
+    let atbash = methods.iter().find(|m| m["method"] == "atbash").unwrap();
+    assert_eq!(atbash["letters"], "אפגצ");
 }
 
 /// The JSON is the shared layer's reading, field for field.
