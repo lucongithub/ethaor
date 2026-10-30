@@ -18,6 +18,11 @@ pub(crate) const KIND_UNCLIP: f32 = 3.0;
 /// slot's bit as the ink. The one mark that is not a letter, and it carries
 /// information too: this chapter, book or portion holds what the search found.
 pub(crate) const KIND_SQUARE: f32 = 4.0;
+/// The plate under a stretch the reader selected (`excerpt_plate`): its box,
+/// its share of the white in the alpha slot. Drawn before the line's text,
+/// so under it — the one fill besides the squares, and it carries
+/// information too: these letters are selected.
+pub(crate) const KIND_SELECT: f32 = 5.0;
 
 /// Ink of a text command, last slot of the record.
 ///
@@ -492,6 +497,10 @@ impl App {
             for section in 0..3 {
                 let area = cards.area(section);
                 let name = corpus::section_name(section);
+                if self.excerpt_holds(Unit::Section(section)) {
+                    let ink = self.section_ink(section, camera);
+                    self.plate_under(Unit::Section(section), ink, alpha);
+                }
                 self.emit_text(name, area, cards.size, alpha);
                 let marks = self.section_marks(section);
                 if marks != 0 {
@@ -523,6 +532,10 @@ impl App {
                 ..band
             };
             let name = Named { text: corpus::section_name(section), marks: self.section_marks(section) };
+            if self.excerpt_holds(Unit::Section(section)) {
+                let ink = self.section_ink(section, camera);
+                self.plate_under(Unit::Section(section), ink, alpha);
+            }
             self.title(name, pinned, strip, scale.section, false, alpha);
 
             let (first, last) = (treemap::SECTIONS[section].1, treemap::SECTIONS[section].2);
@@ -578,6 +591,10 @@ impl App {
                 if drawn && let Some(first) = lines.first() {
                     let size = first.size * CHAPTER_MARK * camera.z;
                     let head = Rect { h: size * LINE_K, ..column };
+                    if size >= MIN_NUMBER && self.excerpt_holds(Unit::Chapter(chapter)) {
+                        let ink = self.chapter_mark_box(chapter).map(|r| camera.project(r));
+                        self.plate_under(Unit::Chapter(chapter), ink, alpha);
+                    }
                     self.mark(corpus::chapter_label(chapter), head, size, alpha);
                 }
                 self.unclip();
@@ -589,6 +606,10 @@ impl App {
                 let label = corpus::chapter_label(chapter);
                 let ink = self.ratio(label) * scale.chapter;
                 let area = Rect { w: (cell.w + ink) / 2.0, ..cell };
+                if self.excerpt_holds(Unit::Chapter(chapter)) {
+                    let ink = camera.project(self.numeral_box(chapter));
+                    self.plate_under(Unit::Chapter(chapter), Some(ink), alpha);
+                }
                 self.emit_text(label, area, scale.chapter, alpha * CHAPTER_INK);
                 let marks = self.chapter_marks(chapter);
                 if marks != 0 {
@@ -601,6 +622,10 @@ impl App {
         let strip = camera.project(self.layout.book_bands[book]);
         let full = !scale.show_chapters;
         let name = Named { text: corpus::book_name(book), marks: self.book_marks(book) };
+        if self.excerpt_holds(Unit::Book(book)) {
+            let ink = self.book_ink(book, camera);
+            self.plate_under(Unit::Book(book), ink, alpha);
+        }
         self.title(name, rect, strip, scale.book, full, alpha * BOOK_INK);
     }
 
@@ -631,6 +656,10 @@ impl App {
         let size = line.size * scale;
         if size < MIN_TEXT {
             return;
+        }
+
+        if let Some(plate) = self.excerpt_plate(line, row, size) {
+            self.plate(plate, alpha);
         }
 
         let shown = super::text::drawn(line.verse);

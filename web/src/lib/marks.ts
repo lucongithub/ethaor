@@ -174,6 +174,13 @@ export const rowLabel = (m: Marked): string => (m.skip > 0 ? '' : skipLabel(m));
 export const skipPrefix = (m: Marked): string => (m.nth > 0 ? `${m.nth}_` : '');
 
 /**
+ * A searched word as the page shows it — a list's title, the panel's row,
+ * the search's modal — the owner's rule: its letters parted by a space,
+ * `אדם` reading `א ד ם`; a single letter stands alone.
+ */
+export const spelled = (word: string): string => [...word].join(' ');
+
+/**
  * The name a row's tip gives a search: its kind, then what sets it apart —
  * its skip or letter, its letters in any order, its finals told apart.
  */
@@ -182,6 +189,18 @@ export function searchName(m: Marked): string {
 	if (m.exact) parts.push('Exact letters (final forms)');
 	return parts.filter(Boolean).join(' · ');
 }
+
+/** The kind of a count of the letters selected: a search kept as any other. */
+export const COUNT = 'Count letters';
+
+/**
+ * A search's word as the page shows it: a searched word spelled
+ * (`spelled`); a count's selection as it reads, words and all.
+ */
+export const shownWord = (m: Marked): string => (m.kind === COUNT ? m.word : spelled(m.word));
+
+/** What a search's count counts: a count's letters, any other's hits. */
+export const unitOf = (m: Marked): string => (m.kind === COUNT ? 'letter' : 'hit');
 
 /** The list with one search changed; the others untouched. */
 function change(list: readonly Marked[], id: number, to: Partial<Marked>): Marked[] {

@@ -78,6 +78,8 @@ const KIND_CLIP = 2;
 const KIND_UNCLIP = 3;
 /** A search's square by a name: its box, its slot in the ink. */
 const KIND_SQUARE = 4;
+/** The plate under a stretch selected: its box, its share of the white as alpha. */
+const KIND_SELECT = 5;
 
 /** Ink of a run: ours, the other edition's, then the searches' (`INK_MARK + bits`, a bit per slot). */
 const INK_MARK = 2;
@@ -104,6 +106,17 @@ interface Wasm {
 	/** The selected verse's found letters: `(from, to, slots)` triples, slots as bits. */
 	selection_marks_len(): number;
 	selection_marks_ptr(): number;
+	/** The selection mode's drag begins at a point: 1 on a letter read, 0 elsewhere. */
+	excerpt_start(x: number, y: number): number;
+	/** The drag reaches a point: the stretch runs to the letter there. */
+	excerpt_to(x: number, y: number): void;
+	excerpt_clear(): void;
+	/** Writes the text selected, ours, at `excerpt_ptr`: its length in bytes. */
+	excerpt_text(): number;
+	excerpt_ptr(): number;
+	/** Writes the verses' letters selected, `(verse, rank)` pairs, at `excerpt_letters_ptr`: their number. */
+	excerpt_letters(): number;
+	excerpt_letters_ptr(): number;
 	/** Breadcrumb from the centre of the view. */
 	focus(): void;
 	leave(mouse: number): void;
@@ -320,6 +333,14 @@ export interface TanakhMap {
 	readonly marks: Marks;
 	/** One search's hits, listed as passages. */
 	readonly results: Results;
+	/**
+	 * The selection mode: on, a drag begun on a line read selects its text
+	 * instead of moving the map, and a click opens no passage. Off, the
+	 * stretch selected goes.
+	 */
+	selecting(on: boolean): void;
+	/** Takes the stretch selected away. */
+	unselect(): void;
 }
 
 /**
@@ -382,13 +403,22 @@ export interface MapOptions {
 	onFault?: (fault: Fault) => void;
 	/** Verses have landed — a tile, a book, or the readings last. */
 	onLanded?: () => void;
+	/**
+	 * In the selection mode: a drag has selected a stretch — our text, each
+	 * name, number and verse on its own line, and the verses' letters by
+	 * `(verse, rank)` pairs — ended at `at`, in the viewport's pixels; or the
+	 * stretch is gone (`null`), a new drag begun or a press on nothing.
+	 */
+	onExcerpt?: (
+		excerpt: { text: string; letters: Uint32Array; at: { x: number; y: number } } | null
+	) => void;
 }
 
 export async function createTanakhMap(
 	canvas: HTMLCanvasElement,
 	options: MapOptions = {}
 ): Promise<TanakhMap> {
-	const { onSelect, onFocus, onReadings, onFault, onLanded } = options;
+	const { onSelect, onFocus, onReadings, onFault, onLanded, onExcerpt } = options;
 
 	const context = canvas.getContext('2d', { alpha: false });
 	if (!context) throw new Error('canvas 2d unavailable');
@@ -550,6 +580,12 @@ export async function createTanakhMap(
 
 			if (kind === KIND_SQUARE) {
 				square(i);
+				continue;
+			}
+
+			if (kind === KIND_SELECT) {
+				ctx.fillStyle = `rgba(255,255,255,${commands[i + 5]})`;
+				ctx.fillRect(x, y, w, h);
 				continue;
 			}
 
@@ -752,6 +788,9 @@ export async function createTanakhMap(
 	const pointers = new Map<number, { x: number; y: number }>();
 	let pinch = 0;
 	let moved = false;
+	// The selection mode, and the pointer dragging a selection, if one is.
+	let selecting = false;
+	let excerpting: number | null = null;
 
 	/**
 	 * Last position of the pointer on the canvas, in CSS pixels, or `null` when
@@ -780,13 +819,34 @@ export async function createTanakhMap(
 		pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
 		moved = false;
 		if (pointers.size === 2) pinch = spread();
+		if (!selecting) return;
+		// A second finger pinches: the drag selecting gives way, what it
+		// selected stays.
+		if (pointers.size > 1) {
+			excerpting = null;
+			return;
+		}
+		// Begun on a letter read, the drag selects; elsewhere it moves the
+		// map, and the stretch selected goes.
+		const { x, y } = local(event);
+		excerpting = wasm.excerpt_start(x, y) === 1 ? event.pointerId : null;
+		onExcerpt?.(null);
+		draw();
 	}
 
 	function onPointerMove(event: PointerEvent) {
 		pointer = local(event);
 
 		if (!pointers.has(event.pointerId)) {
-			canvas.style.cursor = wasm.hover(pointer.x, pointer.y) < 0 ? 'default' : 'pointer';
+			const over = wasm.hover(pointer.x, pointer.y) >= 0;
+			canvas.style.cursor = !over ? 'default' : selecting ? 'text' : 'pointer';
+			draw();
+			return;
+		}
+
+		if (event.pointerId === excerpting) {
+			pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+			wasm.excerpt_to(pointer.x, pointer.y);
 			draw();
 			return;
 		}
@@ -830,7 +890,25 @@ export async function createTanakhMap(
 		pointers.delete(event.pointerId);
 		pinch = pointers.size === 2 ? spread() : 0;
 
-		if (single && !moved) {
+		// The drag selecting ends: its text is handed to the page, which offers
+		// what can be done with it. A press with no drag selected nothing.
+		if (event.pointerId === excerpting) {
+			excerpting = null;
+			const text = excerptText();
+			const pairs = 2 * wasm.excerpt_letters();
+			const letters = new Uint32Array(
+				wasm.memory.buffer,
+				wasm.excerpt_letters_ptr(),
+				pairs
+			).slice();
+			onExcerpt?.(text ? { text, letters, at: { x: event.clientX, y: event.clientY } } : null);
+			draw();
+			return;
+		}
+
+		// In the selection mode a click opens no passage: it is a way to
+		// select, not to read.
+		if (single && !moved && !selecting) {
 			const { x, y } = local(event);
 			onSelect?.(selectionAt(x, y));
 		}
@@ -861,6 +939,13 @@ export async function createTanakhMap(
 	 */
 	function selectionAt(x: number, y: number): Selection | null {
 		return selected(wasm.select(x, y));
+	}
+
+	/** The text the stretch selected reads, ours, decoded from the module's buffer. */
+	function excerptText(): string {
+		const length = wasm.excerpt_text();
+		if (length === 0) return '';
+		return decoder.decode(new Uint8Array(wasm.memory.buffer, wasm.excerpt_ptr(), length));
 	}
 
 	/** The selection the module just filled, if `hit` says it did. */
@@ -1207,6 +1292,16 @@ export async function createTanakhMap(
 			draw();
 		},
 		key: onKey,
+		selecting(on) {
+			selecting = on;
+			excerpting = null;
+			if (!on) wasm.excerpt_clear();
+			draw();
+		},
+		unselect() {
+			wasm.excerpt_clear();
+			draw();
+		},
 		destroy() {
 			observer.disconnect();
 			portions.remove();

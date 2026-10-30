@@ -7,6 +7,7 @@ import {
 	squareRow,
 	canShow,
 	COLORS,
+	COUNT,
 	counted,
 	grouped,
 	HIDDEN,
@@ -17,11 +18,14 @@ import {
 	recolor,
 	remove,
 	searchName,
+	shownWord,
 	rowLabel,
 	skipLabel,
 	skipPrefix,
+	spelled,
 	slotsOf,
 	toggle,
+	unitOf,
 	worn,
 	type Marked
 } from './marks';
@@ -101,6 +105,15 @@ describe('add', () => {
 				expect(skipPrefix(m) + m.word).toBe('מדא');
 			}
 		}
+	});
+
+	// The owner's rule: a searched word shown parts its letters by a space;
+	// a single letter has nothing to part.
+	it('spells a searched word with a space between its letters', () => {
+		expect(spelled('אדם')).toBe('א ד ם');
+		expect(spelled('תורה')).toBe('ת ו ר ה');
+		expect(spelled('א')).toBe('א');
+		expect(spelled('')).toBe('');
 	});
 
 	// One row per letter of an "every nth letter" run: each told apart by
@@ -291,5 +304,18 @@ describe('changes', () => {
 			[null, null]
 		]);
 		expect(remove(list, 0).map((m) => m.id)).toEqual([1, 2]);
+	});
+});
+
+describe('a count of letters', () => {
+	// Kept as any search, a count shows its selection as it reads — never
+	// spelled letter by letter, as a searched word is — and counts letters.
+	it('shows its selection as it reads and counts letters', () => {
+		const [search] = add([], 'Consecutive letters', 'אדם');
+		const [count] = add([], COUNT, 'בְּרֵאשִׁית בָּרָא');
+		expect(shownWord(search)).toBe('א ד ם');
+		expect(shownWord(count)).toBe('בְּרֵאשִׁית בָּרָא');
+		expect(unitOf(search)).toBe('hit');
+		expect(unitOf(count)).toBe('letter');
 	});
 });

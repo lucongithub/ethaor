@@ -1,9 +1,13 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { readContents, type Contents } from './book-view';
 import { add, slotsOf, toggle, type Marked } from './marks';
+import { countOf, ranked } from './excerpt';
 import {
 	colorsOf,
 	crossed,
+	numberClass,
+	numbered,
+	numberedLetters,
 	OWN,
 	PAGE,
 	readCrossings,
@@ -338,5 +342,69 @@ describe("a passage's colours", () => {
 		expect(colorsOf(list, hidden, 0)).toEqual([]);
 		// The searches shown together: no search of its own, their colours alone.
 		expect(colorsOf(list, null, OWN | (1 << aaron.slot))).toEqual([aaron.color]);
+	});
+});
+
+describe("a count's passages", () => {
+	// The letters a selection holds — here verse 1's from its 4th letter on
+	// and verse 2's first ten, as the book names them by rank — kept as a
+	// search: its one passage holds both verses, every letter of the count
+	// numbered from 1 in reading order, the numbers running on from one
+	// verse to the next, and only those letters.
+	it('number every letter counted, in order, across its verses', () => {
+		// Three letters before the selection, twenty selected in verse 1.
+		const ones = ranked(1, 'אבג', 'דהוזחטיכלמנסעפצקרשתא');
+		const twos = ranked(2, '', 'אבגדהוזחטי');
+		const found = countOf([...ones, ...twos]);
+		expect(found.total).toBe(1);
+		hand(found);
+		expect(module.results_set(found.hits.length / 2, 1)).toBe(1);
+		const [passage] = page(0, PAGE);
+		module.results_clear();
+		expect(passage.map((v) => v.verse)).toEqual([1, 2]);
+
+		const pieces = numbered(passage);
+		const numbers = pieces.flat(2).filter((p) => p.n > 0);
+		expect(numbers.map((p) => p.n)).toEqual(numbers.map((_, k) => k + 1));
+		expect(numbers.length).toBe(30);
+		// Each numbered piece is one consonant with its marks, ours.
+		for (const piece of numbers) expect(piece.text.match(/[א-ת]/gu)).toHaveLength(1);
+		// Verse 1's 4th consonant is the first numbered; verse 2's first, the 21st.
+		const consonants = (v: number) => passage[v].text.match(/[א-ת]/gu) ?? [];
+		expect(numbers[0].text[0]).toBe(consonants(0)[3]);
+		expect(numbers[20].text[0]).toBe(consonants(1)[0]);
+		// Cut into pieces, every verse still reads whole.
+		pieces.forEach((words, v) =>
+			expect(words.map((w) => w.map((p) => p.text).join('')).join(' ')).toBe(passage[v].text)
+		);
+	});
+});
+
+describe('numberedLetters', () => {
+	// Each consonant with its marks is one piece, numbered on from `after`;
+	// spaces stay between, unnumbered, and the pieces read the text whole.
+	it('numbers each letter with its marks, on from where it is told', () => {
+		const pieces = numberedLetters('בְּרֵאשִׁית בָּרָא', 4);
+		expect(pieces.map((p) => p.text).join('')).toBe('בְּרֵאשִׁית בָּרָא');
+		const letters = pieces.filter((p) => p.n > 0);
+		expect(letters.map((p) => p.n)).toEqual([5, 6, 7, 8, 9, 10, 11, 12, 13]);
+		expect(letters[0].text).toBe('בְּ');
+		expect(pieces.find((p) => p.n === 0)?.text).toBe(' ');
+		expect(numberedLetters('')).toEqual([]);
+	});
+});
+
+describe('numberClass', () => {
+	// Neighbours never share a tier: odd numbers just over their letter,
+	// even ones a tier higher; neither selected nor taking the flow.
+	it('sets odd and even numbers on two tiers, out of the flow and the selection', () => {
+		const [odd, even] = [numberClass(1), numberClass(2)];
+		expect(odd).not.toBe(even);
+		expect(numberClass(3)).toBe(odd);
+		expect(numberClass(446)).toBe(even);
+		for (const c of [odd, even]) {
+			expect(c).toContain('absolute');
+			expect(c).toContain('select-none');
+		}
 	});
 });

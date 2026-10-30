@@ -14,7 +14,8 @@ export type Command =
 
 /** What Escape closes, in order: the nearest thing first. `none`: nothing
  *  left to close, and no overview to go back to — the book view's. */
-export type Escape = 'info' | 'results' | 'selection' | 'notice' | 'searches' | 'overview' | 'none';
+export type Escape =
+	'info' | 'results' | 'selection' | 'excerpt' | 'notice' | 'searches' | 'overview' | 'none';
 
 /**
  * Share of the view one arrow moves it by, and with Shift held. A small step
@@ -72,11 +73,14 @@ export function command(event: Key): Command | null {
  * covers nothing and stays. In the book view there is no overview: the
  * reader's place is the scroll, and Escape never throws it away. What a
  * search did (`info`), opened from the panel over everything, closes first.
+ * A stretch selected in the selection mode (`excerpt`), its menu beside it,
+ * goes after the passage and the list, before the notice.
  */
 export function escape(open: {
 	info?: boolean;
 	results?: boolean;
 	selection: boolean;
+	excerpt?: boolean;
 	notice: boolean;
 	searches?: boolean;
 	book?: boolean;
@@ -84,6 +88,7 @@ export function escape(open: {
 	if (open.info) return 'info';
 	if (open.selection) return 'selection';
 	if (open.results) return 'results';
+	if (open.excerpt) return 'excerpt';
 	if (open.notice) return 'notice';
 	if (open.searches) return 'searches';
 	return open.book ? 'none' : 'overview';

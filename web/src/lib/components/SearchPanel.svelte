@@ -26,6 +26,8 @@
 		MAX_SHOWN,
 		searchName,
 		rowLabel,
+		shownWord,
+		unitOf,
 		type Color,
 		type Marked
 	} from '$lib/marks';
@@ -388,7 +390,7 @@
 							lang="he"
 							class="min-w-0 truncate text-right font-hebrew text-lg leading-none"
 						>
-							{search.word}
+							{shownWord(search)}
 						</span>
 					</button>
 
@@ -406,7 +408,7 @@
 						aria-disabled={search.passages === null}
 						aria-label={search.passages === null
 							? `${search.word}: searching`
-							: `${count(search.total ?? 0)} hits of ${search.word}, in ${passagesOf(search.passages)}`}
+							: `${count(search.total ?? 0)} ${unitOf(search)}s of ${search.word}, in ${passagesOf(search.passages)}`}
 						onclick={() => {
 							if (search.passages !== null) onresults?.(search.id);
 						}}

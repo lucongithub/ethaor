@@ -23,11 +23,16 @@
 	let {
 		view,
 		onview,
-		onsearch
+		onsearch,
+		selecting,
+		onselecting
 	}: {
 		view: View;
 		onview: (next: View) => void;
 		onsearch: (name: Search) => void;
+		/** The selection mode is on: a drag over the text selects it. */
+		selecting: boolean;
+		onselecting: () => void;
 	} = $props();
 
 	const ICON = {
@@ -43,6 +48,12 @@
 		{ view: 'map', label: 'Map mode', icon: ICON.map },
 		{ view: 'book', label: 'Book mode', icon: ICON.book }
 	];
+
+	// Any other button of the rail takes the selection mode off: a view
+	// picked or a search opened is a way to read, not to select.
+	function release() {
+		if (selecting) onselecting();
+	}
 
 	const item = [
 		'group relative flex h-10 w-full items-center rounded px-[0.6875rem]',
@@ -135,6 +146,7 @@
 				aria-label={v.label}
 				aria-pressed={on}
 				onclick={() => {
+					release();
 					if (!on) onview(v.view);
 				}}
 			>
@@ -155,7 +167,11 @@
 			aria-haspopup="menu"
 			aria-expanded={open}
 			aria-controls="search-menu"
-			onclick={() => (open ? hide(false) : show())}
+			onclick={() => {
+				release();
+				if (open) hide(false);
+				else show();
+			}}
 		>
 			<svg viewBox="0 0 256 256" class="size-5 shrink-0 fill-current" aria-hidden="true">
 				<path d={ICON.search} />
@@ -191,5 +207,32 @@
 				{/each}
 			</div>
 		{/if}
+	</div>
+
+	<!-- The selection mode: pressed, a drag over the text, on the map or in
+	     the book, selects it; pressed again, it is off. Brackets drawn as the
+	     other icons, one light stroke. -->
+	<div class="mx-1 mt-0.5 sm:mx-2">
+		<button
+			type="button"
+			class={[item, selecting ? 'cursor-pointer bg-white/[0.1] text-white' : idle]}
+			aria-label="Select text"
+			aria-pressed={selecting}
+			onclick={onselecting}
+		>
+			<svg
+				viewBox="0 0 256 256"
+				class="size-5 shrink-0"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="12"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+				aria-hidden="true"
+			>
+				<path d="M80 40H48v176h32M176 40h32v176h-32" />
+			</svg>
+			<span class={tip} aria-hidden="true">Select text</span>
+		</button>
 	</div>
 </aside>

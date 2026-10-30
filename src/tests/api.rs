@@ -163,6 +163,51 @@ fn clicking_gives_the_passage() {
     );
 }
 
+/// The selection mode through the exports, as the page drags: a drag over a
+/// portion's name at the opening selects it; begun on a line read it selects
+/// from its letter to the one it reaches, read back at `excerpt_ptr` as our
+/// text; begun on nothing it selects nothing.
+#[test]
+fn a_drag_selects_text_read_back_through_the_exports() {
+    let _hold = hold(REFERENCE.0, REFERENCE.1);
+    converge();
+    // At the opening, the black corner holds nothing; the middle portion's
+    // name, across which a drag selects it whole.
+    assert_eq!(excerpt_start(1.0, 1.0), 0, "a drag on nothing began on something");
+    assert_eq!(excerpt_text(), 0);
+    let ink = app().section_ink(1, app().camera).expect("the middle portion is drawn");
+    let y = ink.y + ink.h / 2.0;
+    assert_eq!(excerpt_start(ink.x + ink.w - 1.0, y), 1, "no name at the portion's start");
+    excerpt_to(ink.x + 1.0, y);
+    let len = excerpt_text() as usize;
+    let text = std::str::from_utf8(unsafe { std::slice::from_raw_parts(excerpt_ptr(), len) }).unwrap();
+    assert_eq!(text, corpus::section_name(1));
+
+    app().show(0, Some(1));
+    converge();
+    let line = {
+        let app = app();
+        let line = *app.chapter_lines(0).iter().find(|l| l.verse == 1).unwrap();
+        app.camera.project(line.rect)
+    };
+    let y = line.y + line.h / 2.0;
+    assert_eq!(excerpt_start(line.x + line.w - 1.0, y), 1, "no letter at the line's start");
+    excerpt_to(line.x + line.w * 0.3, y);
+    let len = excerpt_text() as usize;
+    assert!(len > 0, "the drag selected nothing");
+    let text = std::str::from_utf8(unsafe { std::slice::from_raw_parts(excerpt_ptr(), len) }).unwrap();
+    assert!(corpus::verse_text(1).starts_with(text), "{text:?} is not the start of the verse");
+    let n = excerpt_letters() as usize;
+    let pairs = unsafe { std::slice::from_raw_parts(excerpt_letters_ptr(), 2 * n) };
+    let read = text.chars().filter(|&c| letter::code(c).is_some()).count();
+    assert_eq!(n, read, "every letter read, named");
+    assert_eq!(&pairs[..2], &[1, 0], "the first letter is the verse's first");
+
+    excerpt_clear();
+    assert_eq!(excerpt_text(), 0, "cleared, a selection is still read");
+    assert_eq!(excerpt_letters(), 0, "cleared, a selection still names letters");
+}
+
 /// The book view's click through the export, as the page calls it: a
 /// verse fills the slots `select` fills — the passage and its number — and
 /// a verse out of range clears them.

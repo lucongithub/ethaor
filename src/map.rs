@@ -5,6 +5,7 @@
 //! The computation holds no global state: a test drives a window of its own.
 
 mod camera;
+mod excerpt;
 mod frame;
 mod hit;
 mod landing;
@@ -19,6 +20,7 @@ use crate::treemap::{self, Layout, Rect, WORLD};
 use crate::{corpus, letter, variant};
 
 pub(crate) use camera::*;
+pub(crate) use excerpt::*;
 pub(crate) use frame::*;
 pub(crate) use hit::*;
 pub(crate) use marks::*;
@@ -111,6 +113,9 @@ pub(crate) struct App {
     /// Where a line is cut into runs, reused from line to line: `(from, to,
     /// ink)` in bytes of the string it is drawn from.
     cuts: Vec<(usize, usize, f32)>,
+    /// The stretch selected in the page's selection mode: where the drag
+    /// began, and where it is — in either order (`excerpt_range`).
+    pub(crate) excerpt: Option<(Spot, Spot)>,
 }
 
 impl App {
@@ -151,6 +156,7 @@ impl App {
             join_all: false,
             results: Results::default(),
             cuts: Vec::new(),
+            excerpt: None,
         };
         app.base = app.base_scale();
         app.fit();

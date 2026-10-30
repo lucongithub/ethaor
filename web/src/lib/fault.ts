@@ -83,6 +83,11 @@ export const CATALOGUE = {
 		level: 'warn',
 		message: 'The search could not prepare the text; it will try again.'
 	},
+	'copy-failed': {
+		show: true,
+		level: 'warn',
+		message: 'The selection could not be copied. It is still selected: copy it with the keyboard.'
+	},
 	uncaught: { show: true, level: 'error', message: 'Something unexpected went wrong.' },
 	unawaited: { show: true, level: 'error', message: 'Something unexpected went wrong.' }
 } as const satisfies Record<

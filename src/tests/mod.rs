@@ -13,6 +13,7 @@ mod api;
 mod breadcrumb;
 mod camera;
 mod click;
+mod excerpt;
 mod frame;
 mod geometry;
 mod handoff;

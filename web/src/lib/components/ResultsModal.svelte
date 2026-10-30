@@ -14,9 +14,30 @@
 	// a common word has thousands, and pointed Hebrew is heavy to lay out.
 	import { onMount } from 'svelte';
 	import type { Contents } from '$lib/book-view';
-	import { COLORS, grouped, inkStyle, isShown, skipPrefix, type Marked } from '$lib/marks';
+	import {
+		COLORS,
+		COUNT,
+		grouped,
+		inkStyle,
+		isShown,
+		shownWord,
+		skipPrefix,
+		unitOf,
+		type Marked
+	} from '$lib/marks';
 	import { inked } from '$lib/passage';
-	import { colorsOf, crossed, PAGE, stretches, type Crossing, type Passage } from '$lib/results';
+	import {
+		colorsOf,
+		crossed,
+		numberClass,
+		numbered,
+		OWN,
+		PAGE,
+		stretches,
+		type Crossing,
+		type Numbered,
+		type Passage
+	} from '$lib/results';
 
 	let {
 		search,
@@ -91,8 +112,29 @@
 		crossings?.length ? crossings : [{ slots: 0, passages, from: 0 }]
 	);
 
+	// A count's list numbers each of its letters, over it, in reading order
+	// across the passage; any other's verses are cut into their runs alone.
+	const counting = $derived(search?.kind === COUNT);
+
 	// The letters found, as the passage paints them: one colour, or bands.
-	const styleOf = (bits: number) => inkStyle(colorsOf(list, search, bits));
+	// A count's list colours its own letters alone — the others' would only
+	// stand between the reader and the numbers.
+	const styleOf = (bits: number) =>
+		counting
+			? bits & OWN && search
+				? inkStyle([search.color])
+				: ''
+			: inkStyle(colorsOf(list, search, bits));
+	const cut = (passage: Passage): Numbered[][][] =>
+		counting
+			? numbered(passage)
+			: passage.map((verse) =>
+					inked(verse.text, verse.found).map((word) => word.map((run) => ({ ...run, n: 0 })))
+				);
+
+	// A count's selection may run long: in a title it holds one line, cut
+	// with an ellipsis, so the header keeps its count and its close button.
+	const clamp = (m: Marked) => (m.kind === COUNT ? 'block min-w-0 truncate' : '');
 
 	// A click on the backdrop — the dialog itself, never its content — closes it.
 	function onclick(event: MouseEvent) {
@@ -127,7 +169,10 @@
 		<h2
 			id="results-word"
 			lang="he"
-			class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 font-hebrew text-lg leading-tight sm:flex-none"
+			class={[
+				'flex min-w-0 flex-1 items-baseline gap-x-2 font-hebrew text-lg leading-tight',
+				counting ? 'basis-0' : 'flex-wrap sm:flex-none'
+			]}
 		>
 			{#each words as m, k (m.id)}
 				{#if k > 0}<span
@@ -142,27 +187,29 @@
 				{#if search && skipPrefix(m)}<span dir="ltr"
 						><span lang="en" class="font-sans text-sm text-white/58 tabular-nums"
 							>{skipPrefix(m)}</span
-						><span style:color={COLORS[m.color]}>{m.word}</span></span
-					>{:else}<span style:color={COLORS[m.color]}>{m.word}</span>{/if}
+						><span style:color={COLORS[m.color]}>{shownWord(m)}</span></span
+					>{:else}<span class={clamp(m)} style:color={COLORS[m.color]}>{shownWord(m)}</span>{/if}
 			{/each}
 		</h2>
 		<p
 			id="results-count"
 			dir="ltr"
 			lang="en"
-			class={search
-				? 'order-last basis-full pb-1 text-sm text-white/58 tabular-nums sm:order-none sm:me-auto sm:min-w-0 sm:basis-auto sm:truncate sm:pb-0'
-				: 'order-first shrink-0 text-sm text-white/58 tabular-nums'}
+			class={counting
+				? 'order-last basis-full pb-1 text-sm text-white/58 tabular-nums sm:order-none sm:shrink-0 sm:basis-auto sm:pb-0'
+				: search
+					? 'order-last basis-full pb-1 text-sm text-white/58 tabular-nums sm:order-none sm:me-auto sm:min-w-0 sm:basis-auto sm:truncate sm:pb-0'
+					: 'order-first shrink-0 text-sm text-white/58 tabular-nums'}
 		>
 			<!-- One search: its hits and passages, named, after its word. The
 			     searches together: the count bare, the owner's rule — the screen
 			     reader still hears the word — and before the words, the owner's
 			     rule, as each crossing's count below. -->
 			{#if search}
-				{plural(search.total ?? 0, 'hit')} | {plural(
+				{plural(search.total ?? 0, unitOf(search))} | {plural(
 					passages,
 					'passage'
-				)}{#if search.total !== null && listed !== undefined && listed < search.total}
+				)}{#if !counting && search.total !== null && listed !== undefined && listed < search.total}
 					| first {grouped(listed)} listed{/if}
 			{:else}
 				{grouped(passages)}<span class="sr-only"> {passages === 1 ? 'passage' : 'passages'}</span>
@@ -223,13 +270,14 @@
 							>
 								{#each crossed(list, section.slots) as m, k (m.id)}
 									{#if k > 0}<span class="font-sans text-sm text-white/45" aria-label="and">∩</span
-										>{/if}<span style:color={COLORS[m.color]}>{m.word}</span>
+										>{/if}<span class={clamp(m)} style:color={COLORS[m.color]}>{shownWord(m)}</span>
 								{/each}
 							</span>
 						</h3>
 					{/if}
 					<ol class="divide-y divide-white/10">
 						{#each shown.slice(section.from, section.from + section.passages) as passage, p (section.from + p)}
+							{@const pieces = cut(passage)}
 							<li class="px-5 py-5 sm:px-7 sm:py-6">
 								{#each stretches(passage, contents) as stretch, g (g)}
 									<!-- Where it lies, as the breadcrumb names it — said again
@@ -248,14 +296,22 @@
 										<span class="text-white/58">{stretch.place.chapter}</span>
 									</p>
 									{#each stretch.verses as verse (verse.verse)}
-										{@const runs = inked(verse.text, verse.found)}
-										<!-- The book's verse plate under the pointer: what a click reads. -->
+										{@const runs = pieces[passage.indexOf(verse)] ?? []}
+										<!-- The book's verse plate under the pointer: what a click reads. A
+										     counted letter wears its number over it, out of the flow: its
+										     place in the count, read from the right, the letters spaced as
+										     the text is. -->
 										<div
 											role="button"
 											tabindex="0"
-											class="-mx-[0.4em] cursor-pointer rounded px-[0.4em] font-hebrew text-lg leading-loose text-pretty text-white
-							       transition-colors duration-150 outline-none hover:bg-white/6 focus-visible:bg-white/6
-							       focus-visible:outline-1 focus-visible:outline-white/60 sm:text-xl"
+											class={[
+												'-mx-[0.4em] cursor-pointer rounded px-[0.4em] font-hebrew text-pretty text-white',
+												'transition-colors duration-150 outline-none hover:bg-white/6 focus-visible:bg-white/6',
+												'focus-visible:outline-1 focus-visible:outline-white/60',
+												counting
+													? 'text-xl leading-[2.6] sm:text-2xl'
+													: 'text-lg leading-loose sm:text-xl'
+											]}
 											onclick={() => pick(verse.verse)}
 											onkeydown={(event) => {
 												if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -268,7 +324,12 @@
 											>
 											{#each runs as word, k (k)}{#each word as run, r (r)}{@const style = run.slots
 														? styleOf(run.slots)
-														: ''}{#if style}<span {style}>{run.text}</span
+														: ''}{#if run.n}<span class="relative"
+															><span {style}>{run.text}</span><span
+																class={numberClass(run.n)}
+																aria-hidden="true">{grouped(run.n)}</span
+															></span
+														>{:else if style}<span {style}>{run.text}</span
 														>{:else}{run.text}{/if}{/each}{k < runs.length - 1 ? ' ' : ''}{/each}
 										</div>
 									{/each}

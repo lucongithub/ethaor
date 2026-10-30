@@ -4,11 +4,14 @@
 	// owner's rule. A modal centred over the view, as a search's passages are;
 	// its backdrop, its close button or Escape put it away.
 	import { onMount } from 'svelte';
-	import { COLORS, grouped, searchName, type Marked } from '$lib/marks';
+	import { COLORS, COUNT, grouped, searchName, shownWord, unitOf, type Marked } from '$lib/marks';
 
 	let { search, onclose }: { search: Marked; onclose: () => void } = $props();
 
 	const color = $derived(COLORS[search.color]);
+	// A count's selection may run to whole chapters: read as a passage is,
+	// flush right, scrolling in its own box under a fixed name and count.
+	const counting = $derived(search.kind === COUNT);
 	const plural = (n: number, one: string) => `${grouped(n)} ${one}${n === 1 ? '' : 's'}`;
 
 	let dialog = $state<HTMLDialogElement>();
@@ -52,14 +55,34 @@
 
 	<div class="flex flex-col items-center gap-4 px-8 pt-12 pb-10 text-center">
 		<!-- The word, whole size: the dialog widens to hold it, and past the
-		     screen's width it wraps onto more lines, never shrunk or cut. -->
-		<p
-			dir="rtl"
-			lang="he"
-			class="max-w-full font-hebrew text-3xl leading-tight [overflow-wrap:anywhere] text-white"
-		>
-			{search.word}
-		</p>
+		     screen's width it wraps onto more lines, never shrunk or cut. A
+		     count's text, each name and verse on its line, scrolls in its box;
+		     focusable, so the keys scroll it too. -->
+		{#if counting}
+			<!-- svelte-ignore a11y_no_noninteractive_tabindex — a scrolled region the keys must reach -->
+			<div
+				dir="rtl"
+				lang="he"
+				tabindex="0"
+				role="region"
+				aria-label="The text counted"
+				class="max-h-[min(50dvh,28rem)] w-[min(40rem,calc(100vw-6rem))] max-w-full [scrollbar-width:thin] [scrollbar-color:rgb(255_255_255/0.25)_transparent]
+				       overflow-y-auto overscroll-contain
+				       rounded text-start font-hebrew text-xl leading-loose text-white
+				       selection:bg-white/25 focus-visible:outline-1 focus-visible:outline-offset-4
+				       focus-visible:outline-white/60 sm:text-2xl"
+			>
+				{#each search.word.split('\n') as line, k (k)}<p>{line}</p>{/each}
+			</div>
+		{:else}
+			<p
+				dir="rtl"
+				lang="he"
+				class="max-w-full font-hebrew text-3xl leading-tight [overflow-wrap:anywhere] text-white"
+			>
+				{shownWord(search)}
+			</p>
+		{/if}
 		<!-- What follows takes the word's width and adds none: `w-0 min-w-full`
 		     keeps a long name from widening the dialog — it wraps instead. -->
 		<div class="flex w-0 min-w-full flex-col items-center gap-4">
@@ -74,7 +97,7 @@
 				{#if search.passages === null}
 					searching…
 				{:else}
-					{plural(search.total ?? 0, 'hit')} · {plural(search.passages, 'passage')}
+					{plural(search.total ?? 0, unitOf(search))} · {plural(search.passages, 'passage')}
 				{/if}
 			</p>
 		</div>

@@ -16,10 +16,12 @@
 	import SearchPanel from './SearchPanel.svelte';
 	import ResultsModal from './ResultsModal.svelte';
 	import SearchInfo from './SearchInfo.svelte';
+	import LetterCount from './LetterCount.svelte';
 	import { letters } from '$lib/letters';
 	import { runSkips } from '$lib/skips';
 	import {
 		add,
+		COUNT,
 		counted,
 		inkStyle,
 		isShown,
@@ -34,6 +36,7 @@
 	import BookView, { type Reading } from './BookView.svelte';
 	import { CRUMB_GOES, fromMap, TANAKH, toMap, type Level } from '$lib/book-view';
 	import { inked, pick, picked, words } from '$lib/passage';
+	import { copy, countOf, keepsCount, menuAt, type Box } from '$lib/excerpt';
 
 	let canvas: HTMLCanvasElement;
 	let reload = $state<HTMLButtonElement | null>(null);
@@ -60,6 +63,7 @@
 
 	function switchTo(next: View) {
 		if (!map || next === view) return;
+		dropExcerpt();
 		if (next === 'book') {
 			selection = null;
 			opened = map.here();
@@ -95,6 +99,100 @@
 		map.reset();
 		canvas.focus({ preventScroll: true });
 	}
+
+	// The selection mode, pressed in the sidebar: on the map and in the book
+	// alike, a drag over the text selects it — across verses, chapters,
+	// books — instead of moving the view, and a click opens no passage. Once
+	// a stretch is selected, a menu beside it offers what can be done with
+	// it.
+	let selecting = $state(false);
+	// Raw, not deep: the menu is placed for the very stretch it was told of
+	// (`excerpted !== next`), which a proxy would never be.
+	type Excerpt = { text: string; letters: ArrayLike<number>; at: Box };
+	let excerpted = $state.raw<Excerpt | null>(null);
+	let excerptMenu = $state<HTMLDivElement | null>(null);
+	let menuPos = $state<{ left: number; top: number } | null>(null);
+	let copied = $state<'idle' | 'done' | 'failed'>('idle');
+
+	function toggleSelecting() {
+		selecting = !selecting;
+		map?.selecting(selecting);
+		if (!selecting) dropExcerpt();
+	}
+
+	// A stretch selected, or none: the menu stands by it, whole inside the
+	// window, once its size is known.
+	function onExcerpt(next: Excerpt | null) {
+		if (next?.text !== excerpted?.text) copied = 'idle';
+		excerpted = next;
+		menuPos = null;
+		if (!next) return;
+		tick().then(() => {
+			if (!excerptMenu || excerpted !== next) return;
+			const within = { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+			const size = { width: excerptMenu.offsetWidth, height: excerptMenu.offsetHeight };
+			menuPos = menuAt(next.at, within, size);
+		});
+	}
+
+	// The stretch taken away, on the map and in the book.
+	function dropExcerpt() {
+		onExcerpt(null);
+		map?.unselect();
+		if (view === 'book') window.getSelection()?.removeAllRanges();
+	}
+
+	function copyExcerpt() {
+		if (!excerpted) return;
+		copy(excerpted.text, (text) => navigator.clipboard.writeText(text)).then(
+			() => (copied = 'done'),
+			(fault: Fault) => {
+				copied = 'failed';
+				reporter.report(fault);
+				shown(fault);
+			}
+		);
+	}
+
+	// The letters of the stretch selected, counted: kept as a search of its
+	// own — its letters inked on the map in its colour, its squares by the
+	// places holding them, its passages listed with each letter numbered, and
+	// joined with the others by ∪ and ∩ — its count the letters of every
+	// name, number and verse selected. The selection then goes: it is kept.
+	// A count of names and numbers alone has nothing to ink or list: told
+	// once, in a modal, and kept nowhere (`keepsCount`).
+	function countExcerpt() {
+		if (!excerpted || !map) return;
+		const { text } = excerpted;
+		const answer = countOf(excerpted.letters);
+		if (!keepsCount(answer)) {
+			tally = { text, count: letters(text).length };
+			dropExcerpt();
+			return;
+		}
+		kept = add(kept, COUNT, text);
+		const { id } = kept[kept.length - 1];
+		found(id, text, answer, answer.hits.length / 2, letters(text).length);
+		if (wide) panelOpen = true;
+		dropExcerpt();
+	}
+
+	// A count with nothing to keep, told once.
+	let tally = $state<{ text: string; count: number } | null>(null);
+
+	// Closed, the focus goes back to the view read.
+	function closeTally() {
+		tally = null;
+		if (view === 'book') book?.focus();
+		else canvas.focus({ preventScroll: true });
+	}
+
+	const menuItem = [
+		'flex w-full cursor-pointer items-center rounded px-3 py-2 text-left text-sm whitespace-nowrap text-white/70',
+		'transition-colors duration-150 outline-none',
+		'hover:bg-white/[0.06] hover:text-white focus-visible:bg-white/[0.06] focus-visible:text-white',
+		'aria-disabled:cursor-default aria-disabled:text-white/30 aria-disabled:hover:bg-transparent aria-disabled:hover:text-white/30'
+	];
 
 	// The search picked in the sidebar, its modal open: every one the
 	// sidebar offers.
@@ -160,15 +258,23 @@
 	}
 
 	// A search found, marked in the slot it holds now — it may have been
-	// hidden or shown meanwhile — and counted.
-	function found(id: number, word: string, answer: Found) {
+	// hidden or shown meanwhile — and counted: its hits, `span` letters each
+	// — the word's — or what `total` says. A search with no letter to mark
+	// (a count of names alone) marks and lists nothing.
+	function found(
+		id: number,
+		word: string,
+		answer: Found,
+		span = letters(word).length,
+		total = answer.total
+	) {
 		// Removed while it searched: nothing to mark.
 		const still = kept.find((m) => m.id === id);
 		if (!still || !map) return;
-		const span = letters(word).length;
 		hits.set(id, { found: answer, span });
-		if (isShown(still)) map.marks.set(still.slot, answer, span, still.color);
-		kept = counted(kept, id, answer.total, map.results.count(answer, span));
+		const marks = span > 0 && answer.hits.length > 0;
+		if (isShown(still) && marks) map.marks.set(still.slot, answer, span, still.color);
+		kept = counted(kept, id, total, marks ? map.results.count(answer, span) : 0);
 		retally();
 	}
 
@@ -263,7 +369,7 @@
 		if (!before || !after || !map) return;
 		if (isShown(before) && !isShown(after)) map.marks.clear(before.slot);
 		const found = hits.get(id);
-		if (!isShown(before) && isShown(after) && found) {
+		if (!isShown(before) && isShown(after) && found && found.found.hits.length > 0) {
 			map.marks.set(after.slot, found.found, found.span, after.color);
 		}
 		retally();
@@ -345,7 +451,7 @@
 
 	function openResults(id: number) {
 		const found = hits.get(id);
-		if (!found || !map) return;
+		if (!found || !map || found.found.hits.length === 0) return;
 		const results = map.results;
 		list(() => ({
 			id,
@@ -424,7 +530,15 @@
 			onFocus: (where) => (focus = where),
 			onReadings: (count) => (readings = count),
 			onFault: shown,
-			onLanded: () => landed++
+			onLanded: () => landed++,
+			onExcerpt: (next) =>
+				onExcerpt(
+					next && {
+						text: next.text,
+						letters: next.letters,
+						at: { left: next.at.x, top: next.at.y, width: 0, height: 0 }
+					}
+				)
 		})
 			.then((created) => {
 				handle = created;
@@ -450,16 +564,20 @@
 	function onWindowKeydown(event: KeyboardEvent) {
 		if (event.key !== 'Escape') return;
 		const closes = escape({
-			info: explaining !== null,
+			info: explaining !== null || tally !== null,
 			results: listing !== null,
 			selection: selection !== null,
+			excerpt: excerpted !== null,
 			notice: notice !== null,
 			searches: panelOpen,
 			book: view === 'book'
 		});
-		if (closes === 'info') closeInfo();
-		else if (closes === 'results') closeResults();
+		if (closes === 'info') {
+			if (tally) closeTally();
+			else closeInfo();
+		} else if (closes === 'results') closeResults();
 		else if (closes === 'selection') closePassage();
+		else if (closes === 'excerpt') dropExcerpt();
 		else if (closes === 'notice') notice = null;
 		else if (closes === 'searches') closePanel();
 		else if (closes === 'overview') map?.reset();
@@ -639,7 +757,7 @@
 	</header>
 
 	<div class="flex min-h-0 flex-1">
-		<Rail {view} onview={switchTo} onsearch={onSearch} />
+		<Rail {view} onview={switchTo} onsearch={onSearch} {selecting} onselecting={toggleSelecting} />
 
 		<div dir="rtl" class="flex min-w-0 flex-1 flex-col">
 			<p class="sr-only" aria-live="polite">{spoken}</p>
@@ -674,6 +792,8 @@
 							onreading={(next) => (reading = next)}
 							onform={(on) => (onForm = on)}
 							onselect={(hit) => (selection = hit)}
+							{selecting}
+							onexcerpt={onExcerpt}
 							onfault={shown}
 						/>
 					</div>
@@ -843,8 +963,40 @@
 	/>
 {/if}
 
+{#if excerpted}
+	<!-- What can be done with the stretch selected, beside it. A press here
+	     keeps the selection: the browser would otherwise drop the book's. -->
+	<div
+		bind:this={excerptMenu}
+		role="menu"
+		aria-label="Selection"
+		tabindex="-1"
+		dir="ltr"
+		lang="en"
+		style:left={menuPos ? `${menuPos.left}px` : '0'}
+		style:top={menuPos ? `${menuPos.top}px` : '0'}
+		onpointerdown={(event) => event.preventDefault()}
+		class={[
+			'fixed z-40 flex min-w-40 flex-col gap-0.5 rounded border border-white/15 bg-black p-1',
+			'shadow-[0_4px_16px_rgb(0_0_0/0.6)]',
+			!menuPos && 'invisible'
+		]}
+	>
+		<button type="button" role="menuitem" class={menuItem} onclick={copyExcerpt}>
+			{copied === 'done' ? 'Copied' : copied === 'failed' ? 'Not copied' : 'Copy'}
+		</button>
+		<button type="button" role="menuitem" class={menuItem} onclick={countExcerpt}>
+			Count letters
+		</button>
+	</div>
+{/if}
+
 {#if explained}
 	<SearchInfo search={explained} onclose={closeInfo} />
+{/if}
+
+{#if tally}
+	<LetterCount text={tally.text} count={tally.count} onclose={closeTally} />
 {/if}
 
 {#if searching}

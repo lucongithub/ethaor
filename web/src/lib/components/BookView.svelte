@@ -43,6 +43,7 @@
 	} from '$lib/book-view';
 	import { escalate, reporter, type Fault } from '$lib/fault';
 	import { PORTION_TEXT } from '$lib/portions';
+	import { joined, ranked, type Box } from '$lib/excerpt';
 	import {
 		COLORS,
 		inkStyle,
@@ -63,6 +64,8 @@
 		onreading,
 		onform,
 		onselect,
+		selecting = false,
+		onexcerpt,
 		onfault
 	}: {
 		book: Book;
@@ -80,6 +83,11 @@
 		onform: (on: boolean) => void;
 		/** A click read the passage: what the map's click gives. */
 		onselect: (selection: Selection | null) => void;
+		/** The selection mode is on: a click reads no passage, a drag selects. */
+		selecting?: boolean;
+		/** A stretch selected in the selection mode — our text, each verse on
+		 *  its own line, and its box on screen — or none any more. */
+		onexcerpt?: (excerpt: { text: string; letters: number[]; at: Box } | null) => void;
 		onfault: (fault: Fault) => void;
 	} = $props();
 
@@ -253,6 +261,8 @@
 		scheduled ||= requestAnimationFrame(() => {
 			scheduled = 0;
 			report();
+			// The stretch selected moved with the text: its menu follows.
+			if (told) tellExcerpt();
 			// The text moved under a pointer that did not: what it is on now.
 			if (pointer) form(document.elementFromPoint(pointer.x, pointer.y));
 		});
@@ -308,11 +318,91 @@
 	let press: { x: number; y: number } | null = null;
 
 	function onClick(event: MouseEvent) {
+		if (selecting) return;
 		if (!press || Math.hypot(event.clientX - press.x, event.clientY - press.y) > 4) return;
 		if (!(getSelection()?.isCollapsed ?? true)) return;
 		const verse = (event.target as Element).closest<HTMLElement>('[data-verse]');
 		if (!verse) return;
 		onselect(book.select(Number(verse.dataset.verse)));
+	}
+
+	// ------------------------------------------------------------- selection
+
+	// In the selection mode the browser selects, as on any page; once the
+	// selection is made — the press lifted, or the keys or a finger's
+	// handles left it — what it reads is told, with its box. While a press
+	// lasts the selection is not made yet.
+	let pressing = false;
+	let told = false;
+
+	/** The stretch selected, ours: the names, numbers and verses it runs
+	 *  over, each on its line — the verses' numbers, the squares and the
+	 *  other edition's forms taken out. */
+	function excerptOf(): { text: string; letters: number[]; at: Box } | null {
+		const chosen = getSelection();
+		if (!chosen || chosen.rangeCount === 0 || chosen.isCollapsed) return null;
+		const range = chosen.getRangeAt(0);
+		// The text, or the level above it shown over it.
+		const root = level === 'text' ? column : above;
+		if (!root?.contains(range.commonAncestorContainer)) return null;
+		// Our text of a stretch: the verses' numbers, the squares and the
+		// other edition's forms out.
+		const ours = (stretch: Range) => {
+			const piece = stretch.cloneContents();
+			for (const away of piece.querySelectorAll('[aria-hidden="true"], [data-theirs]'))
+				away.remove();
+			return piece.textContent ?? '';
+		};
+		const letters: number[] = [];
+		const pieces = [...root.querySelectorAll<HTMLElement>('[data-verse], [data-title]')]
+			.filter((element) => range.intersectsNode(element))
+			.map((element) => {
+				const part = document.createRange();
+				part.selectNodeContents(element);
+				const before = document.createRange();
+				before.selectNodeContents(element);
+				before.collapse(true);
+				if (range.compareBoundaryPoints(Range.START_TO_START, part) > 0) {
+					part.setStart(range.startContainer, range.startOffset);
+					before.setEnd(range.startContainer, range.startOffset);
+				}
+				if (range.compareBoundaryPoints(Range.END_TO_END, part) < 0) {
+					part.setEnd(range.endContainer, range.endOffset);
+				}
+				const piece = ours(part);
+				// A verse's letters by their rank in it, as the map names them.
+				if (element.dataset.verse !== undefined) {
+					letters.push(...ranked(Number(element.dataset.verse), ours(before), piece));
+				}
+				return piece;
+			});
+		const text = joined(pieces);
+		if (!text) return null;
+		const { left, top, width, height } = range.getBoundingClientRect();
+		return { text, letters, at: { left, top, width, height } };
+	}
+
+	function tellExcerpt() {
+		if (!selecting || !onexcerpt) return;
+		const excerpt = excerptOf();
+		told = excerpt !== null;
+		onexcerpt(excerpt);
+	}
+
+	// A press on the text, or on the level above it: a selection begins.
+	function onWindowPointerdown(event: PointerEvent) {
+		const on = event.target as Node;
+		pressing = selecting && (column.contains(on) || !!above?.contains(on));
+	}
+
+	function onWindowPointerup() {
+		if (!pressing) return;
+		pressing = false;
+		tellExcerpt();
+	}
+
+	function onSelectionChange() {
+		if (!pressing) tellExcerpt();
 	}
 
 	/** Back to the text, as the passage closes: the keys scroll it again. */
@@ -761,6 +851,13 @@
 		>{/if}
 {/snippet}
 
+<svelte:window
+	onpointerdown={onWindowPointerdown}
+	onpointerup={onWindowPointerup}
+	onpointercancel={onWindowPointerup}
+/>
+<svelte:document onselectionchange={onSelectionChange} />
+
 <!-- `touch-action: pan-y`: one finger scrolls natively, two size the text.
      Focusable, as a scrolled region must be for the keys to scroll it, and
      named with its keys like the map's canvas. -->
@@ -802,16 +899,17 @@
 				<section data-chapter={c} style:height={text ? null : `${placeholder(c)}px`}>
 					{#if text}
 						{#if opensPortion(text)}
-							<h2 class="pt-[2.5em] pb-[0.6em] text-[2.1em] leading-tight text-white">
+							<h2 data-title class="pt-[2.5em] pb-[0.6em] text-[2.1em] leading-tight text-white">
 								{text.sectionName}
 							</h2>
 						{/if}
 						{#if text.opens}
-							<h3 class="pt-[1.4em] pb-[0.4em] text-[1.7em] leading-tight text-white/78">
+							<h3 data-title class="pt-[1.4em] pb-[0.4em] text-[1.7em] leading-tight text-white/78">
 								{text.bookName}
 							</h3>
 						{/if}
 						<header
+							data-title
 							class="pt-[1.6em] pb-[0.5em] text-[0.82em] text-white/58"
 							aria-label={`${text.bookName} ${text.label}`}
 						>
@@ -820,8 +918,11 @@
 						{#each text.verses as verse (verse.index)}
 							<p
 								data-verse={verse.index}
-								class="-mx-[0.4em] mb-[0.35em] grid cursor-pointer grid-cols-[1.6em_1fr] items-baseline rounded px-[0.4em]
-								       transition-colors duration-150 hover:bg-white/6 sm:grid-cols-[2.2em_1fr]"
+								class={[
+									'-mx-[0.4em] mb-[0.35em] grid grid-cols-[1.6em_1fr] items-baseline rounded px-[0.4em]',
+									'transition-colors duration-150 selection:bg-white/25 sm:grid-cols-[2.2em_1fr]',
+									selecting ? 'cursor-text' : 'cursor-pointer hover:bg-white/6'
+								]}
 							>
 								<span class="text-[0.6em] text-white/58 select-none" aria-hidden="true"
 									>{verse.label}</span
@@ -830,6 +931,7 @@
 									{#each verse.parts as part, k (k)}
 										{#if part.theirs}<span
 												data-form={`${verse.index}.${part.reading}`}
+												data-theirs
 												class={lit === `${verse.index}.${part.reading}` ? 'text-yellow-200' : ''}
 												>{part.text}</span
 											>{:else if part.marked}<span
@@ -880,12 +982,14 @@
 						<div class="absolute bottom-0 h-0 w-full snap-end" aria-hidden="true"></div>
 						{#if contents.books[b.index - 1]?.section !== b.section}
 							<h2
+								data-title
 								class="pt-6 pb-4 text-xl leading-tight text-white xl:text-2xl 2xl:text-3xl min-[120rem]:text-4xl"
 							>
 								{contents.portions[b.section]}{@render beside(squares(0, b.section))}
 							</h2>
 						{/if}
 						<h3
+							data-title
 							class="pb-3 text-lg leading-tight text-white/78 xl:text-xl 2xl:text-2xl min-[120rem]:text-3xl"
 						>
 							{b.name}{@render beside(squares(1, b.index))}
@@ -894,23 +998,29 @@
 							{#each { length: b.end - b.first }, k (k)}
 								{@const c = b.first + k}
 								<li>
-									<button
-										type="button"
+									<!-- svelte-ignore a11y_no_static_element_interactions — a button whenever it has a handler; a span, to be selected, in the selection mode -->
+									<svelte:element
+										this={selecting ? 'span' : 'button'}
+										type={selecting ? undefined : 'button'}
 										data-goes={c}
+										data-title
 										aria-current={c === current ? 'location' : undefined}
-										aria-label={`${b.name} ${contents.labels[c]}`}
+										aria-label={selecting ? undefined : `${b.name} ${contents.labels[c]}`}
 										class={[
-											'relative grid h-9 w-full cursor-pointer place-items-center rounded text-base transition-colors duration-150',
+											'relative grid h-9 w-full place-items-center rounded text-base transition-colors duration-150',
 											'xl:h-10 xl:text-lg 2xl:h-11 2xl:text-xl min-[120rem]:h-12 min-[120rem]:text-2xl',
 											'focus-visible:outline-1 focus-visible:outline-white/60',
+											selecting && 'cursor-text select-text',
 											c === current
 												? 'bg-white/12 text-white'
-												: 'text-white/58 hover:bg-white/6 hover:text-white focus-visible:text-white'
+												: selecting
+													? 'text-white/58'
+													: 'cursor-pointer text-white/58 hover:bg-white/6 hover:text-white focus-visible:text-white'
 										]}
-										onclick={() => go(c)}
+										onclick={selecting ? undefined : () => go(c)}
 									>
 										{contents.labels[c]}{@render under(squares(2, c))}
-									</button>
+									</svelte:element>
 								</li>
 							{/each}
 						</ol>
@@ -943,28 +1053,37 @@
 			>
 				{#each contents.portions as portion, p (p)}
 					<section data-portion={p} class="pb-6 last:pb-0 xl:pb-8">
-						<h2 class="pb-2 text-xl leading-tight xl:text-2xl 2xl:text-3xl min-[120rem]:text-4xl">
+						<h2
+							data-title
+							class="pb-2 text-xl leading-tight xl:text-2xl 2xl:text-3xl min-[120rem]:text-4xl"
+						>
 							{portion}{@render beside(squares(0, p))}
 						</h2>
 						<ul class="-mx-2 grid grid-cols-2 gap-x-4 sm:grid-cols-3">
 							{#each contents.books.filter((b) => b.section === p) as b (b.index)}
 								<li>
-									<button
-										type="button"
+									<!-- svelte-ignore a11y_no_static_element_interactions — a button whenever it has a handler; a span, to be selected, in the selection mode -->
+									<svelte:element
+										this={selecting ? 'span' : 'button'}
+										type={selecting ? undefined : 'button'}
 										data-opens={b.index}
+										data-title
 										aria-current={b.index === opened ? 'location' : undefined}
 										class={[
-											'w-full cursor-pointer rounded px-2 py-0.5 text-start text-base leading-snug text-balance break-words',
+											'block w-full rounded px-2 py-0.5 text-start text-base leading-snug text-balance break-words',
 											'xl:text-lg 2xl:text-xl min-[120rem]:text-2xl',
 											'transition-colors duration-150 focus-visible:outline-1 focus-visible:outline-white/60',
+											selecting && 'cursor-text select-text',
 											b.index === opened
 												? 'bg-white/12 text-white'
-												: 'text-white/78 hover:bg-white/6 hover:text-white focus-visible:text-white'
+												: selecting
+													? 'text-white/78'
+													: 'cursor-pointer text-white/78 hover:bg-white/6 hover:text-white focus-visible:text-white'
 										]}
-										onclick={() => openBook(b.index)}
+										onclick={selecting ? undefined : () => openBook(b.index)}
 									>
 										{b.name}{@render beside(squares(1, b.index))}
-									</button>
+									</svelte:element>
 								</li>
 							{/each}
 						</ul>
@@ -993,16 +1112,22 @@
 				class="{PORTION_TEXT} my-auto flex translate-y-[0.06em] flex-col items-start gap-[1.14em] py-8 font-hebrew leading-none"
 			>
 				{#each contents.portions as portion, p (p)}
-					<button
-						type="button"
+					<!-- svelte-ignore a11y_no_static_element_interactions — a button whenever it has a handler; a span, to be selected, in the selection mode -->
+					<svelte:element
+						this={selecting ? 'span' : 'button'}
+						type={selecting ? undefined : 'button'}
 						data-portion-button={p}
+						data-title
 						aria-current={p === openedPortion ? 'location' : undefined}
-						class="relative cursor-pointer rounded text-white focus-visible:outline-1 focus-visible:outline-offset-[0.15em]
-						       focus-visible:outline-white/60"
-						onclick={() => openPortion(p)}
+						class={[
+							'relative rounded text-white focus-visible:outline-1 focus-visible:outline-offset-[0.15em]',
+							'focus-visible:outline-white/60',
+							selecting ? 'cursor-text select-text' : 'cursor-pointer'
+						]}
+						onclick={selecting ? undefined : () => openPortion(p)}
 					>
 						{portion}{@render outside(squares(0, p))}
-					</button>
+					</svelte:element>
 				{/each}
 			</div>
 		</div>

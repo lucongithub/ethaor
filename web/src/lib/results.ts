@@ -8,7 +8,7 @@
 
 import type { Contents } from './book-view';
 import { MAX_SHOWN, slotsOf, worn, type Color, type Marked } from './marks';
-import type { Found } from './passage';
+import { inked, type Found, type Run } from './passage';
 
 /** The bit a search's own letters carry, past every slot's: `OWN` in the module. */
 export const OWN = 1 << MAX_SHOWN;
@@ -146,4 +146,69 @@ export function colorsOf(list: readonly Marked[], search: Marked | null, bits: n
 	const colors = worn(list, bits & (OWN - 1));
 	if (search && bits & OWN && !colors.includes(search.color)) colors.unshift(search.color);
 	return [...new Set(colors)];
+}
+
+/** A piece of a verse as a count's list draws it: a run, or one of the
+ *  count's letters with its number from 1 — 0 for none. */
+export interface Numbered extends Run {
+	n: number;
+}
+
+/** A consonant and the marks riding on it. */
+const LETTER = /[א-ת][^א-ת\s]*/gu;
+
+/**
+ * A text cut into its letters, each a consonant and the marks riding on it,
+ * numbered from `after + 1` in reading order; what is not a letter — a
+ * space, a mark before any consonant, punctuation — stays between them,
+ * unnumbered (0). Every piece carries `slots`. The pieces read the text
+ * back whole.
+ */
+export function numberedLetters(text: string, after = 0, slots = 0): Numbered[] {
+	const pieces: Numbered[] = [];
+	let n = after;
+	let at = 0;
+	for (const match of text.matchAll(LETTER)) {
+		const start = match.index ?? 0;
+		if (start > at) pieces.push({ text: text.slice(at, start), slots, n: 0 });
+		pieces.push({ text: match[0], slots, n: ++n });
+		at = start + match[0].length;
+	}
+	if (at < text.length) pieces.push({ text: text.slice(at), slots, n: 0 });
+	return pieces;
+}
+
+/**
+ * A passage's verses cut as the list draws them, each word into its runs —
+ * and every letter of the search's own (`OWN`) apart, numbered in reading
+ * order across the passage, from 1: a count's letters, each with its
+ * place in the count.
+ */
+export function numbered(passage: Passage): Numbered[][][] {
+	let n = 0;
+	return passage.map((verse) =>
+		inked(verse.text, verse.found).map((word) =>
+			word.flatMap((run): Numbered[] => {
+				if (!(run.slots & OWN)) return [{ ...run, n: 0 }];
+				const pieces = numberedLetters(run.text, n, run.slots);
+				n += pieces.filter((p) => p.n > 0).length;
+				return pieces;
+			})
+		)
+	);
+}
+
+/**
+ * The classes of a counted letter's number: small, centred over its letter,
+ * out of the flow so the letters keep the text's own spacing, never
+ * selected nor read aloud — a copy is the text alone. Odd numbers sit just
+ * over the letter, even ones a tier higher: two neighbours never share a
+ * line, so three digits over a narrow letter still read apart.
+ */
+export function numberClass(n: number): string {
+	return [
+		'pointer-events-none absolute left-1/2 -translate-x-1/2 select-none',
+		'font-sans text-[0.36em] leading-none tracking-tight whitespace-nowrap text-white/70 tabular-nums',
+		n % 2 ? 'bottom-[82%]' : 'bottom-[calc(82%+1.15em)]'
+	].join(' ');
 }

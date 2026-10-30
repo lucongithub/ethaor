@@ -90,6 +90,20 @@ describe('escape', () => {
 		);
 	});
 
+	// A stretch selected, its menu beside it: after the passage and the
+	// list it may be read from, before the notice — in the book view too.
+	it('puts a stretch selected away after the passage and the list, before the notice', () => {
+		expect(escape({ selection: true, excerpt: true, notice: true })).toBe('selection');
+		expect(escape({ results: true, selection: false, excerpt: true, notice: true })).toBe(
+			'results'
+		);
+		expect(escape({ selection: false, excerpt: true, notice: true, searches: true })).toBe(
+			'excerpt'
+		);
+		expect(escape({ selection: false, excerpt: true, notice: false, book: true })).toBe('excerpt');
+		expect(escape({ selection: false, excerpt: false, notice: false })).toBe('overview');
+	});
+
 	it('goes back to the overview only with nothing open', () => {
 		expect(escape({ selection: false, notice: false })).toBe('overview');
 	});

@@ -14,11 +14,11 @@ name, what it holds (its doc comment), and its nature.
 | area | files | tests | ignored | without a doc |
 |---|---|---|---|---|
 | Rust core, module-private | 9 | 162 | 3 | 21 |
-| Rust app (`src/tests/`) | 12 | 184 | 0 | 12 |
+| Rust app (`src/tests/`) | 13 | 200 | 0 | 12 |
 | Corpus build (`tests/`) | 1 | 31 | 0 | 15 |
 | Server (`server/`) | 17 | 102 | 1 | 12 |
-| Page (`web/`) | 12 | 124 | 0 | 0 |
-| **total** | **51** | **603** | **4** | **60** |
+| Page (`web/`) | 13 | 144 | 0 | 0 |
+| **total** | **53** | **639** | **4** | **60** |
 
 ## By file
 
@@ -319,7 +319,7 @@ name, what it holds (its doc comment), and its nature.
         - `a_gematria_page_lists_the_runs_worth_the_text` — A gematria search's page is the stream's runs, in the order of the text: pages tile the listed runs, `limit` 0 counts, every run's words are the verse's own and worth the text's value, the first words of Genesis among those of `בראשית ברא`. <sub>unit, module-private</sub>
         - `a_gematria_search_is_refused_or_kept_to_its_scope` — A gematria search is refused with its reason before it runs: no Hebrew letter, a limit past the most, an empty scope, a cost past the ceiling; a scope keeps its runs inside it. <sub>unit, module-private</sub>
   - **tests/**
-    - [`api.rs`](src/tests/api.rs) — 29 tests
+    - [`api.rs`](src/tests/api.rs) — 30 tests
       <br>The interface the page really calls.
       - module `tests::api` · ethaor
         - `the_page_can_draw_a_frame_from_a_cold_start` — *(no doc: say what it holds)* <sub>app: the module as the page drives it</sub>
@@ -327,6 +327,7 @@ name, what it holds (its doc comment), and its nature.
         - `resizing_keeps_the_framing` — Resizing keeps the framing when it was framed, and leaves the view alone otherwise. <sub>app: the module as the page drives it</sub>
         - `a_click_is_dead_above_the_reading_zoom` — **A click is only live on a passage one can read.** At the framing, where a chapter is a title in a box, nothing is clickable and the cursor says so. <sub>app: the module as the page drives it</sub>
         - `clicking_gives_the_passage` — Once the lines are read, a click gives the passage — the slots of `selection_ptr`, the verse numbered. <sub>app: the module as the page drives it</sub>
+        - `a_drag_selects_text_read_back_through_the_exports` — The selection mode through the exports, as the page drags: a drag over a portion's name at the opening selects it; begun on a line read it selects from its letter to the one it reaches, read back at `excerpt_ptr` as our text; begun on nothing it selects nothing. <sub>app: the module as the page drives it</sub>
         - `the_book_selects_a_verse_by_its_index` — The book view's click through the export, as the page calls it: a verse fills the slots `select` fills — the passage and its number — and a verse out of range clears them. <sub>app: the module as the page drives it</sub>
         - `the_breadcrumb_is_filled_from_the_centre_of_the_view` — `focus` feeds the breadcrumb from the centre of the view: section, book, chapter and verse, each as an (offset, length) into the corpus. <sub>app: the module as the page drives it</sub>
         - `the_breadcrumb_follows_the_pointer` — `focus_at` is the hover: it answers 1 when the pointer is on something, and 0 when it is on nothing — falling back on the centre of the view, so that the navbar never blinks out. <sub>app: the module as the page drives it</sub>
@@ -403,6 +404,24 @@ name, what it holds (its doc comment), and its nature.
         - `the_letters_of_a_word_stay_inside_it` — Words and letters agree: a letter box is inside the box of the word that holds it — the two splits share one measured width. <sub>app: the module as the page drives it</sub>
         - `a_click_in_the_book_names_what_the_map_names` — The book's click, where the browser lays the verse out, **names what the map's click names**: for every line of a chapter at reading level, the map's pick at the line and the book's pick of its verse give the same slots. <sub>app: the module as the page drives it</sub>
         - `a_click_in_the_book_names_every_verse` — Every landed verse is selected by the book with its own text and number; a verse out of range names nothing. <sub>app: the module as the page drives it</sub>
+    - [`excerpt.rs`](src/tests/excerpt.rs) — 15 tests — covers [`src/map/excerpt.rs`](src/map/excerpt.rs)
+      <br>A stretch selected on the map (`map/excerpt.rs`): from the letter a drag began on to the one it reached, read back as our text and platted where it is drawn.
+      - module `tests::excerpt` · ethaor
+        - `a_drag_over_a_verse_reads_that_verse_ours` — **A drag from a verse's first letter to its last reads the verse**, our text byte for byte — on a verse carrying the other edition's reading too, whose forms are drawn in it and taken out of what is read. <sub>app: the module as the page drives it</sub>
+        - `a_drag_backwards_reads_the_same` — **The way of the drag does not matter**: backwards, the same text. <sub>app: the module as the page drives it</sub>
+        - `a_selection_across_verses_reads_each_on_its_line` — **A selection runs across verses**, each read whole on its own line. <sub>app: the module as the page drives it</sub>
+        - `a_drag_inside_a_line_reads_whole_letters` — **A drag inside a line reads whole letters**, a stretch of the verse whose every letter keeps its marks: the text read is a piece of ours. <sub>app: the module as the page drives it</sub>
+        - `nothing_is_selected_where_no_text_is_read` — **A selection is only made on a text one reads**: at the framing a drag begins on no letter and selects nothing; a press without a drag selects nothing either. <sub>app: the module as the page drives it</sub>
+        - `a_drag_off_the_text_keeps_its_last_letter` — **A drag leaving the text keeps the last letter it reached**: a point on no letter read moves nothing. <sub>app: the module as the page drives it</sub>
+        - `the_plate_lies_under_the_selected_lines_alone` — **The plate says what is selected**: one under each line the selection holds and none elsewhere, drawn before that line's text, in its row — as wide as the line where the line is selected whole. No selection, no plate: the frame is the one it was. <sub>app: the module as the page drives it</sub>
+        - `a_plate_inside_a_line_stands_under_its_letters` — **A plate stands under its own letters, not at the line's start**: a stretch cut inside a line begins left of the line's right edge, past what precedes it, and ends inside the line's ink. <sub>app: the module as the page drives it</sub>
+        - `the_portions_names_are_selected_at_the_opening` — **A portion's names are selected at the opening**, each whole, each on its line: the three, from the first to the last. <sub>app: the module as the page drives it</sub>
+        - `books_names_are_selected_without_what_lies_under_them` — **Books' names are selected at the framing, and nothing under them**: a drag from the first book's name to the third's reads the three names, never the chapters and verses the reading puts between them. Each lies on a plate, before its title. <sub>app: the module as the page drives it</sub>
+        - `chapters_numbers_are_selected_without_their_verses` — **Chapters' numbers are selected once they show**, and only them: a drag from the first chapter's number to the third's reads the three numbers. <sub>app: the module as the page drives it</sub>
+        - `a_chapter_s_number_is_selected_with_its_text` — **Once the text is read, its chapter's number is selected with it**: from the number in the column's corner to the end of the first verse, the number then the verse. <sub>app: the module as the page drives it</sub>
+        - `a_selection_of_numbers_plates_no_verse` — **A selection of numbers plates no verse**, even once the text under it is read: from the first chapter's number to the second's, zoomed into the first, only numbers lie on plates and the text reads numbers alone. <sub>app: the module as the page drives it</sub>
+        - `a_name_is_selected_letter_by_letter` — **A name is selected letter by letter, as any text**: a drag inside a book's name reads a stretch of it, not the whole, and its plate lies under those letters alone, inside the name's ink. <sub>app: the module as the page drives it</sub>
+        - `a_selection_s_letters_are_named_by_verse_and_rank` — **The letters a selection holds are named as a letters record names them**, verse and rank, in reading order: a drag over three verses gives every consonant of each — the very letters the map's marks would ink — and a selection of names alone gives none. <sub>app: the module as the page drives it</sub>
     - [`frame.rs`](src/tests/frame.rs) — 32 tests — covers [`src/map/frame.rs`](src/map/frame.rs)
       <br>The command list: what a frame always holds, and what it never holds.
       - module `tests::frame` · ethaor
@@ -661,6 +680,28 @@ name, what it holds (its doc comment), and its nature.
           - `names the book and its portion below the books, and leads each step to its level` — The Tanakh leads to the portions alone, a portion to the books, a book to its chapters; the text and a book's chapters name the book and its portion, the two levels showing the whole Tanakh nothing under it. <sub>page logic, on the real artifacts</sub>
         - module `the hand-over between the views` · vitest
           - `lands each level on its own` — The map's depth opens the book on its level — its chapters' numbers on the books, as its framing does — and the book hands each level back to its depth: the text to its passage (3), a book's chapters to the map's chapters (2), the books to the framing (1), the portions alone to the overview (0). <sub>page logic, on the real artifacts</sub>
+      - [`excerpt.test.ts`](web/src/lib/excerpt.test.ts) — 14 tests — covers [`web/src/lib/excerpt.ts`](web/src/lib/excerpt.ts)
+        - module `excerpt` · vitest
+          - `reads the selection with each run of white space made one space, nothing around it` — reads the selection with each run of white space made one space, nothing around it. <sub>page logic, on the real artifacts</sub>
+          - `keeps every mark of a pointed letter, a selection cut inside a word included` — keeps every mark of a pointed letter, a selection cut inside a word included. <sub>page logic, on the real artifacts</sub>
+          - `is empty for a selection of white space alone` — is empty for a selection of white space alone. <sub>page logic, on the real artifacts</sub>
+        - module `joined` · vitest
+          - `puts each verse on its own line, read as one selection reads` — puts each verse on its own line, read as one selection reads. <sub>page logic, on the real artifacts</sub>
+          - `takes our forms index out, and leaves out the verses holding nothing` — takes our forms index out, and leaves out the verses holding nothing. <sub>page logic, on the real artifacts</sub>
+        - module `menuAt` · vitest
+          - `stands centred under the selection when there is room` — stands centred under the selection when there is room. <sub>page logic, on the real artifacts</sub>
+          - `stands over the selection when there is no room under it` — stands over the selection when there is no room under it. <sub>page logic, on the real artifacts</sub>
+          - `stays whole inside its box, whatever the selection` — stays whole inside its box, whatever the selection. <sub>page logic, on the real artifacts</sub>
+        - module `copy` · vitest
+          - `writes the text, and only that` — writes the text, and only that. <sub>page logic, on the real artifacts</sub>
+          - `turns a refused write into a numbered fault the user is told` — turns a refused write into a numbered fault the user is told. <sub>page logic, on the real artifacts</sub>
+          - `turns a write that throws at once into the same fault` — turns a write that throws at once into the same fault. <sub>page logic, on the real artifacts</sub>
+        - module `ranked` · vitest
+          - `names a verse's selected letters by their rank among its consonants` — names a verse's selected letters by their rank among its consonants. <sub>page logic, on the real artifacts</sub>
+        - module `countOf` · vitest
+          - `keeps the letters as one hit of a letters record, none for no letter` — keeps the letters as one hit of a letters record, none for no letter. <sub>page logic, on the real artifacts</sub>
+        - module `keepsCount` · vitest
+          - `keeps a count holding a verse letter, and no other` — Only a count holding a verse's letter is kept in the panel; names and numbers alone are told once. <sub>page logic, on the real artifacts</sub>
       - [`fault.test.ts`](web/src/lib/fault.test.ts) — 12 tests — covers [`web/src/lib/fault.ts`](web/src/lib/fault.ts)
         - module `a fault` · vitest
           - `is numbered so it reads aloud and never repeats` — is numbered so it reads aloud and never repeats. <sub>page logic, on the real artifacts</sub>
@@ -679,7 +720,7 @@ name, what it holds (its doc comment), and its nature.
         - module `the catalogue` · vitest
           - `speaks English to the user, plainly` — speaks English to the user, plainly. <sub>page logic, on the real artifacts</sub>
           - `has each code raised at one place, which it therefore names` — has each code raised at one place, which it therefore names. <sub>page logic, on the real artifacts</sub>
-      - [`keys.test.ts`](web/src/lib/keys.test.ts) — 12 tests — covers [`web/src/lib/keys.ts`](web/src/lib/keys.ts)
+      - [`keys.test.ts`](web/src/lib/keys.test.ts) — 13 tests — covers [`web/src/lib/keys.ts`](web/src/lib/keys.ts)
         - module `command` · vitest
           - `zooms one notch in on + or =, out on - or _` — zooms one notch in on + or =, out on - or _. <sub>page logic, on the real artifacts</sub>
           - `moves the view the way the arrow points, by a small share, a large one with Shift` — moves the view the way the arrow points, by a small share, a large one with Shift. <sub>page logic, on the real artifacts</sub>
@@ -692,6 +733,7 @@ name, what it holds (its doc comment), and its nature.
           - `closes an open passage before anything else, the view kept` — closes an open passage before anything else, the view kept. <sub>page logic, on the real artifacts</sub>
           - `closes a notice next` — closes a notice next. <sub>page logic, on the real artifacts</sub>
           - `closes the searches lying over the view next` — The searches' panel lying over the view is closed after the passage and the notice, before the overview — in the book view too. <sub>page logic, on the real artifacts</sub>
+          - `puts a stretch selected away after the passage and the list, before the notice` — A stretch selected, its menu beside it: after the passage and the list it may be read from, before the notice — in the book view too. <sub>page logic, on the real artifacts</sub>
           - `goes back to the overview only with nothing open` — goes back to the overview only with nothing open. <sub>page logic, on the real artifacts</sub>
           - `leaves the book view where it is with nothing open` — The book view has no overview: its place is the scroll, never thrown away. <sub>page logic, on the real artifacts</sub>
       - [`letters.test.ts`](web/src/lib/letters.test.ts) — 8 tests — covers [`web/src/lib/letters.ts`](web/src/lib/letters.ts)
@@ -727,7 +769,7 @@ name, what it holds (its doc comment), and its nature.
           - `clears what was shown even when the history is empty` — A level with no line yet clears the page all the same: the lines of the level before must not stay as if they were of this one. <sub>page logic, on the real artifacts</sub>
           - `stops on a refusal and says why` — A refusal says the service's code, message and incident, and is not asked again: a wrong token stays wrong. <sub>page logic, on the real artifacts</sub>
           - `says a page served without the service, and retries a bare 503` — Served without the service (`npm run dev`), the answer is not JSON: refused, its status said. A 503 without a code is a proxy: retried. <sub>page logic, on the real artifacts</sub>
-      - [`marks.test.ts`](web/src/lib/marks.test.ts) — 22 tests — covers [`web/src/lib/marks.ts`](web/src/lib/marks.ts)
+      - [`marks.test.ts`](web/src/lib/marks.test.ts) — 24 tests — covers [`web/src/lib/marks.ts`](web/src/lib/marks.ts)
         - module `COLORS` · vitest
           - `are Tailwind's 500 steps, value for value` — are Tailwind's 500 steps, value for value. <sub>page logic, on the real artifacts</sub>
           - `are sixteen, more than the searches shown, as many as the module marks` — Sixteen colours to pick from, more than the searches shown — as many as the module has slots, ten: those on the map never share a colour. <sub>page logic, on the real artifacts</sub>
@@ -737,6 +779,7 @@ name, what it holds (its doc comment), and its nature.
           - `starts with number 0, in slot 0, sky, still searching` — starts with number 0, in slot 0, sky, still searching. <sub>page logic, on the real artifacts</sub>
           - `keeps the skip, and names it for an equidistant search alone` — One row per skip of an equidistant search: the same word several times, each told apart by its skip; the consecutive search has none. <sub>page logic, on the real artifacts</sub>
           - `titles an equidistant list by its word alone, never its skip` — The owner's rule: an equidistant search's list is titled by its word alone, never `5_תורה` — whatever its skip, its finals or its order. <sub>page logic, on the real artifacts</sub>
+          - `spells a searched word with a space between its letters` — The owner's rule: a searched word shown parts its letters by a space; a single letter has nothing to part. <sub>page logic, on the real artifacts</sub>
           - `keeps the letter and the order of a first-letters search, and names them` — One row per letter of an "every nth letter" run: each told apart by its letter, as an equidistant row by its skip; the plain first-letters search has none. The tip names its kind and its ways. <sub>page logic, on the real artifacts</sub>
           - `keeps every search, the first ten shown, the rest hidden` — As many searches as the reader runs: the first ten on the map, each its own slot and colour; the next kept hidden, holding no slot, and every one its own number. <sub>page logic, on the real artifacts</sub>
           - `takes the lowest slot freed, and a colour no search wears` — takes the lowest slot freed, and a colour no search wears. <sub>page logic, on the real artifacts</sub>
@@ -757,13 +800,15 @@ name, what it holds (its doc comment), and its nature.
           - `is styled in its colour, or in bands painted into its glyphs` — In the markup: one colour as it is, several as bands painted into the glyphs, none as nothing. <sub>page logic, on the real artifacts</sub>
         - module `changes` · vitest
           - `each touches its search alone` — each touches its search alone. <sub>page logic, on the real artifacts</sub>
+        - module `a count of letters` · vitest
+          - `shows its selection as it reads and counts letters` — Kept as any search, a count shows its selection as it reads — never spelled letter by letter, as a searched word is — and counts letters. <sub>page logic, on the real artifacts</sub>
       - [`passage.test.ts`](web/src/lib/passage.test.ts) — 4 tests — covers [`web/src/lib/passage.ts`](web/src/lib/passage.ts)
         - module `passage` · vitest
           - `cuts a verse at its spaces, every pointed letter whole` — cuts a verse at its spaces, every pointed letter whole. <sub>page logic, on the real artifacts</sub>
           - `picks each word in place: head, word and tail give the verse back` — picks each word in place: head, word and tail give the verse back. <sub>page logic, on the real artifacts</sub>
           - `picks nothing out of the verse, and reads no word picked as none` — picks nothing out of the verse, and reads no word picked as none. <sub>page logic, on the real artifacts</sub>
           - `cuts each word into the runs the searches found, by bytes, the word given back whole` — cuts each word into the runs the searches found, by bytes, the word given back whole. <sub>page logic, on the real artifacts</sub>
-      - [`results.test.ts`](web/src/lib/results.test.ts) — 10 tests — covers [`web/src/lib/results.ts`](web/src/lib/results.ts)
+      - [`results.test.ts`](web/src/lib/results.test.ts) — 13 tests — covers [`web/src/lib/results.ts`](web/src/lib/results.ts)
         - module `a search's passages` · vitest
           - `carry its own letters under the bit past every slot` — The module's own bit is the page's: one past the slots it marks. <sub>page logic, on the real artifacts</sub>
           - `spell the word once per hit, every verse whole, hidden or not` — Read page by page, the list holds every hit whole: its own letters, across all passages, spell the word once per hit — with no slot set, the search hidden from the map — and every verse is ours, numbered, its chapter in its book. <sub>page logic, on the real artifacts</sub>
@@ -777,6 +822,12 @@ name, what it holds (its doc comment), and its nature.
           - `read their crossings with where each starts` — The module's pairs read as crossings, each knowing where it starts. <sub>page logic, on the real artifacts</sub>
         - module `a passage's colours` · vitest
           - `always show the search listed, and the others shown` — The search listed wears its colour on its own letters whether it is shown or hidden; the shown ones theirs, lowest slot first; never twice. <sub>page logic, on the real artifacts</sub>
+        - module `a count's passages` · vitest
+          - `number every letter counted, in order, across its verses` — The letters a selection holds — here verse 1's from its 4th letter on and verse 2's first ten, as the book names them by rank — kept as a search: its one passage holds both verses, every letter of the count numbered from 1 in reading order, the numbers running on from one verse to the next, and only those letters. <sub>page logic, on the real artifacts</sub>
+        - module `numberedLetters` · vitest
+          - `numbers each letter with its marks, on from where it is told` — Each consonant with its marks is one piece, numbered on from `after`; spaces stay between, unnumbered, and the pieces read the text whole. <sub>page logic, on the real artifacts</sub>
+        - module `numberClass` · vitest
+          - `sets odd and even numbers on two tiers, out of the flow and the selection` — Neighbours never share a tier: odd numbers just over their letter, even ones a tier higher; neither selected nor taking the flow. <sub>page logic, on the real artifacts</sub>
       - [`search-core.test.ts`](web/src/lib/search-core.test.ts) — 6 tests — covers [`web/src/lib/search-core.ts`](web/src/lib/search-core.ts)
         - module `the books file` · vitest
           - `holds the 39 books then the readings, in order` — holds the 39 books then the readings, in order. <sub>page logic, on the real artifacts</sub>
@@ -841,6 +892,7 @@ helper is often held by the test of its caller — but each is a question the
 - [`src/els.rs`](src/els.rs): `forget_answers`, `index_of`, `stream_of`
 - [`src/els/index.rs`](src/els/index.rs): `make_room`
 - [`src/map/camera.rs`](src/map/camera.rs): `at_opening`, `overview_scale`, `sync_detail`
+- [`src/map/excerpt.rs`](src/map/excerpt.rs): `cmp`, `edge_at`, `excerpt_holds`, `excerpt_plate`, `excerpt_span`, `fitted`, `plate_under`, `spot_at`, `stretch_width`
 - [`src/map/frame.rs`](src/map/frame.rs): `book_title_size`, `draw_book`, `emit_ink`, `emit_run`, `emit_text`, `overview_title`, `row_width`, `scale_of`, `square_row`, `squares_under`
 - [`src/map/hit.rs`](src/map/hit.rs): `books_drawn`, `ink_of`, `locate_in`, `names_chapter`, `pick_place`
 - [`src/map/landing.rs`](src/map/landing.rs): `line_height_once_in`, `push_tile`, `verses_in`

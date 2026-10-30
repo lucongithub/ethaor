@@ -107,6 +107,75 @@ pub extern "C" fn select_verse(verse: u32) -> u32 {
     keep(app(), picked, Some(verse as usize))
 }
 
+/// The selection mode's drag begins at a point of the canvas: the stretch
+/// starts at the letter there. 1 if a letter one reads is there; 0 — and no
+/// selection — otherwise, and the page pans as usual.
+///
+/// No endpoint twin, as for every gesture: a stretch is selected on a
+/// canvas, and `GET /api/chapter` already gives any verse's text.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+pub extern "C" fn excerpt_start(x: f32, y: f32) -> u32 {
+    let app = app();
+    let (wx, wy) = app.camera.to_world(x, y);
+    app.excerpt_start(wx, wy) as u32
+}
+
+/// The drag reaches a point of the canvas: the stretch runs to the letter
+/// there.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+pub extern "C" fn excerpt_to(x: f32, y: f32) {
+    let app = app();
+    let (wx, wy) = app.camera.to_world(x, y);
+    app.excerpt_to(wx, wy);
+}
+
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+pub extern "C" fn excerpt_clear() {
+    app().excerpt_clear();
+}
+
+/// The text selected, ours, each verse on its own line.
+static mut EXCERPT: String = String::new();
+
+/// Writes the text selected at `excerpt_ptr`; its length in bytes, 0 for
+/// none.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+#[allow(static_mut_refs)]
+pub extern "C" fn excerpt_text() -> u32 {
+    let text = app().excerpt_text();
+    unsafe {
+        EXCERPT = text;
+        EXCERPT.len() as u32
+    }
+}
+
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+#[allow(static_mut_refs)]
+pub extern "C" fn excerpt_ptr() -> *const u8 {
+    unsafe { EXCERPT.as_ptr() }
+}
+
+/// The verses' letters selected: `(verse, rank)` pairs.
+static mut EXCERPT_LETTERS: Vec<u32> = Vec::new();
+
+/// Writes the verses' letters the selection holds at `excerpt_letters_ptr`,
+/// as a letters record names them — each letter's verse and its rank among
+/// the verse's consonants; their number.
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+#[allow(static_mut_refs)]
+pub extern "C" fn excerpt_letters() -> u32 {
+    unsafe {
+        app().excerpt_letters(&mut EXCERPT_LETTERS);
+        (EXCERPT_LETTERS.len() / 2) as u32
+    }
+}
+
+#[cfg_attr(feature = "map", unsafe(no_mangle))]
+#[allow(static_mut_refs)]
+pub extern "C" fn excerpt_letters_ptr() -> *const u32 {
+    unsafe { EXCERPT_LETTERS.as_ptr() }
+}
+
 /// The found letters of the verse selected: `(from, to, slots)` triples.
 static mut SELECTION_MARKS: Vec<u32> = Vec::new();
 

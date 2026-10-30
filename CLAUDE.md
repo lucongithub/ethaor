@@ -61,7 +61,8 @@ src/map.rs, src/map/            the map: `App`, one window's state, one file
                                 per subject — camera, measure, text (verse
                                 layout), hit (click, cursor, breadcrumb),
                                 landing, frame, settings, marks (a search's
-                                letters inked, its places barred)
+                                letters inked, its places barred), excerpt
+                                (a stretch selected, platted, read back)
 src/wasm.rs, src/wasm/          WebAssembly exports only, no computation: els,
                                 words (first and last letters), map,
                                 chapter (the book view's records),
@@ -103,6 +104,7 @@ web/                            SvelteKit 2 + Svelte 5 + Tailwind 4
   src/lib/components/ResultsModal.svelte  a search's passages, opened by its count
   src/lib/components/SearchInfo.svelte    what a search did, opened by its word
   src/lib/results.ts            that list's record read, places, colours
+  src/lib/excerpt.ts            a stretch selected: read, its menu, copied
   src/lib/components/BookView.svelte    the Tanakh read by scrolling
   src/lib/book-view.ts          that view's logic: records read, heights, zoom
   src/routes/+page.svelte
@@ -878,7 +880,8 @@ At the heart of every letter, `NEST` reserves the place of the whole Tanakh —
 a large share of its cell, not a point.
 
 **No fill is ever painted.** Rendering emits text and clips only — and a
-search's squares, which carry information (see *Searches on the map*): no white
+search's squares and a selection's plate, which carry information (see
+*Searches on the map*, *The click*): no white
 square, zooming in or out. That was the patch over a hole, and the hole was
 plugged on both sides — a newborn world a thousand pixels wide on one side, a
 zoom-out floor on the other.
@@ -1464,7 +1467,11 @@ Rejected: one button naming where it goes — the rail never said where one was.
   alone, flush right with every other row's — no skip, the owner's rule:
   its tip names it. Its list's title reads the word alone, never `2_`
   before it — the owner's rule, held by a test; the list of `∪` or `∩`
-  reads the words alone too, with no prefix of any kind.
+  reads the words alone too, with no prefix of any kind. **A searched word
+  shown — a list's title, the panel's row, the search's modal — parts its
+  letters by a space** — `אדם` reads `א ד ם` (`spelled`) — the owner's
+  rule; aria labels keep the plain word. Rejected, by the owner:
+  gershayim between them, as `תנ״ך` is written.
 - **First letters** and **Last letters** are the same modal, two ways
   offered under the word, untitled, either, both or neither — the owner's
   rule — and **no Exact letters**: a word's first letter is never final,
@@ -1532,6 +1539,56 @@ is ours, cut at its spaces as the module cuts a line. Rejected, by the
 owner: the double click — the modal, opened by the first click, took the
 second — and a press held two seconds.
 
+**The selection mode selects text where it is read** — the brackets
+button of the sidebar, under the searches, pressed while on, taken off by
+any other button of the rail (`Map mode`, `Book mode`, `Search`) — the
+owner's rule: on the map and in the book alike, never in the passage
+alone, since a stretch may run over several passages — **and at every
+level**, the owner's rule: portions' names, books' names, chapters'
+numbers, verses. On the map a drag begun on what is drawn — a name, a
+number, a line read (`map/excerpt.rs`, `spot_at`, level by level as the
+pointer names) — selects to what it reaches, in reading order, **letter by
+letter at every level**, a name or a number as a verse — the owner's rule:
+three letters of a label are a selection too; begun on nothing it moves the
+map, and the stretch goes. **It runs over what its ends were drawn on**:
+two books' names select the names between, never the verses the reading
+puts there; a verse at either end, the text too. A click opens no passage
+while it is on. In the book the browser selects, as on any page — the
+levels above the text too, their buttons turned to text while the mode is
+on — and only names, numbers and verses count (`excerptOf`): the verses'
+numbers, the squares and the other edition's forms are taken out. Either
+way what is read is **our text, each name, number and verse on its own
+line**.
+Once the selection is made, a menu beside it (`excerpt.ts`, `menuAt`)
+offers **Copy** — the clipboard; refused, a numbered `copy-failed` — and
+**Count letters**. Escape puts it away after the passage and the list,
+before the notice.
+
+**A count of letters is kept as a search** (`COUNT`, `countOf`) — the
+owner's rule: a row in the right panel, its count the consonants of every
+name, number and verse selected; its record a letters record of one hit,
+each verse's letter by verse and rank (`excerpt_letters` on the map,
+`ranked` in the book), so it is inked, squared, listed and joined by `∪`
+and `∩` as any search. Its list is the searches' own (`ResultsModal`),
+reading the verses the selection lies in whole, **its own letters alone in
+colour, each numbered over it** (`numbered`, `numberClass`), from 1 in
+reading order across the passage: out of the flow, so the letters keep the
+text's spacing — ruby was tried and spread them apart — odd and even
+numbers on two tiers so three digits never collide, never selected, so a
+copy is the text alone. Its count says letters, not hits (`unitOf`); its
+title holds one line, cut with an ellipsis. A row shows the selection as it
+reads, never spelled (`shownWord`); its word opens the text counted in a
+box that scrolls, however long. **Names and numbers alone are counted, never kept** —
+the owner's rule (`keepsCount`): holding no verse's letter, they have
+nothing to ink or list, so no row; the count is told once in a modal
+(`LetterCount.svelte`), each letter numbered over it as the list numbers
+them (`numberedLetters`), and gone when it closes.
+
+**On the map a stretch selected lies on a plate** (`KIND_SELECT`, a share
+of the white under its letters, names or numbers, before their text): what is selected is
+information, as the browser's selection shows it in the book. Measured
+as the line is, flush right; no selection, the frame is the one it was.
+
 `select` fills six slots: book, chapter, verse, the verse's number — the
 last two as (offset, length); the number titles the passage. Strings
 are cut at byte offsets, never in the decoded string: one pointed letter is
@@ -1597,13 +1654,16 @@ anywhere must be an assertion.
 | `web/src/lib/search-core.test.ts` | the books file: 39 books then the readings, in order, and opened they give back the plain text the tiles read; the search module answers -1 until the last book and the readings are in, in any order, then finds, its hits a copy; first and last letters -1 before the text, then each letter by verse and rank, in order, any order, from the end |
 | `web/src/lib/fault.test.ts` | an incident reads aloud and never repeats; a fault raised at its caller, keeping its number through every layer, made of anything thrown, crossing from a worker unchanged, sent bounded as the service reads it; a real WebAssembly trap traced to its Rust place; the reporter sends each incident once, a bounded number a minute, never throwing; what nothing caught becomes a fault, reported and shown — but the browser's ResizeObserver loop notice, which is none; each code raised at one place |
 | `web/src/lib/logs-view.test.ts` | the token leaves the address, the rest of it stays; events whole across any cut of the stream; a log line read for the eye, a line not JSON shown as it is; each row numbered once, the survivors keeping their numbers; the page bounded to its newest lines; what was shown cleared at each opening, an empty history too; the token sent in the header, never the URL; a stream that ends or fails opened again, the history afresh; a refusal not retried and said with its code and incident; a page served without the service said, a bare 503 retried |
-| `web/src/lib/keys.test.ts` | each key its command, Shift farther; a key held with Ctrl, Cmd or Alt left to the browser; Escape closes the passage, then a search's passages it may lie over, then the notice, then the searches lying over the view, and only then returns to the overview — never in the book view |
+| `web/src/lib/excerpt.test.ts` | a verse's selected letters ranked among its consonants; a count kept as one hit of a letters record, none for no letter, and kept in the panel only with a verse's letter; a selection read with its white space made one space, every mark of a pointed letter kept; the book's verses each on their line, our index out, empty verses left out; the menu centred under the selection, over it without room, always whole in its box; a refused copy a numbered fault the user is told |
+| `src/tests/excerpt.rs` | a selection's letters named by verse and rank, in order, none for names alone; a name selected letter by letter, its plate under those letters alone; the portions' names selected at the opening; books' names at the framing without what lies under them, each on a plate; chapters' numbers without their verses; a chapter's number with its text once read; a selection of numbers plates no verse; a drag over a verse reads it, ours, the other edition's forms out, either way; across verses each on its line; inside a line whole letters; nothing selected where no text is read or by a press alone; a drag off the text keeps its last letter; the plate under the selected lines alone, before their text, as wide as them, under its own letters inside a line, the frame otherwise unchanged |
+| `web/src/lib/keys.test.ts` | each key its command, Shift farther; a key held with Ctrl, Cmd or Alt left to the browser; Escape closes the passage, then a search's passages it may lie over, then a stretch selected, then the notice, then the searches lying over the view, and only then returns to the overview — never in the book view |
 | `web/src/lib/search-worker.test.ts` | a search asked before the text is held, then answered by its id; the next one answers the same; a failed search answered by its id, the next on a new module; a failure answered with its numbered fault, a real trap traced to its Rust place; a first-letters search answered by its id |
 | `src/tests/landing.rs` | the next book fetched is the nearest to the view, follows it when it moves, each book once; before the text lands the map stays whole — no black frame however deep, no verse drawn, clicked or named — and the verses come once it lands; the overview is identical with and without the text; a chapter's tile is asked two notches or more ahead of its reading level, once, only for chapters on screen, with its exact byte range |
 | `src/variant/tests.rs` | the welded table: taking the insertions out gives the verse back byte for byte, every range is a slice on a letter boundary |
 | `src/tests/readings.rs` | the other reading **in the flow, never over it**: the runs of a line tile it from the right and recompose it, the ink marks theirs and only theirs, a verse without a variant stays one command, a click never names the other edition ; the index opens on the two forms alone, never on the rest of their chapter nor on its number; the answer is the pointed pair's reading, theirs alone, the very runs the frame cuts out |
 | `src/tests/marks.rs` | a verse's letters are ours, in order, with their marks; the letters inked are the letters found, across a verse break too; a chapter, book or portion is marked exactly when it holds one; hidden, shown, cleared; the found letters are runs of their own that still recompose the line, a letter several searches found carrying every shown one's bit; the passage carries the letters the map inks, cut in our verse; the book view carries them inside its record, and a place's bits are its squares; a square of each search by each name holding the word and none by the others, never on a letter, every slot's in a chapter's cell; a row grows one square per search then shrinks to fit; a cell reading its text inks its letters and has no square; a search's passages hold every hit whole, sharing no verse, listing the verses its letters lie in and no other — a word read far apart its few verses —, every verse named and ours, its own letters marked shown or not, paged, counted as listed; the shown searches' passages of any are their hits as one search's, of all those holding two at least, a hidden one left out; those of all listed by crossing, the widest first, each crossing's passages in the text's order; those of any in the text's order, with no crossing; a first-letters hit inks each letter where it lies, its passages the verses they lie in |
-| `web/src/lib/marks.test.ts` | the colours are Tailwind's 500 steps, sixteen, more than the ten slots the module marks; every search kept, the first ten shown each in its slot and colour, the rest hidden; hidden gives the slot back, shown takes the lowest free one and a colour no shown search wears; a freed slot and an unworn colour taken; each change touches its search alone; a letter of several searches wears the shown ones' colours, in equal bands cut sharp; the squares by a name grow one per search, then shrink to fit the row; a count's thousands grouped by a space; a first-letters row keeps its letter and order, named in its label, title and tip |
+| `web/src/lib/results.test.ts` | a text's letters numbered on from where told, each with its marks, read back whole; odd and even numbers on two tiers, out of the flow and the selection; a count's passage numbers every letter counted, in order, across its verses, each one consonant with its marks, the verses still whole |
+| `web/src/lib/marks.test.ts` | a count shows its selection as it reads and counts letters; the colours are Tailwind's 500 steps, sixteen, more than the ten slots the module marks; every search kept, the first ten shown each in its slot and colour, the rest hidden; hidden gives the slot back, shown takes the lowest free one and a colour no shown search wears; a freed slot and an unworn colour taken; each change touches its search alone; a letter of several searches wears the shown ones' colours, in equal bands cut sharp; the squares by a name grow one per search, then shrink to fit the row; a count's thousands grouped by a space; a first-letters row keeps its letter and order, named in its label, title and tip |
 | `web/src/lib/skips.test.ts` | a range asks one skip per whole number between its ends, either order, skip 0 and past the bounds refused, a skip bounded by the word's length in the whole Tanakh; one search at a time, lowest first, a row only for a skip that found something, past a failure, stopped by the reset |
 | `web/src/lib/letters.test.ts` | the keyboard's 27 letters in order, finals after theirs; only consonants kept; a letter put at the caret or over the selection, one erased before it |
 | `src/shared/tests.rs` | an exact query keeps its finals, its letters placed as written, admitted and searched on the exact stream; the English book table walks the corpus' books; numerals read as their values; every label is a numeral, chapters 1, 2, 3… and verses on from the last, joined ones included; a verse named every way; every letter placed back in its verse; refusals with distinct codes; a page is the engine's hits, letters spelling the word; pages tile the listed hits, `limit` 0 counts; a flood counted whole and listed to the cap, its last page closing the walk without searching again; bounds past any range (skips past the stream, offset at the top of its type) answer without panic; finals and marks fold, a word of marks alone has no letter; one letter is each of its occurrences; the portions are the map's; a book by its exact OSIS code alone, no other case, name or notation; an OSIS reference names its book, chapter or verse, every verse found back from its OSIS, another notation naming nothing; one scope way at a time; a scoped search stays in its verses; a query too costly refused before it runs; every chapter reads back its verses, its book, portion and number; a shown verse is ours with the other forms inserted; a reference names its chapter or is refused; neighbours across books; a words query refused with its reason, its page the engine's hits at the words' edges, paged, admitted on its cost |
