@@ -39,6 +39,21 @@ export function joined(pieces: readonly string[]): string {
 		.join('\n');
 }
 
+/**
+ * The level of a piece of the book view, from its markup — `data-verse` on
+ * a verse, `data-title` on a name or a number with its rank: the portions'
+ * names 0, the books' 1, the chapters' numbers 2, the verses 3, as the map
+ * counts them (`Unit::level`). A selection keeps to the level of its first
+ * press; `null` for anything else.
+ */
+export function levelIn(verse: string | undefined, title: string | undefined): number | null {
+	if (verse !== undefined) return 3;
+	const rank = Number(title);
+	return title !== undefined && title !== '' && Number.isInteger(rank) && rank >= 0 && rank < 3
+		? rank
+		: null;
+}
+
 /** Room left between the selection, the menu and the edges of their box. */
 export const MENU_GAP = 8;
 

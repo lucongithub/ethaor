@@ -43,7 +43,7 @@
 	} from '$lib/book-view';
 	import { escalate, reporter, type Fault } from '$lib/fault';
 	import { PORTION_TEXT } from '$lib/portions';
-	import { joined, ranked, type Box } from '$lib/excerpt';
+	import { joined, levelIn, ranked, type Box } from '$lib/excerpt';
 	import {
 		COLORS,
 		inkStyle,
@@ -334,6 +334,11 @@
 	// lasts the selection is not made yet.
 	let pressing = false;
 	let told = false;
+	// The level the first press chose — the portions' names 0, the books'
+	// 1, the chapters' numbers 2, the verses 3 — the owner's rule: the
+	// selection keeps to it, the others made unselectable while it lasts.
+	let pick = $state<number | null>(null);
+	const off = (level: number) => selecting && pick !== null && pick !== level;
 
 	/** The stretch selected, ours: the names, numbers and verses it runs
 	 *  over, each on its line — the verses' numbers, the squares and the
@@ -354,8 +359,15 @@
 			return piece.textContent ?? '';
 		};
 		const letters: number[] = [];
+		// The level the selection keeps to: the first press's, or for a
+		// selection the keys made, the level it began in.
+		const anchor = chosen.anchorNode;
+		const start = (anchor instanceof Element ? anchor : anchor?.parentElement)?.closest(
+			'[data-verse], [data-title]'
+		);
+		const rank = pick ?? levelOf(start ?? null);
 		const pieces = [...root.querySelectorAll<HTMLElement>('[data-verse], [data-title]')]
-			.filter((element) => range.intersectsNode(element))
+			.filter((element) => range.intersectsNode(element) && levelOf(element) === rank)
 			.map((element) => {
 				const part = document.createRange();
 				part.selectNodeContents(element);
@@ -382,6 +394,12 @@
 		return { text, letters, at: { left, top, width, height } };
 	}
 
+	/** A name's or a verse's level, as its markup says it. */
+	function levelOf(element: Element | null): number | null {
+		if (!(element instanceof HTMLElement)) return null;
+		return levelIn(element.dataset.verse, element.dataset.title);
+	}
+
 	function tellExcerpt() {
 		if (!selecting || !onexcerpt) return;
 		const excerpt = excerptOf();
@@ -393,6 +411,7 @@
 	function onWindowPointerdown(event: PointerEvent) {
 		const on = event.target as Node;
 		pressing = selecting && (column.contains(on) || !!above?.contains(on));
+		if (pressing) pick = levelOf((on as Element).closest?.('[data-verse], [data-title]') ?? null);
 	}
 
 	function onWindowPointerup() {
@@ -899,17 +918,26 @@
 				<section data-chapter={c} style:height={text ? null : `${placeholder(c)}px`}>
 					{#if text}
 						{#if opensPortion(text)}
-							<h2 data-title class="pt-[2.5em] pb-[0.6em] text-[2.1em] leading-tight text-white">
+							<h2
+								data-title="0"
+								class:select-none={off(0)}
+								class="pt-[2.5em] pb-[0.6em] text-[2.1em] leading-tight text-white"
+							>
 								{text.sectionName}
 							</h2>
 						{/if}
 						{#if text.opens}
-							<h3 data-title class="pt-[1.4em] pb-[0.4em] text-[1.7em] leading-tight text-white/78">
+							<h3
+								data-title="1"
+								class:select-none={off(1)}
+								class="pt-[1.4em] pb-[0.4em] text-[1.7em] leading-tight text-white/78"
+							>
 								{text.bookName}
 							</h3>
 						{/if}
 						<header
-							data-title
+							data-title="2"
+							class:select-none={off(2)}
 							class="pt-[1.6em] pb-[0.5em] text-[0.82em] text-white/58"
 							aria-label={`${text.bookName} ${text.label}`}
 						>
@@ -918,6 +946,7 @@
 						{#each text.verses as verse (verse.index)}
 							<p
 								data-verse={verse.index}
+								class:select-none={off(3)}
 								class={[
 									'-mx-[0.4em] mb-[0.35em] grid grid-cols-[1.6em_1fr] items-baseline rounded px-[0.4em]',
 									'transition-colors duration-150 selection:bg-white/25 sm:grid-cols-[2.2em_1fr]',
@@ -982,14 +1011,16 @@
 						<div class="absolute bottom-0 h-0 w-full snap-end" aria-hidden="true"></div>
 						{#if contents.books[b.index - 1]?.section !== b.section}
 							<h2
-								data-title
+								data-title="0"
+								class:select-none={off(0)}
 								class="pt-6 pb-4 text-xl leading-tight text-white xl:text-2xl 2xl:text-3xl min-[120rem]:text-4xl"
 							>
 								{contents.portions[b.section]}{@render beside(squares(0, b.section))}
 							</h2>
 						{/if}
 						<h3
-							data-title
+							data-title="1"
+							class:select-none={off(1)}
 							class="pb-3 text-lg leading-tight text-white/78 xl:text-xl 2xl:text-2xl min-[120rem]:text-3xl"
 						>
 							{b.name}{@render beside(squares(1, b.index))}
@@ -1003,7 +1034,8 @@
 										this={selecting ? 'span' : 'button'}
 										type={selecting ? undefined : 'button'}
 										data-goes={c}
-										data-title
+										data-title="2"
+										class:select-none={off(2)}
 										aria-current={c === current ? 'location' : undefined}
 										aria-label={selecting ? undefined : `${b.name} ${contents.labels[c]}`}
 										class={[
@@ -1054,7 +1086,8 @@
 				{#each contents.portions as portion, p (p)}
 					<section data-portion={p} class="pb-6 last:pb-0 xl:pb-8">
 						<h2
-							data-title
+							data-title="0"
+							class:select-none={off(0)}
 							class="pb-2 text-xl leading-tight xl:text-2xl 2xl:text-3xl min-[120rem]:text-4xl"
 						>
 							{portion}{@render beside(squares(0, p))}
@@ -1067,7 +1100,8 @@
 										this={selecting ? 'span' : 'button'}
 										type={selecting ? undefined : 'button'}
 										data-opens={b.index}
-										data-title
+										data-title="1"
+										class:select-none={off(1)}
 										aria-current={b.index === opened ? 'location' : undefined}
 										class={[
 											'block w-full rounded px-2 py-0.5 text-start text-base leading-snug text-balance break-words',
@@ -1117,7 +1151,8 @@
 						this={selecting ? 'span' : 'button'}
 						type={selecting ? undefined : 'button'}
 						data-portion-button={p}
-						data-title
+						data-title="0"
+						class:select-none={off(0)}
 						aria-current={p === openedPortion ? 'location' : undefined}
 						class={[
 							'relative rounded text-white focus-visible:outline-1 focus-visible:outline-offset-[0.15em]',

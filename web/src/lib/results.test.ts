@@ -5,6 +5,7 @@ import { countOf, ranked } from './excerpt';
 import {
 	colorsOf,
 	crossed,
+	crossingsTitled,
 	numberClass,
 	numbered,
 	numberedLetters,
@@ -406,5 +407,16 @@ describe('numberClass', () => {
 			expect(c).toContain('absolute');
 			expect(c).toContain('select-none');
 		}
+	});
+});
+
+describe('crossingsTitled', () => {
+	// A crossing's own title only among several: a single one would repeat
+	// the list's title.
+	it('titles the crossings only when there are several', () => {
+		const one = { slots: 0b111, passages: 4, from: 0 };
+		expect(crossingsTitled([one])).toBe(false);
+		expect(crossingsTitled([])).toBe(false);
+		expect(crossingsTitled([one, { slots: 0b11, passages: 2, from: 4 }])).toBe(true);
 	});
 });

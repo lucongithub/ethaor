@@ -82,7 +82,16 @@ impl App {
     /// name or a number is selected letter by letter too**, never whole by
     /// force. Nothing where nothing is drawn.
     pub(crate) fn spot_at(&mut self, x: f32, y: f32) -> Option<Spot> {
+        self.spot_on(x, y, None)
+    }
+
+    /// `spot_at`, kept to one level when `level` names one (`Unit::level`):
+    /// what a drag reaches once its first press chose its level — the other
+    /// levels are not there for it. A verse's level finds the nearest line
+    /// even over a title, as a drag over the text does.
+    fn spot_on(&mut self, x: f32, y: f32, level: Option<u8>) -> Option<Spot> {
         let camera = self.camera;
+        let on = |l: u8| level.is_none_or(|level| level == l);
         let (px, py) = (x * camera.z + camera.x, y * camera.z + camera.y);
         let whole = |app: &mut App, unit: Unit, ink: Rect, x: f32| {
             let text = unit.text();
@@ -90,31 +99,38 @@ impl App {
             app.edge_at(text, ink, size, x).map(|at| Spot { unit, at })
         };
 
-        for section in 0..3 {
+        for section in (0..3).filter(|_| on(0)) {
             if let Some(ink) = self.section_ink(section, camera)
                 && ink.contains(px, py)
             {
                 return whole(self, Unit::Section(section), ink, px);
             }
         }
-        for book in 0..corpus::book_count() {
+        for book in (0..corpus::book_count()).filter(|_| on(1)) {
             if let Some(ink) = self.book_ink(book, camera)
                 && ink.contains(px, py)
             {
                 return whole(self, Unit::Book(book), ink, px);
             }
         }
+        if !on(2) && !on(3) {
+            return None;
+        }
 
         let (_, chapter, _, _) = self.locate(x, y)?;
         if !self.readable(chapter) {
             let ink = self.numeral_box(chapter);
-            let drawn = self.chapters_ready(camera) && ink.contains(x, y);
+            let drawn = on(2) && self.chapters_ready(camera) && ink.contains(x, y);
             return if drawn { whole(self, Unit::Chapter(chapter), ink, x) } else { None };
         }
-        if let Some(head) = self.chapter_mark_box(chapter)
+        if on(2)
+            && let Some(head) = self.chapter_mark_box(chapter)
             && y <= head.y + head.h
         {
             return whole(self, Unit::Chapter(chapter), head, x);
+        }
+        if !on(3) {
+            return None;
         }
 
         let line = self.line_at(chapter, y)?;
@@ -164,12 +180,15 @@ impl App {
     }
 
     /// The drag reaches a point: the selection runs from where it began to
-    /// what is drawn there. A point on nothing keeps the last place.
+    /// what is drawn there **at the level it began on** — the owner's rule:
+    /// begun on a verse it reads verses alone, never the chapters', books'
+    /// or portions' names it passes; begun on a name, names of that rank. A
+    /// point with nothing of that level keeps the last place.
     pub(crate) fn excerpt_to(&mut self, x: f32, y: f32) {
         let Some((anchor, _)) = self.excerpt else {
             return;
         };
-        if let Some(head) = self.spot_at(x, y) {
+        if let Some(head) = self.spot_on(x, y, Some(anchor.unit.level())) {
             self.excerpt = Some((anchor, head));
         }
     }
@@ -187,14 +206,14 @@ impl App {
 
     /// Whether the selection holds any of a unit.
     ///
-    /// **What it runs over is what its ends were drawn on**: a unit counts
-    /// only down to the deepest level of the two ends. Two books' names select
-    /// the names between, never the thousands of verses the reading puts
-    /// there; two chapters' numbers, the numbers and the names; a verse, the
-    /// text too.
+    /// **It holds its own level and no other** — the owner's rule: the first
+    /// press chose it. Begun on a verse it runs over verses, never the
+    /// chapters', books' or portions' names between them; two books' names
+    /// select the books' names between, never the portions' nor the
+    /// thousands of verses the reading puts there.
     pub(crate) fn excerpt_holds(&self, unit: Unit) -> bool {
         self.excerpt_range().is_some_and(|(a, b)| {
-            unit.level() <= a.unit.level().max(b.unit.level())
+            unit.level() == a.unit.level()
                 && a < Spot { unit, at: unit.text().len() }
                 && Spot { unit, at: 0 } < b
         })

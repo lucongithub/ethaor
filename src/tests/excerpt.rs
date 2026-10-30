@@ -260,20 +260,55 @@ fn chapters_numbers_are_selected_without_their_verses() {
     assert_eq!(plates, 3, "one plate per number selected");
 }
 
-/// **Once the text is read, its chapter's number is selected with it**: from
-/// the number in the column's corner to the end of the first verse, the
-/// number then the verse.
+/// **The first press chooses the level, and the drag keeps to it** — the
+/// owner's rule. Begun on a verse and dragged up over its chapter's number,
+/// it reads the verses alone: no number, no name. Begun on the number and
+/// dragged down over the text, it reads the number alone: no verse.
 #[test]
-fn a_chapter_s_number_is_selected_with_its_text() {
+fn the_first_press_chooses_the_level_the_drag_keeps() {
     let mut app = reading(0, 0);
     let head = app.chapter_mark_box(0).unwrap();
-    let (_, line) = ends(&mut app, 0, 0, 0);
-    let from = (head.x + head.w - head.w * 0.1, head.y + head.h / 2.0);
-    drag(&mut app, from, end_of(line));
-    assert_eq!(app.excerpt_text(), format!("{}\n{}", corpus::chapter_label(0), corpus::verse_text(0)));
+    let (_, last) = ends(&mut app, 0, 0, 2);
+    let mark = (head.x + head.w - head.w * 0.1, head.y + head.h / 2.0);
+    drag(&mut app, end_of(last), mark);
+    let verses: Vec<&str> = (0..=2).map(corpus::verse_text).collect();
+    assert_eq!(app.excerpt_text(), verses.join("
+"), "begun on a verse");
     let plates = frame(&mut app).iter().filter(|c| c.kind == KIND_SELECT).count();
-    let lines = app.chapter_lines(0).iter().filter(|l| l.verse == 0).count();
-    assert_eq!(plates, 1 + lines, "the number's plate and one per line");
+    let lines = app.chapter_lines(0).iter().filter(|l| l.verse <= 2).count();
+    assert_eq!(plates, lines, "a plate per line, none under the number");
+
+    let left = (head.x + 0.01 * head.w, head.y + head.h / 2.0);
+    drag(&mut app, mark, left);
+    app.excerpt_to(end_of(last).0, end_of(last).1);
+    assert_eq!(app.excerpt_text(), corpus::chapter_label(0), "begun on the number");
+}
+
+/// **Verses across a chapter's end are read without the next chapter's
+/// number**, nor its book's name when the book changes: from Genesis' last
+/// verse to Exodus' first, the two verses alone.
+#[test]
+fn verses_across_chapters_and_books_leave_their_names_out() {
+    let app_for = |a: usize, b: usize| {
+        let mut app = reference_app();
+        let (ua, ub) = (Unit::Verse(a), Unit::Verse(b));
+        app.excerpt = Some((Spot { unit: ua, at: 0 }, Spot { unit: ub, at: ub.text().len() }));
+        app
+    };
+    let last_of_one = corpus::verses_of(0).end - 1;
+    let app = app_for(last_of_one, last_of_one + 1);
+    assert_eq!(
+        app.excerpt_text(),
+        format!("{}
+{}", corpus::verse_text(last_of_one), corpus::verse_text(last_of_one + 1))
+    );
+    let genesis_end = corpus::verses_of(corpus::chapters_of(0).end - 1).end - 1;
+    let app = app_for(genesis_end, genesis_end + 1);
+    assert_eq!(
+        app.excerpt_text(),
+        format!("{}
+{}", corpus::verse_text(genesis_end), corpus::verse_text(genesis_end + 1))
+    );
 }
 
 /// **A selection of numbers plates no verse**, even once the text under it

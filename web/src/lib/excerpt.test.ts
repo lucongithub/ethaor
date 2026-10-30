@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { copy, countOf, excerpt, joined, keepsCount, MENU_GAP, menuAt, ranked } from './excerpt';
+import {
+	copy,
+	countOf,
+	excerpt,
+	joined,
+	keepsCount,
+	levelIn,
+	MENU_GAP,
+	menuAt,
+	ranked
+} from './excerpt';
 import { Fault } from './fault';
 
 describe('excerpt', () => {
@@ -120,5 +130,19 @@ describe('keepsCount', () => {
 	it('keeps a count holding a verse letter, and no other', () => {
 		expect(keepsCount(countOf([4, 0]))).toBe(true);
 		expect(keepsCount(countOf([]))).toBe(false);
+	});
+});
+
+describe('levelIn', () => {
+	// The book view's pieces counted as the map counts its levels: a verse
+	// 3, a name or a number by its rank, anything else none.
+	it("reads a piece's level from its markup", () => {
+		expect(levelIn('12', undefined)).toBe(3);
+		expect(levelIn(undefined, '0')).toBe(0);
+		expect(levelIn(undefined, '1')).toBe(1);
+		expect(levelIn(undefined, '2')).toBe(2);
+		expect(levelIn(undefined, '')).toBeNull();
+		expect(levelIn(undefined, '3')).toBeNull();
+		expect(levelIn(undefined, undefined)).toBeNull();
 	});
 });

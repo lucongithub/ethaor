@@ -92,6 +92,13 @@ export function readCrossings(record: ArrayLike<number>): Crossing[] {
 	return out;
 }
 
+/**
+ * Whether the list's crossings each get a title of their own: only when
+ * there are several — the owner's rule. A single crossing is the list's own
+ * title over again, which says it already.
+ */
+export const crossingsTitled = (crossings: readonly Crossing[]): boolean => crossings.length > 1;
+
 /** The searches a crossing holds, lowest slot first: the words its title reads. */
 export const crossed = (list: readonly Marked[], slots: number): Marked[] =>
 	slotsOf(slots).flatMap((slot) => list.filter((m) => m.slot === slot));

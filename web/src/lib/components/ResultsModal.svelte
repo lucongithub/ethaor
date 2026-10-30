@@ -29,6 +29,7 @@
 	import {
 		colorsOf,
 		crossed,
+		crossingsTitled,
 		numberClass,
 		numbered,
 		OWN,
@@ -108,6 +109,9 @@
 
 	// The list cut by crossing, each under its title; one search's list is
 	// one section, untitled.
+	// A crossing's own title only among several: one alone would repeat the
+	// list's title above it (`crossingsTitled`).
+	const titled = $derived(crossingsTitled(crossings ?? []));
 	const sections = $derived<Crossing[]>(
 		crossings?.length ? crossings : [{ slots: 0, passages, from: 0 }]
 	);
@@ -248,13 +252,13 @@
 			{#if section.from < shown.length}
 				<section
 					dir="rtl"
-					aria-labelledby={section.slots ? `crossing-${section.slots}` : undefined}
+					aria-labelledby={section.slots && titled ? `crossing-${section.slots}` : undefined}
 				>
 					<!-- A crossing's title, over its passages, held at the top while
 					     they scroll: the searches its passages all hold, each in its
 					     colour, joined by ∩ — the widest first — after how many, the
 					     owner's rule: the count first, on the right where it reads. -->
-					{#if section.slots}
+					{#if section.slots && titled}
 						<h3
 							id={`crossing-${section.slots}`}
 							class="sticky top-0 z-10 flex items-baseline gap-x-3 border-y border-white/10 bg-black py-2 ps-5 pe-2 sm:ps-7 sm:pe-3"
